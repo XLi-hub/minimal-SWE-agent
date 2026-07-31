@@ -24,3 +24,15 @@ def test_captures_stderr():
 def test_nonexistent_command():
     output = execute_action("nonexistent_command_xyz 2>&1")
     assert len(output) > 0
+
+
+def test_env_overrides_pager():
+    """PAGER 应该被覆盖为 cat，防止分页器交互."""
+    output = execute_action("echo $PAGER")
+    assert "cat" in output
+
+
+def test_env_overrides_tqdm():
+    """TQDM_DISABLE 应该设为 1."""
+    output = execute_action("echo $TQDM_DISABLE")
+    assert "1" in output
