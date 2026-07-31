@@ -24,33 +24,33 @@ def run(task: str) -> list[dict[str, str]]:
 
     while True:
         try:
-            while True:
-                # 1. 查询 LM
-                lm_output = query_lm(messages)
-                print("LM output:", lm_output)
+            
+            # 1. 查询 LM
+            lm_output = query_lm(messages)
+            print("LM output:", lm_output)
 
-                # 2. 记录 LM 的回复
-                messages.append({"role": "assistant", "content": lm_output})
+            # 2. 记录 LM 的回复
+            messages.append({"role": "assistant", "content": lm_output})
 
-                # 3. 解析动作
-                action = parse_action(lm_output)
-                print("Action:", action)
+            # 3. 解析动作
+            action = parse_action(lm_output)
+            print("Action:", action)
 
-                # 4. 退出条件
-                if action == "exit":
-                    break
+            # 4. 退出条件
+            if action == "exit":
+                break
 
-                # 5.
-                if action == "":
-                    messages.append({"role":"user","content":"Please either provide a command in '''bash-action\n<command>\n''' format or put 'exit' inside the bash-action block to finish."})
-                    continue
+            # 5.
+            if action == "":
+                messages.append({"role":"user","content":"Please either provide a command in '''bash-action\n<command>\n''' format or put 'exit' inside the bash-action block to finish."})
+                continue
 
-                # 5. 执行动作
-                output = execute_action(action)
-                print("Output:", output)
+            # 5. 执行动作
+            output = execute_action(action)
+            print("Output:", output)
 
-                # 6. 把执行结果发回 LM
-                messages.append({"role": "user", "content": output})
+            # 6. 把执行结果发回 LM
+            messages.append({"role": "user", "content": output})
         except KeyboardInterrupt:
             break
         except Exception as e:
