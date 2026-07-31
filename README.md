@@ -204,6 +204,7 @@ minimal-SWE-agent/
 │   └── test_agent.py     # 3 个 — 循环逻辑 + 异常恢复（mock）
 ├── main.py               # 入口
 ├── run_tests.py           # 一键运行全部测试
+├── pyproject.toml         # 项目配置 — 依赖、构建、pytest 设置
 ├── .env                   # API key（不进 git）
 └── .gitignore
 ```
@@ -217,8 +218,10 @@ minimal-SWE-agent/
 conda create -n minimal-SWE-agent python=3.10
 conda activate minimal-SWE-agent
 
-# 依赖
-pip install openai pytest httpx python-dotenv
+# 安装项目（含所有依赖）
+pip install -e .
+# 需要测试框架的话：
+pip install -e ".[dev]"
 ```
 
 ## 配置 API Key
@@ -236,7 +239,11 @@ DEEPSEEK_API_KEY=你的key
 ## 运行测试
 
 ```bash
+# 方式一：一键运行（自动清理 ROS 路径）
 python run_tests.py
+
+# 方式二：直接用 pytest（pyproject.toml 已配好 testpaths 和 pythonpath）
+pytest
 ```
 
 共 18 个测试，覆盖四个模块。
