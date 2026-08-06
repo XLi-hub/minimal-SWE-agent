@@ -1,6 +1,6 @@
 import json
 from unittest.mock import MagicMock
-from src.mini_agent.agent import Agent
+from src.mini_agent.agent import Agent, _truncate_output
 
 
 # --- helpers ---
@@ -149,3 +149,130 @@ def test_multiple_tool_calls_in_one_response():
     agent.run("run two commands")
 
     assert commands == ["cmd1", "cmd2"]
+
+
+# --- truncation ---
+
+
+class TestTruncateOutput:
+    """Tests for _truncate_output."""
+
+    def test_short_output_passes_through(self):
+        output = "line 1\nline 2\nline 3"
+        assert _truncate_output(output, max_lines=10) == output
+
+    def test_exactly_at_limit_passes_through(self):
+        output = "\n".join(str(i) for i in range(10))
+        assert _truncate_output(output, max_lines=10) == output
+
+    def test_long_output_is_truncated(self):
+        lines = [f"line {i}" for i in range(200)]
+        output = "\n".join(lines)
+        result = _truncate_output(output, max_lines=100)
+        # Split back and check structure
+        result_lines = result.splitlines()
+        # head (50) + elision marker (1) + tail (50) = 101
+        assert len(result_lines) == 101
+        assert result_lines[0] == "line 0"
+        assert result_lines[-1] == "line 199"
+        # elision marker in the middle
+        assert any("100 lines truncated" in line for line in result_lines)
+
+    def test_truncation_includes_elision_info(self):
+        lines = [f"L{i:04d}" for i in range(500)]
+        output = "\n".join(lines)
+        result = _truncate_output(output, max_lines=50)
+        assert "450 lines truncated" in result
+        assert "500 total" in result
+        assert "50 shown" in result
+
+    def test_minimum_lines_is_2(self):
+        output = "\n".join(str(i) for i in range(10))
+        result = _truncate_output(output, max_lines=1)  # clamped to 2
+        result_lines = result.splitlines()
+        # head(1) + elision(1) + tail(1) = 3
+        assert len(result_lines) == 3
+        assert "8 lines truncated" in result
+
+    def test_lines_zero_is_clamped(self):
+        output = "a\nb\nc\nd\ne"
+        result = _truncate_output(output, max_lines=0)  # clamped to 2
+        result_lines = result.splitlines()
+        assert len(result_lines) == 3  # 1 head + 1 marker + 1 tail
+        assert result_lines[0] == "a"
+        assert result_lines[-1] == "e"
+
+
+class TestAgentTruncation:
+    """Tests that Agent uses truncation with the 'lines' parameter."""
+
+    def test_default_truncation_applied(self):
+        """不传 lines 时使用默认 100 行截断。"""
+        long_output = "\n".join(f"line {i}" for i in range(300))
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Running.",
+                tool_calls=[
+                    _make_tool_call("c1", "bash", {"command": "cat big.txt"}),
+                ],
+            ),
+            _make_response(content="Seen enough. Done."),
+        ]
+        env = MagicMock()
+        env.execute.return_value = long_output
+
+        agent = Agent(model, env)
+        messages = agent.run("show big file")
+
+        tool_msg = [m for m in messages if m["role"] == "tool"][0]
+        assert "lines truncated" in tool_msg["content"]
+        # 200 lines were elided (300 - 100 default)
+        assert "200 lines truncated" in tool_msg["content"]
+
+    def test_custom_lines_from_tool_call(self):
+        """模型传了 lines=10，应按 10 行截断。"""
+        long_output = "\n".join(f"line {i}" for i in range(100))
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Let me check.",
+                tool_calls=[
+                    _make_tool_call(
+                        "c1", "bash", {"command": "cat", "lines": 10}
+                    ),
+                ],
+            ),
+            _make_response(content="OK, done."),
+        ]
+        env = MagicMock()
+        env.execute.return_value = long_output
+
+        agent = Agent(model, env)
+        messages = agent.run("read file")
+
+        tool_msg = [m for m in messages if m["role"] == "tool"][0]
+        assert "90 lines truncated" in tool_msg["content"]
+        assert "10 shown" in tool_msg["content"]
+
+    def test_short_output_not_truncated(self):
+        """输出很短时不应截断，也不应有 elision 标记。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content=None,
+                tool_calls=[
+                    _make_tool_call("c1", "bash", {"command": "echo hi"}),
+                ],
+            ),
+            _make_response(content="Done."),
+        ]
+        env = MagicMock()
+        env.execute.return_value = "hello"
+
+        agent = Agent(model, env)
+        messages = agent.run("say hi")
+
+        tool_msg = [m for m in messages if m["role"] == "tool"][0]
+        assert tool_msg["content"] == "hello"
+        assert "truncated" not in tool_msg["content"]

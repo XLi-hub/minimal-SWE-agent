@@ -2,15 +2,7 @@
 
 import json
 
-from src.mini_agent.parser import BASH_TOOL
-
-
-SYSTEM_PROMPT = (
-    "You are a helpful assistant. "
-    "Use the bash tool to run commands in the terminal. "
-    "When your task is complete, reply with a text message "
-    "without calling any tools."
-)
+from src.mini_agent.config import BASH_TOOL, DEFAULT_MAX_LINES, SYSTEM_PROMPT
 
 
 class Agent:
@@ -62,10 +54,12 @@ class Agent:
 
                     args = json.loads(tc.function.arguments)
                     command = args["command"]
+                    max_lines = args.get("lines", DEFAULT_MAX_LINES)
                     print("Action:", command)
 
                     try:
-                        output = self.environment.execute(command)
+                        raw = self.environment.execute(command)
+                        output = _truncate_output(raw, max_lines)
                     except Exception as e:
                         output = f"Error: {e}"
 
@@ -106,6 +100,32 @@ def _format_assistant_message(msg) -> dict:
             for tc in msg.tool_calls
         ],
     }
+
+
+def _truncate_output(output: str, max_lines: int) -> str:
+    """Truncate *output* to at most *max_lines* lines.
+
+    When truncation happens the first ``max_lines // 2`` and last
+    ``max_lines // 2`` lines are kept with an elision marker in between,
+    so the model sees both the beginning and the end of the output.
+    """
+    if max_lines < 2:
+        max_lines = 2  # minimum: 1 head + 1 tail
+
+    lines = output.splitlines()
+    if len(lines) <= max_lines:
+        return output
+
+    half = max(1, max_lines // 2)
+    head = lines[:half]
+    tail = lines[-half:]
+    elided = len(lines) - max_lines
+
+    return "\n".join(
+        head
+        + [f"[... {elided} lines truncated ({len(lines)} total, {max_lines} shown) ...]"]
+        + tail
+    )
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key
