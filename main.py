@@ -39,6 +39,10 @@ def _parse_args():
         "--max-steps", type=int, default=DEFAULT_MAX_STEPS,
         help=f"Maximum tool-calling iterations (default: {DEFAULT_MAX_STEPS})",
     )
+    p.add_argument(
+        "-t", "--task", default=None,
+        help="Task to run (if omitted, prompt interactively)",
+    )
     return p.parse_args()
 
 
@@ -52,7 +56,7 @@ if __name__ == "__main__":
         kwargs["cwd"] = args.cwd
     env = get_environment(args.env, **kwargs)
 
-    task = input("Task: ")
+    task = args.task if args.task else input("Task: ")
     agent = Agent(Model(), env)
     result = agent.run(task, max_steps=args.max_steps)
 
