@@ -136,6 +136,6 @@ def run(task: str) -> list[dict]:
     global _default_agent
     if _default_agent is None:
         from src.mini_agent.model import Model            # noqa: E402
-        from src.mini_agent.environment import Environment  # noqa: E402
-        _default_agent = Agent(Model(), Environment())
+        from src.mini_agent.environments.local import LocalEnvironment  # noqa: E402
+        _default_agent = Agent(Model(), LocalEnvironment())
     return _default_agent.run(task)

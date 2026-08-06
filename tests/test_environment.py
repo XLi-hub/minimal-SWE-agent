@@ -1,43 +1,40 @@
 from src.mini_agent.environments.local import LocalEnvironment
 
-# backward-compat: the shim in environment.py still exports this
-from src.mini_agent.environment import execute_action
-
 
 def test_echo():
-    output = execute_action("echo hello world")
+    output = LocalEnvironment().execute("echo hello world")
     assert "hello world" in output
 
 
 def test_pwd():
-    output = execute_action("pwd")
+    output = LocalEnvironment().execute("pwd")
     assert output.strip() != ""
 
 
 def test_ls():
-    output = execute_action("ls /")
+    output = LocalEnvironment().execute("ls /")
     assert len(output) > 0
 
 
 def test_captures_stderr():
-    output = execute_action("bash -c 'echo error msg >&2; exit 1'")
+    output = LocalEnvironment().execute("bash -c 'echo error msg >&2; exit 1'")
     assert "error msg" in output
 
 
 def test_nonexistent_command():
-    output = execute_action("nonexistent_command_xyz 2>&1")
+    output = LocalEnvironment().execute("nonexistent_command_xyz 2>&1")
     assert len(output) > 0
 
 
 def test_env_overrides_pager():
     """PAGER should be overridden to cat to prevent interactive pagers."""
-    output = execute_action("echo $PAGER")
+    output = LocalEnvironment().execute("echo $PAGER")
     assert "cat" in output
 
 
 def test_env_overrides_tqdm():
     """TQDM_DISABLE should be set to 1."""
-    output = execute_action("echo $TQDM_DISABLE")
+    output = LocalEnvironment().execute("echo $TQDM_DISABLE")
     assert "1" in output
 
 
