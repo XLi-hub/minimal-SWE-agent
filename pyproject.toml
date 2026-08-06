@@ -29,3 +29,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "e2e: end-to-end tests that call the real DeepSeek API (costs money, needs API key)",
+    "docker: tests that require a running Docker daemon",
+]

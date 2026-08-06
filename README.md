@@ -47,11 +47,13 @@ src/mini_agent/
     └── docker.py              #   DockerEnvironment — 容器内执行
 
 tests/
-├── test_agent.py              # Agent 循环 + 截断 + submit（19 个测试）
-├── test_config.py             # 工具 schema + system prompt（13 个测试）
-├── test_model.py              # API 调用（7 个测试，全部 mock）
-├── test_environment.py        # 本地环境（9 个测试）
-└── test_docker.py             # Docker 环境（10 个测试，含跳过逻辑）
+├── test_agent.py               # Agent 循环 + 截断 + submit + 异常（25 个测试）
+├── test_config.py              # 工具 schema + system prompt（13 个测试）
+├── test_model.py               # API 调用（7 个测试，全部 mock）
+├── test_environment.py         # 本地环境（9 个测试）
+├── test_docker.py              # Docker 环境（10 个测试，含跳过逻辑）
+├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
+└── test_e2e.py                # 端到端测试（2 个测试，默认跳过，需 API key）
 ```
 
 ## 架构
@@ -112,14 +114,20 @@ _MAPPING = {
 ## 运行测试
 
 ```bash
-# 全量（55 个测试）
+# 日常 — 跳过 E2E（72 个测试，秒级完成）
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio
 
-# 只跑单元测试（跳过 Docker 集成测试）
-python -m pytest tests/ -v -k "not docker_echo and not docker_pwd and not docker_env and not docker_command"
+# E2E 测试 — 真调 DeepSeek API（2 个，花钱，偶尔跑一次）
+python -m pytest tests/ -v -m e2e
+
+# 全量 — 包括 E2E（74 个测试）
+python -m pytest tests/ -v -m "" -p no:anyio
+
+# 只跑单元测试（跳过 Docker + E2E）
+python -m pytest tests/ -v -k "not docker_echo and not docker_pwd and not docker_env and not docker_command" -m "not e2e"
 ```
 
-Docker 集成测试在检测不到 Docker daemon 时自动跳过。
+Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `DEEPSEEK_API_KEY` 时自动跳过。
 
 ## 学习文档
 

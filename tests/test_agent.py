@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock
 
-from src.mini_agent.agent import Agent, _truncate_output
+from src.mini_agent.agent import Agent, _format_assistant_message, _truncate_output
 
 
 # --- helpers ---
@@ -390,3 +390,157 @@ def test_agent_passes_both_bash_and_submit_tools():
     tool_names = [t["function"]["name"] for t in tools]
     assert "bash" in tool_names
     assert "submit" in tool_names
+
+
+# --- keyboard interrupt ---
+
+
+def test_keyboard_interrupt_returns_interrupted_status():
+    """用户 Ctrl+C 时应返回 exit_status='interrupted'。"""
+    model = MagicMock()
+    model.query.side_effect = KeyboardInterrupt()
+    env = MagicMock()
+
+    agent = Agent(model, env)
+    result = agent.run("do something")
+
+    assert result["exit_status"] == "interrupted"
+    assert result["submission"] == ""
+
+
+def test_keyboard_interrupt_preserves_messages_so_far():
+    """中断时应保留中断前已有的消息历史。"""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Let me check.",
+            tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+        ),
+        KeyboardInterrupt(),  # 第二轮 Ctrl+C
+    ]
+    env = MagicMock()
+    env.execute.return_value = "file1 file2"
+
+    agent = Agent(model, env)
+    result = agent.run("list files")
+
+    assert result["exit_status"] == "interrupted"
+    # 至少应该有 system + user + assistant(with tool_call) + tool
+    roles = [m["role"] for m in result["messages"]]
+    assert "tool" in roles
+
+
+# --- model error recovery ---
+
+
+def test_model_query_exception_is_appended_as_user_message():
+    """model.query 抛普通异常时（如网络错误），agent 应把错误
+    作为 user 消息追加并继续循环，而不是崩溃。"""
+    model = MagicMock()
+    model.query.side_effect = [
+        RuntimeError("network timeout"),
+        _make_response(content="OK, recovered."),
+    ]
+    env = MagicMock()
+
+    agent = Agent(model, env)
+    result = agent.run("test")
+
+    # 错误被追加为 user 消息
+    user_msgs = [m for m in result["messages"] if m["role"] == "user"]
+    error_msg = [m for m in user_msgs if "network timeout" in str(m["content"])]
+    assert len(error_msg) == 1
+
+    # 循环继续，最终正常退出
+    assert result["exit_status"] == "no_tool_calls"
+    assert model.query.call_count == 2
+
+
+# --- multi-tool-call with submit ---
+
+
+def test_submit_and_bash_in_same_response_stops_immediately():
+    """同一轮同时有 submit 和 bash → submit 退出，后续 bash 不执行。"""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Done with everything.",
+            tool_calls=[
+                _make_tool_call("s1", "submit", {"output": "final answer"}),
+                _make_tool_call("c1", "bash", {"command": "rm -rf /"}),
+            ],
+        ),
+    ]
+    env = MagicMock()
+
+    agent = Agent(model, env)
+    result = agent.run("do it and submit")
+
+    # submit 优先，bash 不应该被执行
+    env.execute.assert_not_called()
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "final answer"
+
+
+# --- _format_assistant_message ---
+
+
+def test_format_assistant_message_with_tool_calls():
+    """验证 _format_assistant_message 输出正确的 dict 结构。"""
+    msg = MagicMock()
+    msg.content = "I will run a command."
+
+    tc = MagicMock()
+    tc.id = "call_42"
+    tc.function.name = "bash"
+    tc.function.arguments = '{"command": "ls"}'
+    msg.tool_calls = [tc]
+
+    result = _format_assistant_message(msg)
+
+    assert result["role"] == "assistant"
+    assert result["content"] == "I will run a command."
+    assert len(result["tool_calls"]) == 1
+    assert result["tool_calls"][0]["id"] == "call_42"
+    assert result["tool_calls"][0]["type"] == "function"
+    assert result["tool_calls"][0]["function"]["name"] == "bash"
+    assert result["tool_calls"][0]["function"]["arguments"] == '{"command": "ls"}'
+
+
+def test_format_assistant_message_without_tool_calls():
+    """无 tool_calls 时应返回空列表。"""
+    msg = MagicMock()
+    msg.content = "Hello."
+    msg.tool_calls = []
+
+    result = _format_assistant_message(msg)
+
+    assert result["role"] == "assistant"
+    assert result["content"] == "Hello."
+    assert result["tool_calls"] == []
+
+
+# --- module-level run() convenience function ---
+
+
+def test_module_level_run_uses_default_agent():
+    """向后兼容的 run(task) 应返回 dict，不抛异常。"""
+    import src.mini_agent.agent as agent_module
+
+    # Set up a mock agent so we don't need real Model/Environment
+    mock_agent = MagicMock()
+    mock_agent.run.return_value = {
+        "exit_status": "submitted",
+        "submission": "ok",
+        "messages": [],
+    }
+    agent_module._default_agent = mock_agent
+
+    result = agent_module.run("test task")
+
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "ok"
+    mock_agent.run.assert_called_once_with("test task")
+
+    # Clean up — reset global so other tests aren't affected
+    agent_module._default_agent = None
