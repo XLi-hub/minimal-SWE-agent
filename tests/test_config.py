@@ -1,4 +1,11 @@
-from src.mini_agent.config import BASH_TOOL, DEFAULT_MAX_LINES, SUBMIT_TOOL, SYSTEM_PROMPT
+from src.mini_agent.config import (
+    BASH_TOOL,
+    DEFAULT_MAX_LINES,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_TIMEOUT,
+    SUBMIT_TOOL,
+    SYSTEM_PROMPT,
+)
 
 
 # --- tool schema ---
@@ -36,6 +43,19 @@ def test_bash_tool_lines_is_not_required():
     assert "lines" not in required
 
 
+def test_bash_tool_timeout_is_integer():
+    """timeout 参数类型应为 integer。"""
+    props = BASH_TOOL["function"]["parameters"]["properties"]
+    assert "timeout" in props
+    assert props["timeout"]["type"] == "integer"
+
+
+def test_bash_tool_timeout_is_not_required():
+    """timeout 是可选参数。"""
+    required = BASH_TOOL["function"]["parameters"]["required"]
+    assert "timeout" not in required
+
+
 # --- system prompt ---
 
 def test_system_prompt_mentions_bash_tool():
@@ -71,3 +91,11 @@ def test_submit_tool_requires_output():
 
 def test_default_max_lines_is_positive():
     assert DEFAULT_MAX_LINES > 0
+
+
+def test_default_max_steps_is_positive():
+    assert DEFAULT_MAX_STEPS > 0
+
+
+def test_default_timeout_is_positive():
+    assert DEFAULT_TIMEOUT > 0

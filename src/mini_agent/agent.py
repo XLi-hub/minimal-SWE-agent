@@ -2,7 +2,14 @@
 
 import json
 
-from src.mini_agent.config import BASH_TOOL, DEFAULT_MAX_LINES, SUBMIT_TOOL, SYSTEM_PROMPT
+from src.mini_agent.config import (
+    BASH_TOOL,
+    DEFAULT_MAX_LINES,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_TIMEOUT,
+    SUBMIT_TOOL,
+    SYSTEM_PROMPT,
+)
 
 
 class Agent:
@@ -16,14 +23,28 @@ class Agent:
         self.model = model
         self.environment = environment
 
-    def run(self, task: str) -> dict:
+    def run(self, task: str, max_steps: int = DEFAULT_MAX_STEPS) -> dict:
         """Run the agent loop for a given user task.
 
-        Returns a dict with:
-        - ``exit_status``: one of ``"submitted"``, ``"no_tool_calls"``,
-          ``"error"``, ``"interrupted"``
-        - ``submission``: the final answer (empty if not submitted)
-        - ``messages``: the full message history
+        Parameters
+        ----------
+        task:
+            The user's task description.
+        max_steps:
+            Maximum tool-calling iterations before the agent stops
+            (default: *DEFAULT_MAX_STEPS* = 50).  Each ``model.query()``
+            call counts as one step, regardless of how many tool
+            calls the model makes in that step.
+
+        Returns
+        -------
+        dict
+            With keys:
+
+            - ``exit_status``: one of ``"submitted"``, ``"no_tool_calls"``,
+              ``"max_steps"``, ``"interrupted"``, ``"error"``
+            - ``submission``: the final answer (empty if not submitted)
+            - ``messages``: the full message history
         """
         messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -32,7 +53,7 @@ class Agent:
 
         result: dict = {"exit_status": "error", "submission": "", "messages": messages}
 
-        while True:
+        for _ in range(max_steps):
             try:
                 response = self.model.query(
                     messages, tools=[BASH_TOOL, SUBMIT_TOOL]
@@ -74,10 +95,11 @@ class Agent:
 
                     command = args["command"]
                     max_lines = args.get("lines", DEFAULT_MAX_LINES)
+                    timeout = args.get("timeout", DEFAULT_TIMEOUT)
                     print("Action:", command)
 
                     try:
-                        raw = self.environment.execute(command)
+                        raw = self.environment.execute(command, timeout=timeout)
                         output = _truncate_output(raw, max_lines)
                     except Exception as e:
                         output = f"Error: {e}"
@@ -98,6 +120,10 @@ class Agent:
                 messages.append(
                     {"role": "user", "content": f"Error: {e}"}
                 )
+
+        # Ran out of steps — return partial progress.
+        result["exit_status"] = "max_steps"
+        return result
 
 
 def _format_assistant_message(msg) -> dict:
@@ -149,10 +175,10 @@ def _truncate_output(output: str, max_lines: int) -> str:
 _default_agent: Agent | None = None
 
 
-def run(task: str) -> dict:
+def run(task: str, max_steps: int = DEFAULT_MAX_STEPS) -> dict:
     global _default_agent
     if _default_agent is None:
         from src.mini_agent.model import Model            # noqa: E402
         from src.mini_agent.environments.local import LocalEnvironment  # noqa: E402
         _default_agent = Agent(Model(), LocalEnvironment())
-    return _default_agent.run(task)
+    return _default_agent.run(task, max_steps=max_steps)

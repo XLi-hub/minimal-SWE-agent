@@ -24,7 +24,9 @@ BASH_TOOL = {
             "Use the optional 'lines' parameter to limit how many lines are "
             "returned (default 100). The output is truncated when it exceeds "
             "this limit — if you need more context, re-run with a higher "
-            "'lines' value or use head/tail/sed to narrow down."
+            "'lines' value or use head/tail/sed to narrow down. "
+            "Use the optional 'timeout' parameter (seconds, default 30) "
+            "for commands that need more time — e.g. pip install or git clone."
         ),
         "parameters": {
             "type": "object",
@@ -38,6 +40,14 @@ BASH_TOOL = {
                     "description": (
                         "Maximum lines of output to return (default 100). "
                         "Set higher for more context, lower to save tokens."
+                    ),
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": (
+                        "Maximum seconds to wait for the command (default 30). "
+                        "Set higher for slow commands like pip install, "
+                        "git clone, or long builds."
                     ),
                 },
             },
@@ -74,3 +84,9 @@ SUBMIT_TOOL = {
 
 DEFAULT_MAX_LINES = 100
 """Default line limit when the model does not specify ``lines``."""
+
+DEFAULT_TIMEOUT = 30
+"""Default per-command timeout in seconds when the model does not specify ``timeout``."""
+
+DEFAULT_MAX_STEPS = 250
+"""Default maximum tool-calling iterations before the agent stops."""

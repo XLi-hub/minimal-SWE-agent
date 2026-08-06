@@ -15,6 +15,7 @@ Usage::
 import argparse
 
 from src.mini_agent.agent import Agent
+from src.mini_agent.config import DEFAULT_MAX_STEPS
 from src.mini_agent.model import Model
 from src.mini_agent.environments import get_environment
 
@@ -34,6 +35,10 @@ def _parse_args():
         "--cwd", default="/",
         help="Working directory inside the container (only for --env docker)",
     )
+    p.add_argument(
+        "--max-steps", type=int, default=DEFAULT_MAX_STEPS,
+        help=f"Maximum tool-calling iterations (default: {DEFAULT_MAX_STEPS})",
+    )
     return p.parse_args()
 
 
@@ -49,7 +54,7 @@ if __name__ == "__main__":
 
     task = input("Task: ")
     agent = Agent(Model(), env)
-    result = agent.run(task)
+    result = agent.run(task, max_steps=args.max_steps)
 
     print(f"\nExit status: {result['exit_status']}")
     if result["submission"]:

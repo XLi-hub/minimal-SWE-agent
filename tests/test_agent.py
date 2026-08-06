@@ -63,7 +63,7 @@ def test_executes_tool_call_then_exits():
     ]
     commands: list[str] = []
 
-    def fake_execute(cmd):
+    def fake_execute(cmd, **kwargs):
         commands.append(cmd)
         return f"output of: {cmd}"
 
@@ -90,7 +90,7 @@ def test_recovers_from_execution_error():
         _make_response(content="OK, error handled. Done."),
     ]
 
-    def fake_execute(cmd):
+    def fake_execute(cmd, **kwargs):
         raise RuntimeError("something went wrong")
 
     env = MagicMock()
@@ -140,7 +140,7 @@ def test_multiple_tool_calls_in_one_response():
     ]
     commands: list[str] = []
 
-    def fake_execute(cmd):
+    def fake_execute(cmd, **kwargs):
         commands.append(cmd)
         return f"ok: {cmd}"
 
@@ -540,7 +540,102 @@ def test_module_level_run_uses_default_agent():
 
     assert result["exit_status"] == "submitted"
     assert result["submission"] == "ok"
-    mock_agent.run.assert_called_once_with("test task")
+    from src.mini_agent.config import DEFAULT_MAX_STEPS
+
+    mock_agent.run.assert_called_once_with("test task", max_steps=DEFAULT_MAX_STEPS)
 
     # Clean up — reset global so other tests aren't affected
     agent_module._default_agent = None
+
+
+# --- max_steps ---
+
+
+def test_exits_with_max_steps_when_limit_reached():
+    """达到 max_steps 时返回 exit_status='max_steps'，不崩溃。"""
+    model = MagicMock()
+    # Every query returns a bash tool call — the agent will keep going
+    model.query.return_value = _make_response(
+        content="Running more commands.",
+        tool_calls=[_make_tool_call("c1", "bash", {"command": "echo loop"})],
+    )
+    env = MagicMock()
+    env.execute.return_value = "ok"
+
+    agent = Agent(model, env)
+    result = agent.run("infinite task", max_steps=3)
+
+    assert result["exit_status"] == "max_steps"
+    assert model.query.call_count == 3
+    # Messages should be preserved so the user can inspect what happened
+    assert len(result["messages"]) > 0
+
+
+def test_max_steps_default_is_applied_when_not_specified():
+    """不传 max_steps 时使用默认值，不会无限循环。"""
+    model = MagicMock()
+    # Make the model always call bash, so it would loop forever
+    # without the default max_steps limit
+    model.query.return_value = _make_response(
+        content="Running.",
+        tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+    )
+    env = MagicMock()
+    env.execute.return_value = "output"
+
+    agent = Agent(model, env)
+
+    import src.mini_agent.config as cfg
+    result = agent.run("never ending task")
+
+    # Should exit with max_steps after DEFAULT_MAX_STEPS iterations
+    assert result["exit_status"] == "max_steps"
+    assert model.query.call_count == cfg.DEFAULT_MAX_STEPS
+
+
+# --- timeout forwarding ---
+
+
+def test_default_timeout_passed_to_execute():
+    """不传 timeout 时使用默认值传给 environment.execute()。"""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Running.",
+            tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+        ),
+        _make_response(content="Done."),
+    ]
+    env = MagicMock()
+    env.execute.return_value = "output"
+
+    agent = Agent(model, env)
+    from src.mini_agent.config import DEFAULT_TIMEOUT
+
+    agent.run("list files", max_steps=5)
+
+    env.execute.assert_called_once_with("ls", timeout=DEFAULT_TIMEOUT)
+
+
+def test_custom_timeout_from_tool_call():
+    """模型传了 timeout=120→execute() 应收到 timeout=120。"""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Installing dependencies.",
+            tool_calls=[
+                _make_tool_call(
+                    "c1", "bash",
+                    {"command": "pip install torch", "timeout": 120},
+                ),
+            ],
+        ),
+        _make_response(content="Done."),
+    ]
+    env = MagicMock()
+    env.execute.return_value = "installed"
+
+    agent = Agent(model, env)
+    agent.run("install torch", max_steps=5)
+
+    env.execute.assert_called_once_with("pip install torch", timeout=120)
