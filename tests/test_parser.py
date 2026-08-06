@@ -1,42 +1,22 @@
-from src.mini_agent.parser import parse_action
+from src.mini_agent.parser import BASH_TOOL
 
 
-def test_extracts_triple_backtick_action():
-    output = """Let me list the files.
-
-```bash-action
-ls -la
-```
-"""
-    assert parse_action(output) == "ls -la"
+def test_bash_tool_has_correct_type():
+    assert BASH_TOOL["type"] == "function"
 
 
-def test_empty_when_no_action():
-    assert parse_action("Hello, how can I help you today?") == ""
+def test_bash_tool_has_name():
+    assert BASH_TOOL["function"]["name"] == "bash"
 
 
-def test_multiline_command():
-    output = """```bash-action
-cd /tmp && ls -la && echo done
-```
-"""
-    assert parse_action(output) == "cd /tmp && ls -la && echo done"
+def test_bash_tool_has_description():
+    assert len(BASH_TOOL["function"]["description"]) > 0
 
 
-def test_returns_first_match_when_multiple_blocks():
-    output = """```bash-action
-first-command
-```
-Some text
-```bash-action
-second-command
-```
-"""
-    assert parse_action(output) == "first-command"
+def test_bash_tool_requires_command_parameter():
+    assert "command" in BASH_TOOL["function"]["parameters"]["required"]
 
 
-def test_no_newline_before_close():
-    # 边界：命令后没有换行直接 ```
-    output = "```bash-action\npwd```"
-    result = parse_action(output)
-    assert result == "" or result == "pwd"
+def test_bash_tool_command_is_string():
+    props = BASH_TOOL["function"]["parameters"]["properties"]
+    assert props["command"]["type"] == "string"

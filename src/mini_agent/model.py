@@ -28,13 +28,21 @@ class Model:
             http_client=http_client,
         )
 
-    def query(self, messages: list[dict[str, str]]) -> str:
-        """Send messages to the LM and return its text response."""
-        response = self._client.chat.completions.create(
+    def query(self, messages: list[dict], tools: list[dict] | None = None):
+        """Send messages to the LM and return the full response object.
+
+        When tools are provided, the model may return tool calls instead of
+        a text reply.  The caller is responsible for executing the tools and
+        sending back tool-result messages.
+        """
+        kwargs: dict = {}
+        if tools:
+            kwargs["tools"] = tools
+        return self._client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
+            **kwargs,
         )
-        return response.choices[0].message.content
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key
@@ -42,7 +50,9 @@ _model: Model | None = None
 
 
 def query_lm(messages: list[dict[str, str]]) -> str:
+    """Convenience wrapper that returns just the text content."""
     global _model
     if _model is None:
         _model = Model()
-    return _model.query(messages)
+    response = _model.query(messages)
+    return response.choices[0].message.content

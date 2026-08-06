@@ -1,16 +1,19 @@
-"""动作解析模块 — 从 LM 输出中提取 bash 命令."""
+"""Tool definitions for the agent — model calls tools instead of text parsing."""
 
-import re
-
-
-def parse_action(lm_output: str) -> str:
-    """Extract the first ```bash-action ... ``` block from LM output.
-
-    Returns the command string, or empty string if no match.
-    """
-    matches = re.findall(
-        r"```bash-action\s*\n(.*?)\n```",
-        lm_output,
-        re.DOTALL,
-    )
-    return matches[0].strip() if matches else ""
+BASH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "bash",
+        "description": "Execute a bash command in the terminal and return its output.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The bash command to execute.",
+                }
+            },
+            "required": ["command"],
+        },
+    },
+}

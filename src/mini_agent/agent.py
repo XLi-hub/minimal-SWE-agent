@@ -1,86 +1,118 @@
-"""Agent 主循环 — 把模型、解析、执行串起来."""
+"""Agent 主循环 — 使用模型 tool calling 替代文本解析."""
 
-from src.mini_agent.parser import parse_action
+import json
+
+from src.mini_agent.parser import BASH_TOOL
 
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant. "
-    "When you want to run a command, wrap it in ```bash-action\n<command>\n```. "
-    "To finish, run the exit command."
+    "Use the bash tool to run commands in the terminal. "
+    "When your task is complete, reply with a text message "
+    "without calling any tools."
 )
 
 
 class Agent:
-    """AI Agent：循环查询 → 解析 → 执行，直到完成用户任务。
+    """AI Agent：循环查询 → 工具调用 → 执行，直到完成用户任务。
 
-    model 和 environment 从外部注入，可以自由替换
-    （比如换用 OpenAI、Docker 环境），不用改 Agent 本身。
+    model 需提供 .query(messages, tools=None) → OpenAI response.
+    environment 需提供 .execute(command, timeout=30) → str.
     """
 
     def __init__(self, model, environment):
-        """model 需提供 .query(messages) → str
-           environment 需提供 .execute(command, timeout) → str
-        """
         self.model = model
         self.environment = environment
 
-    def run(self, task: str) -> list[dict[str, str]]:
+    def run(self, task: str) -> list[dict]:
         """Run the agent loop for a given user task.
 
-        Returns the full message history.
+        Returns the full message history (includes tool-call and
+        tool-result messages).
         """
-        messages: list[dict[str, str]] = [
+        messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": task},
         ]
 
         while True:
             try:
-                # 1. 查询 LM
-                lm_output = self.model.query(messages)
-                print("LM output:", lm_output)
+                # 1. 查询 LM（带工具定义）
+                response = self.model.query(messages, tools=[BASH_TOOL])
+                choice = response.choices[0]
+                msg = choice.message
 
-                # 2. 记录 LM 的回复
-                messages.append({"role": "assistant", "content": lm_output})
-
-                # 3. 解析动作
-                action = parse_action(lm_output)
-                print("Action:", action)
-
-                # 4. 退出条件
-                if action == "exit":
+                # 2. 没有工具调用 → 任务完成
+                if not msg.tool_calls:
+                    messages.append(
+                        {"role": "assistant", "content": msg.content}
+                    )
+                    print("LM output:", msg.content)
                     break
 
-                # 5. 格式检查
-                if action == "":
-                    messages.append({"role": "user", "content": (
-                        "Please either provide a command in "
-                        "'''bash-action\\n<command>\\n''' format "
-                        "or put 'exit' inside the bash-action block to finish."
-                    )})
-                    continue
+                print("LM output:", msg.content)
 
-                # 6. 执行动作
-                output = self.environment.execute(action)
-                print("Output:", output)
+                # 3. 记录 assistant 消息（含 tool_calls）
+                messages.append(_format_assistant_message(msg))
 
-                # 7. 把执行结果发回 LM
-                messages.append({"role": "user", "content": output})
+                # 4. 执行每一个工具调用
+                for tc in msg.tool_calls:
+                    if tc.function.name != "bash":
+                        continue
+
+                    args = json.loads(tc.function.arguments)
+                    command = args["command"]
+                    print("Action:", command)
+
+                    try:
+                        output = self.environment.execute(command)
+                    except Exception as e:
+                        output = f"Error: {e}"
+
+                    print("Output:", output)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": output,
+                        }
+                    )
 
             except KeyboardInterrupt:
                 break
             except Exception as e:
                 # 把异常变成 user message，让循环继续
-                messages.append({"role": "user", "content": f"Error: {e}"})
+                messages.append(
+                    {"role": "user", "content": f"Error: {e}"}
+                )
 
         return messages
+
+
+def _format_assistant_message(msg) -> dict:
+    """Convert an OpenAI message object to the dict format for the API."""
+    return {
+        "role": "assistant",
+        "content": msg.content,
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for tc in msg.tool_calls
+        ],
+    }
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key
 _default_agent: Agent | None = None
 
 
-def run(task: str) -> list[dict[str, str]]:
+def run(task: str) -> list[dict]:
     global _default_agent
     if _default_agent is None:
         from src.mini_agent.model import Model            # noqa: E402
