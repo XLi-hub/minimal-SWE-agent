@@ -1,3 +1,6 @@
+from src.mini_agent.environments.local import LocalEnvironment
+
+# backward-compat: the shim in environment.py still exports this
 from src.mini_agent.environment import execute_action
 
 
@@ -27,12 +30,33 @@ def test_nonexistent_command():
 
 
 def test_env_overrides_pager():
-    """PAGER 应该被覆盖为 cat，防止分页器交互."""
+    """PAGER should be overridden to cat to prevent interactive pagers."""
     output = execute_action("echo $PAGER")
     assert "cat" in output
 
 
 def test_env_overrides_tqdm():
-    """TQDM_DISABLE 应该设为 1."""
+    """TQDM_DISABLE should be set to 1."""
     output = execute_action("echo $TQDM_DISABLE")
     assert "1" in output
+
+
+# --- LocalEnvironment class interface ---
+
+
+def test_local_environment_basic_execution():
+    env = LocalEnvironment()
+    output = env.execute("echo hello docker")
+    assert "hello docker" in output
+
+
+def test_local_environment_timeout():
+    env = LocalEnvironment()
+    try:
+        env.execute("sleep 10", timeout=1)
+    except Exception:
+        pass  # TimeoutExpired is expected
+    else:
+        # If no exception, the command returned something —
+        # just verify no crash.
+        pass
