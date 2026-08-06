@@ -8,4 +8,7 @@ from src.mini_agent.environments import LocalEnvironment
 if __name__ == "__main__":
     task = input("Task: ")
     agent = Agent(Model(), LocalEnvironment())
-    agent.run(task)
+    result = agent.run(task)
+    print(f"\nExit status: {result['exit_status']}")
+    if result["submission"]:
+        print(f"Submission:\n{result['submission']}")

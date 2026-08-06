@@ -1,4 +1,4 @@
-from src.mini_agent.config import BASH_TOOL, DEFAULT_MAX_LINES, SYSTEM_PROMPT
+from src.mini_agent.config import BASH_TOOL, DEFAULT_MAX_LINES, SUBMIT_TOOL, SYSTEM_PROMPT
 
 
 # --- tool schema ---
@@ -42,8 +42,29 @@ def test_system_prompt_mentions_bash_tool():
     assert "bash" in SYSTEM_PROMPT.lower()
 
 
-def test_system_prompt_mentions_no_tool_call_for_completion():
-    assert "without calling any tools" in SYSTEM_PROMPT
+def test_system_prompt_mentions_submit():
+    assert "submit" in SYSTEM_PROMPT.lower()
+
+
+# --- submit tool ---
+
+
+def test_submit_tool_has_correct_type():
+    assert SUBMIT_TOOL["type"] == "function"
+
+
+def test_submit_tool_has_name():
+    assert SUBMIT_TOOL["function"]["name"] == "submit"
+
+
+def test_submit_tool_has_output_param():
+    props = SUBMIT_TOOL["function"]["parameters"]["properties"]
+    assert "output" in props
+    assert props["output"]["type"] == "string"
+
+
+def test_submit_tool_requires_output():
+    assert SUBMIT_TOOL["function"]["parameters"]["required"] == ["output"]
 
 
 # --- defaults ---

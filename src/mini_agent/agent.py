@@ -2,7 +2,7 @@
 
 import json
 
-from src.mini_agent.config import BASH_TOOL, DEFAULT_MAX_LINES, SYSTEM_PROMPT
+from src.mini_agent.config import BASH_TOOL, DEFAULT_MAX_LINES, SUBMIT_TOOL, SYSTEM_PROMPT
 
 
 class Agent:
@@ -16,43 +16,62 @@ class Agent:
         self.model = model
         self.environment = environment
 
-    def run(self, task: str) -> list[dict]:
+    def run(self, task: str) -> dict:
         """Run the agent loop for a given user task.
 
-        Returns the full message history (includes tool-call and
-        tool-result messages).
+        Returns a dict with:
+        - ``exit_status``: one of ``"submitted"``, ``"no_tool_calls"``,
+          ``"error"``, ``"interrupted"``
+        - ``submission``: the final answer (empty if not submitted)
+        - ``messages``: the full message history
         """
         messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": task},
         ]
 
+        result: dict = {"exit_status": "error", "submission": "", "messages": messages}
+
         while True:
             try:
-                # 1. 查询 LM（带工具定义）
-                response = self.model.query(messages, tools=[BASH_TOOL])
+                response = self.model.query(
+                    messages, tools=[BASH_TOOL, SUBMIT_TOOL]
+                )
                 choice = response.choices[0]
                 msg = choice.message
 
-                # 2. 没有工具调用 → 任务完成
+                # No tool calls → treat as exit (legacy / fallback)
                 if not msg.tool_calls:
                     messages.append(
                         {"role": "assistant", "content": msg.content}
                     )
                     print("LM output:", msg.content)
-                    break
+                    result["exit_status"] = "no_tool_calls"
+                    return result
 
                 print("LM output:", msg.content)
 
-                # 3. 记录 assistant 消息（含 tool_calls）
                 messages.append(_format_assistant_message(msg))
 
-                # 4. 执行每一个工具调用
                 for tc in msg.tool_calls:
-                    if tc.function.name != "bash":
+                    name = tc.function.name
+                    args = json.loads(tc.function.arguments)
+
+                    if name == "submit":
+                        submission = args.get("output", "")
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": "Submitted.",
+                        })
+                        print("Submit:", submission)
+                        result["exit_status"] = "submitted"
+                        result["submission"] = submission
+                        return result
+
+                    if name != "bash":
                         continue
 
-                    args = json.loads(tc.function.arguments)
                     command = args["command"]
                     max_lines = args.get("lines", DEFAULT_MAX_LINES)
                     print("Action:", command)
@@ -73,14 +92,12 @@ class Agent:
                     )
 
             except KeyboardInterrupt:
-                break
+                result["exit_status"] = "interrupted"
+                return result
             except Exception as e:
-                # 把异常变成 user message，让循环继续
                 messages.append(
                     {"role": "user", "content": f"Error: {e}"}
                 )
-
-        return messages
 
 
 def _format_assistant_message(msg) -> dict:
@@ -132,7 +149,7 @@ def _truncate_output(output: str, max_lines: int) -> str:
 _default_agent: Agent | None = None
 
 
-def run(task: str) -> list[dict]:
+def run(task: str) -> dict:
     global _default_agent
     if _default_agent is None:
         from src.mini_agent.model import Model            # noqa: E402

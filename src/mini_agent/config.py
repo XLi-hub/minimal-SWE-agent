@@ -7,8 +7,8 @@
 SYSTEM_PROMPT = (
     "You are a helpful assistant. "
     "Use the bash tool to run commands in the terminal. "
-    "When your task is complete, reply with a text message "
-    "without calling any tools."
+    "When your task is complete, call the submit tool with your "
+    "final answer, patch, or summary of what was done."
 )
 
 # ---------------------------------------------------------------------------
@@ -42,6 +42,28 @@ BASH_TOOL = {
                 },
             },
             "required": ["command"],
+        },
+    },
+}
+
+SUBMIT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit",
+        "description": (
+            "Submit your final answer when the task is complete. "
+            "Call this once you have finished all necessary work — "
+            "pass your patch, answer, or summary as the output."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "output": {
+                    "type": "string",
+                    "description": "Final answer, patch, or summary of what was done.",
+                },
+            },
+            "required": ["output"],
         },
     },
 }
