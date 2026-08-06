@@ -210,3 +210,221 @@ def test_multi_step_real_commands():
     assert "/" in tool_msgs[0]["content"], "pwd should return an absolute path"
     assert "step2 done" in tool_msgs[1]["content"], "echo output mismatch"
     assert tool_msgs[2]["content"] == "Submitted."
+
+
+# ---------------------------------------------------------------------------
+# realistic agent scenarios
+# ---------------------------------------------------------------------------
+
+def test_git_diff_output():
+    """git diff produces multi-line output with +/- markers — agent should
+    preserve it verbatim so the model sees a real patch."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Let me see what changed.",
+            tool_calls=[
+                # diff two test files — guaranteed to produce real output
+                _make_tool_call(
+                    "c1", "bash",
+                    {"command": "diff -u tests/test_agent.py tests/test_config.py"},
+                ),
+            ],
+        ),
+        _make_response(
+            content="Here is the diff.",
+            tool_calls=[
+                _make_tool_call(
+                    "s1", "submit",
+                    {"output": "diff analyzed"},
+                ),
+            ],
+        ),
+    ]
+
+    agent = Agent(model, LocalEnvironment())
+    result = agent.run("show diff", max_steps=5)
+
+    assert result["exit_status"] == "submitted"
+    tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
+    diff_output = tool_msgs[0]["content"]
+
+    # Real diff output has headers, hunks, +/- lines
+    assert "--- " in diff_output or "+++ " in diff_output or "@@" in diff_output, (
+        f"Expected diff markers in output: {diff_output[:200]}"
+    )
+
+
+def test_python_execution_output():
+    """Running python -c with print — testing real code execution in shell."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Let me run a quick Python check.",
+            tool_calls=[
+                _make_tool_call(
+                    "c1", "bash",
+                    {"command": "python -c 'import sys; print(sys.version[:10])'"},
+                ),
+            ],
+        ),
+        _make_response(
+            content="Got version.",
+            tool_calls=[
+                _make_tool_call("s1", "submit", {"output": "version checked"}),
+            ],
+        ),
+    ]
+
+    agent = Agent(model, LocalEnvironment())
+    result = agent.run("check python version", max_steps=5)
+
+    assert result["exit_status"] == "submitted"
+    tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
+    # Should have actual Python version string like "3.10.20"
+    python_output = tool_msgs[0]["content"]
+    assert any(c.isdigit() for c in python_output), (
+        f"Expected Python version in output: {python_output!r}"
+    )
+
+
+def test_find_command_large_output():
+    """find across a directory tree can produce hundreds of lines —
+    agent must handle truncation correctly with real paths."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Let me find all Python files.",
+            tool_calls=[
+                _make_tool_call(
+                    "c1", "bash",
+                    {"command": "find src/ -name '*.py'", "lines": 10},
+                ),
+            ],
+        ),
+        _make_response(
+            content="Found the files.",
+            tool_calls=[
+                _make_tool_call("s1", "submit", {"output": "files found"}),
+            ],
+        ),
+    ]
+
+    agent = Agent(model, LocalEnvironment())
+    result = agent.run("find python files", max_steps=5)
+
+    assert result["exit_status"] == "submitted"
+    tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
+    find_output = tool_msgs[0]["content"]
+
+    assert "agent.py" in find_output or "config.py" in find_output, (
+        f"Expected to find project .py files: {find_output!r}"
+    )
+
+
+def test_empty_output_command():
+    """Some commands produce nothing on stdout — agent should not crash."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Let me try a no-op.",
+            tool_calls=[
+                _make_tool_call(
+                    "c1", "bash",
+                    {"command": "true"},  # exit 0, no output
+                ),
+            ],
+        ),
+        _make_response(
+            content="Done.",
+            tool_calls=[
+                _make_tool_call("s1", "submit", {"output": "no-op complete"}),
+            ],
+        ),
+    ]
+
+    agent = Agent(model, LocalEnvironment())
+    result = agent.run("no-op test", max_steps=5)
+
+    assert result["exit_status"] == "submitted"
+    tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
+    # Empty output should be fine — just an empty string
+    bash_output = tool_msgs[0]["content"]
+    assert bash_output == "", f"Expected empty output for 'true': {bash_output!r}"
+
+
+def test_stderr_stdout_mixed():
+    """Commands that write to both stdout and stderr — agent merges them,
+    so the model sees everything.  Real SWE agents rely on this to see errors."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Testing mixed output.",
+            tool_calls=[
+                _make_tool_call(
+                    "c1", "bash",
+                    {"command": (
+                        "python -c '"
+                        "import sys; "
+                        "sys.stdout.write(\"stdout message\\n\"); "
+                        "sys.stderr.write(\"stderr message\\n\")"
+                        "'"
+                    )},
+                ),
+            ],
+        ),
+        _make_response(
+            content="Both streams captured.",
+            tool_calls=[
+                _make_tool_call("s1", "submit", {"output": "mixed streams ok"}),
+            ],
+        ),
+    ]
+
+    agent = Agent(model, LocalEnvironment())
+    result = agent.run("test stderr mixing", max_steps=5)
+
+    assert result["exit_status"] == "submitted"
+    tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
+    mixed = tool_msgs[0]["content"]
+    # Both stdout and stderr should be present (merged)
+    assert "stdout message" in mixed, f"Missing stdout: {mixed!r}"
+    assert "stderr message" in mixed, f"Missing stderr: {mixed!r}"
+
+
+def test_command_with_special_characters():
+    """Output with backslashes, quotes, and unicode should survive the
+    parsing/serialization round-trip through the Agent loop."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Echo special chars.",
+            tool_calls=[
+                _make_tool_call(
+                    "c1", "bash",
+                    # printf doesn't interpret backslash sequences like echo does
+                    {"command": "printf '%s' 'path\\to\\file  \"quoted\"  ünicode'"},
+                ),
+            ],
+        ),
+        _make_response(
+            content="Special chars preserved.",
+            tool_calls=[
+                _make_tool_call(
+                    "s1", "submit",
+                    {"output": "special chars survived"},
+                ),
+            ],
+        ),
+    ]
+
+    agent = Agent(model, LocalEnvironment())
+    result = agent.run("special chars test", max_steps=5)
+
+    assert result["exit_status"] == "submitted"
+    tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
+    output = tool_msgs[0]["content"]
+    # Backslashes and quotes should survive the trip unchanged
+    assert "path\\to\\file" in output, f"Backslashes lost: {output!r}"
+    assert '"quoted"' in output, f"Quotes lost: {output!r}"
+    assert "ünicode" in output, f"Unicode lost: {output!r}"
