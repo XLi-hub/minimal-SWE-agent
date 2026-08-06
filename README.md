@@ -10,15 +10,12 @@
 用户: "修一下 utils.py 的 bug"
   │
   ▼
-┌─────────────────────────────────┐
-│  Agent 循环                      │
-│                                  │
-│  LM 思考 → bash(cat utils.py)    │
-│         → 拿到输出，继续思考      │
-│         → bash(sed ... 修复)     │
-│         → bash(git diff) 拿到patch │
-│         → submit(output=patch)    │
-└─────────────────────────────────┘
+Agent 循环:
+  LM 思考 → bash(cat utils.py)
+          → 拿到输出，继续思考
+          → bash(sed ... 修复)
+          → bash(git diff) 拿到 patch
+          → submit(output=patch)
 ```
 
 ## 快速开始
