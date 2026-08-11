@@ -1,6 +1,6 @@
 # minimal-SWE-agent
 
-> 不理解 AI agent 为什么能自动修 bug？这个项目把 SWE-agent 的核心拆到 ~200 行 Python，不依赖任何框架——你看到的每一行代码都在做一件事。
+> 不理解 AI agent 为什么能自动修 bug？[核心循环](src/mini_agent/agent.py) 只有 ~100 行 Python，不依赖任何框架——你看到的每一行代码都在做一件事。
 
 ## 这是什么
 
@@ -55,6 +55,7 @@ python main.py --task "修一下 /tmp/buggy.py 的 bug"
 ```
 src/mini_agent/
 ├── agent.py                  # Agent 循环 — 查询 LM → 执行工具 → 循环
+├── tools.py                  # 工具分发 + 输出截断 + 异常格式化
 ├── config.py                 # SYSTEM_PROMPT, BASH_TOOL, SUBMIT_TOOL 定义
 ├── model.py                  # DeepSeek API 封装（OpenAI 兼容协议）
 └── environments/             # 执行环境（可插拔）
@@ -63,8 +64,8 @@ src/mini_agent/
     └── docker.py              #   DockerEnvironment — 容器内执行
 
 tests/
-├── test_agent.py               # Agent 循环 + 截断 + submit + 异常（30 个测试）
-├── test_config.py              # 工具 schema + system prompt + 默认值（18 个测试）
+├── test_agent.py               # Agent 循环 + 截断 + submit + 异常（41 个测试）
+├── test_config.py              # 工具 schema + system prompt + 默认值（29 个测试）
 ├── test_model.py               # API 调用（7 个测试，全部 mock）
 ├── test_environment.py         # 本地环境（9 个测试）
 ├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
@@ -138,7 +139,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio -m "not 
 # E2E 测试 — 真调 DeepSeek API（2 个，花钱，偶尔跑一次）
 python -m pytest tests/ -v -m e2e
 
-# 全量 — 包括 E2E（97 个测试）
+# 全量 — 包括 E2E（119 个测试）
 python -m pytest tests/ -v -p no:anyio
 
 # 只跑单元测试（跳过 Docker 集成 + E2E）
@@ -147,7 +148,7 @@ python -m pytest tests/ -v -p no:anyio -m "not e2e" -k "not test_docker_echo and
 
 Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `DEEPSEEK_API_KEY` 时自动跳过。
 
-**测试分层**：74 单元 + 21 集成（含 Docker）+ 2 E2E = 97 总计。
+**测试分层**：87 单元 + 30 集成（含 Docker）+ 2 E2E = 119 总计。
 
 ## 学习文档
 
