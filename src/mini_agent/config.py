@@ -67,14 +67,7 @@ BASH_TOOL = {
             "this limit — if you need more context, re-run with a higher "
             "'lines' value or use head/tail/sed to narrow down. "
             "Use the optional 'timeout' parameter (seconds, default 30) "
-            "for commands that need more time — e.g. pip install or git clone. "
-            "For very long tasks (training, large builds), run the command "
-            "in the background: 'nohup CMD &> /tmp/output.log & echo PID: $!'. "
-            "Then check progress with 'tail /tmp/output.log' or 'ps PID'. "
-            "Check every 1-3 minutes for fast tasks, every 5-10 minutes for "
-            "slow ones. Use 'grep' to look for completion markers (accuracy, "
-            "done, error) rather than reading the full log each time. "
-            "When the task is done, read the final results with cat/tail."
+            "for commands that need more time — e.g. pip install or git clone."
         ),
         "parameters": {
             "type": "object",
