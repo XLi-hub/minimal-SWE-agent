@@ -48,7 +48,14 @@ class DockerEnvironment(Environment):
     # ------------------------------------------------------------------
 
     def execute(self, command: str, timeout: int | None = None) -> str:
-        """Run *command* inside the container and return stdout+stderr."""
+        """Run *command* inside the container and return stdout+stderr.
+
+        If the command does not finish within *timeout* seconds the
+        partial output collected so far is returned together with a
+        timeout marker.  The underlying process is **not** killed —
+        long-running commands like ``pip install`` are allowed to
+        continue.
+        """
         if self._container_id is None:
             raise RuntimeError("Container has not been started")
 
@@ -59,19 +66,21 @@ class DockerEnvironment(Environment):
             cmd.extend(["-e", f"{key}={value}"])
         cmd.extend([self._container_id, "bash", "-lc", command])
 
+        proc = subprocess.Popen(
+            cmd,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
         try:
-            result = subprocess.run(
-                cmd,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+            stdout, _ = proc.communicate(
                 timeout=timeout if timeout is not None else self._timeout,
             )
-            return result.stdout
-        except Exception:
-            # Let the Agent's exception handler deal with it.
+            return stdout
+        except subprocess.TimeoutExpired:
+            # Process is still alive — don't kill it.
             raise
 
     def cleanup(self) -> None:

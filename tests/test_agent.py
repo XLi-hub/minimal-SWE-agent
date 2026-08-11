@@ -1,7 +1,13 @@
 import json
+import subprocess
 from unittest.mock import MagicMock
 
-from src.mini_agent.agent import Agent, _format_assistant_message, _truncate_output
+from src.mini_agent.agent import (
+    Agent,
+    _decode_timeout_output,
+    _format_assistant_message,
+    _truncate_output,
+)
 
 
 # --- helpers ---
@@ -640,3 +646,177 @@ def test_custom_timeout_from_tool_call():
     agent.run("install torch", max_steps=5)
 
     env.execute.assert_called_once_with("pip install torch", timeout=120)
+
+
+# ---------------------------------------------------------------------------
+# _decode_timeout_output
+# ---------------------------------------------------------------------------
+
+
+class TestDecodeTimeoutOutput:
+    """Tests for _decode_timeout_output."""
+
+    def test_decodes_bytes_stdout(self):
+        exc = subprocess.TimeoutExpired(cmd="sleep 10", timeout=5)
+        exc.stdout = b"partial output line 1\npartial line 2\n"
+        result = _decode_timeout_output(exc)
+        assert "partial output line 1" in result
+        assert "partial line 2" in result
+
+    def test_handles_none_stdout(self):
+        exc = subprocess.TimeoutExpired(cmd="sleep 10", timeout=5)
+        exc.stdout = None
+        result = _decode_timeout_output(exc)
+        assert "no output before timeout" in result.lower()
+
+    def test_passes_through_string_stdout(self):
+        exc = subprocess.TimeoutExpired(cmd="sleep 10", timeout=5)
+        exc.stdout = "already a string"
+        result = _decode_timeout_output(exc)
+        assert result == "already a string"
+
+    def test_decodes_with_bad_encoding(self):
+        exc = subprocess.TimeoutExpired(cmd="cat broken.bin", timeout=5)
+        exc.stdout = b"valid start \xff\xfe bad bytes"
+        result = _decode_timeout_output(exc)
+        assert "valid start" in result
+
+
+# ---------------------------------------------------------------------------
+# timeout — agent-level integration
+# ---------------------------------------------------------------------------
+
+
+class TestAgentTimeout:
+    """Agent loop keeps running after timeout; model sees partial output."""
+
+    def test_timeout_does_not_crash_agent(self):
+        """超时后 agent 循环继续，不崩。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Running a slow command.",
+                tool_calls=[
+                    _make_tool_call("c1", "bash",
+                                    {"command": "sleep 100", "timeout": 1}),
+                ],
+            ),
+            _make_response(content="Timed out. Let me try differently."),
+        ]
+        env = MagicMock()
+        timeout_exc = subprocess.TimeoutExpired(cmd="sleep 100", timeout=1)
+        timeout_exc.stdout = b"Starting long operation...\n10% complete\n"
+        env.execute.side_effect = timeout_exc
+
+        agent = Agent(model, env)
+        result = agent.run("run slow task", max_steps=5)
+
+        # Agent should NOT have crashed — exit via no_tool_calls (fallback).
+        assert result["exit_status"] == "no_tool_calls"
+
+    def test_timeout_includes_partial_output(self):
+        """工具消息包含部分输出 + 超时警告。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Running a slow command.",
+                tool_calls=[
+                    _make_tool_call("c1", "bash",
+                                    {"command": "pip install torch", "timeout": 2}),
+                ],
+            ),
+            _make_response(content="Done."),
+        ]
+        env = MagicMock()
+        timeout_exc = subprocess.TimeoutExpired(cmd="pip install torch", timeout=2)
+        timeout_exc.stdout = b"Downloading torch-2.0.0...\n  45% 100MB/220MB\n"
+        env.execute.side_effect = timeout_exc
+
+        agent = Agent(model, env)
+        result = agent.run("install torch", max_steps=5)
+
+        tool_msg = [m for m in result["messages"] if m["role"] == "tool"][0]
+        content = tool_msg["content"]
+        assert "Downloading torch" in content
+        assert "STILL RUNNING" in content
+        assert "timeout=4" in content  # hint suggests timeout * 2
+
+    def test_model_retries_with_higher_timeout_after_timeout(self):
+        """模型看到超时后可以用更大的 timeout 重试。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            # First attempt — timeout=2.
+            _make_response(
+                content="Let me install the package.",
+                tool_calls=[
+                    _make_tool_call("c1", "bash",
+                                    {"command": "pip install torch", "timeout": 2}),
+                ],
+            ),
+            # Second attempt — model retries with timeout=120.
+            _make_response(
+                content="It timed out. Let me retry with a longer timeout.",
+                tool_calls=[
+                    _make_tool_call("c2", "bash",
+                                    {"command": "pip install torch", "timeout": 120}),
+                ],
+            ),
+            _make_response(content="Done."),
+        ]
+        env = MagicMock()
+        timeout_exc = subprocess.TimeoutExpired(cmd="pip install torch", timeout=2)
+        timeout_exc.stdout = b"Downloading... 10%\n"
+        env.execute.side_effect = [
+            timeout_exc,
+            "Successfully installed torch-2.0.0",
+        ]
+
+        agent = Agent(model, env)
+        result = agent.run("install torch", max_steps=5)
+
+        assert result["exit_status"] == "no_tool_calls"
+        assert env.execute.call_count == 2
+        # Second call should use the longer timeout.
+        assert env.execute.call_args_list[1] == (
+            ("pip install torch",),
+            {"timeout": 120},
+        )
+
+    def test_model_switches_approach_after_repeated_timeout(self):
+        """多次超时后模型可以换方案而不是死循环。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            # First — pip install times out.
+            _make_response(
+                content="Installing dependencies.",
+                tool_calls=[
+                    _make_tool_call("c1", "bash",
+                                    {"command": "pip install torch", "timeout": 1}),
+                ],
+            ),
+            # Second — still times out, model pivots.
+            _make_response(
+                content="Still timing out. Let me check network and try "
+                         "a different approach.",
+                tool_calls=[
+                    _make_tool_call("c2", "bash",
+                                    {"command": "pip install --no-deps torch"}),
+                ],
+            ),
+            _make_response(content="Done."),
+        ]
+        env = MagicMock()
+        timeout_exc = subprocess.TimeoutExpired(cmd="pip install torch", timeout=1)
+        timeout_exc.stdout = b"Downloading...\n"
+        env.execute.side_effect = [
+            timeout_exc,
+            "Successfully installed torch",
+        ]
+
+        agent = Agent(model, env)
+        result = agent.run("install torch", max_steps=5)
+
+        assert result["exit_status"] == "no_tool_calls"
+        # Model switched from pip install to pip install --no-deps.
+        second_call = env.execute.call_args_list[1][0][0]
+        assert "--no-deps" in second_call

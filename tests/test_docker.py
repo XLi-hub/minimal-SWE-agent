@@ -58,20 +58,21 @@ def test_start_container_uses_correct_cli_args():
 
 def test_execute_builds_correct_docker_exec_cmd():
     """Verify docker exec CLI args."""
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
         # start call
         mock_run.return_value.stdout = "abc123def\n"
         mock_run.return_value.returncode = 0
 
+        # execute call — mock Popen + communicate
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("hello from container\n", None)
+        mock_popen.return_value = mock_proc
+
         env = DockerEnvironment(image="python:3.11-slim")
 
-        # reset for the execute call
-        mock_run.reset_mock()
-        mock_run.return_value.stdout = "hello from container\n"
-        mock_run.return_value.returncode = 0
-
         output = env.execute("echo hello")
-        cmd = mock_run.call_args.args[0]
+        cmd = mock_popen.call_args.args[0]
 
         assert cmd[0] == "docker"
         assert "exec" in cmd
@@ -88,20 +89,21 @@ def test_execute_builds_correct_docker_exec_cmd():
 
 def test_execute_passes_env_variables():
     """Environment variables should become -e flags."""
-    with patch("subprocess.run") as mock_run:
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
         mock_run.return_value.stdout = "abc123def\n"
         mock_run.return_value.returncode = 0
+
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("", None)
+        mock_popen.return_value = mock_proc
 
         env = DockerEnvironment(
             image="python:3.11-slim", env={"FOO": "bar", "BAZ": "qux"}
         )
 
-        mock_run.reset_mock()
-        mock_run.return_value.stdout = ""
-        mock_run.return_value.returncode = 0
-
         env.execute("echo $FOO")
-        cmd = mock_run.call_args.args[0]
+        cmd = mock_popen.call_args.args[0]
         # -e flags should appear before container_id
         assert "-e" in cmd
         assert "FOO=bar" in cmd
@@ -111,20 +113,21 @@ def test_execute_passes_env_variables():
 
 
 def test_execute_uses_custom_timeout():
-    """Per-call timeout should override the default."""
-    with patch("subprocess.run") as mock_run:
+    """Per-call timeout should be passed to communicate()."""
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
         mock_run.return_value.stdout = "abc123def\n"
         mock_run.return_value.returncode = 0
 
-        env = DockerEnvironment(image="python:3.11-slim", timeout=30)
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("", None)
+        mock_popen.return_value = mock_proc
 
-        mock_run.reset_mock()
-        mock_run.return_value.stdout = ""
-        mock_run.return_value.returncode = 0
+        env = DockerEnvironment(image="python:3.11-slim", timeout=30)
 
         env.execute("sleep 100", timeout=5)
 
-        assert mock_run.call_args.kwargs["timeout"] == 5
+        mock_proc.communicate.assert_called_once_with(timeout=5)
 
         env.cleanup()
 

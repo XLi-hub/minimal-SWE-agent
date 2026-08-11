@@ -1,6 +1,7 @@
 """Agent 主循环 — 使用模型 tool calling 替代文本解析."""
 
 import json
+import subprocess
 
 from src.mini_agent.config import (
     BASH_TOOL,
@@ -125,6 +126,16 @@ class Agent:
             try:
                 raw = self.environment.execute(command, timeout=timeout)
                 output = _truncate_output(raw, max_lines)
+            except subprocess.TimeoutExpired as e:
+                partial = _decode_timeout_output(e)
+                output = (
+                    f"{_truncate_output(partial, max_lines)}\n"
+                    f"[STILL RUNNING: Command has been executing for "
+                    f"{timeout}s and is not finished yet. The process "
+                    f"is still alive. Re-run with a higher 'timeout' "
+                    f"value to wait longer (e.g. timeout={timeout * 2}), "
+                    f"or use ps/wait to check its status.]"
+                )
             except Exception as e:
                 output = f"Error: {e}"
 
@@ -162,6 +173,20 @@ def _format_assistant_message(msg) -> dict:
             for tc in msg.tool_calls
         ],
     }
+
+
+def _decode_timeout_output(exc: subprocess.TimeoutExpired) -> str:
+    """Extract partial output from a :class:`subprocess.TimeoutExpired` exception.
+
+    Returns the captured stdout as a string, or a placeholder if nothing
+    was captured before the timeout.
+    """
+    raw = exc.stdout
+    if raw is None:
+        return "(no output before timeout)"
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="replace")
+    return raw
 
 
 def _truncate_output(output: str, max_lines: int) -> str:
