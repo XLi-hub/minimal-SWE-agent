@@ -742,6 +742,7 @@ class TestAgentTimeout:
         assert "Downloading torch" in content
         assert "STILL RUNNING" in content
         assert "timeout=4" in content  # hint suggests timeout * 2
+        assert "kill" in content.lower()  # warns about zombie processes
 
     def test_model_retries_with_higher_timeout_after_timeout(self):
         """模型看到超时后可以用更大的 timeout 重试。"""

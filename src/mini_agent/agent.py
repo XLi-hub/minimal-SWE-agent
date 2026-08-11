@@ -143,9 +143,12 @@ class Agent:
                     f"{_truncate_output(partial, max_lines)}\n"
                     f"[STILL RUNNING: Command has been executing for "
                     f"{timeout}s and is not finished yet. The process "
-                    f"is still alive. Re-run with a higher 'timeout' "
-                    f"value to wait longer (e.g. timeout={timeout * 2}), "
-                    f"or use ps/wait to check its status.]"
+                    f"is still alive. To wait for it, re-run with a "
+                    f"higher 'timeout' (e.g. timeout={timeout * 2}). "
+                    f"To abort and restart, kill the old process first "
+                    f"(use 'ps aux | grep' to find its PID, then 'kill'). "
+                    f"Do NOT re-run without killing — two instances "
+                    f"of the same command will conflict.]"
                 )
             except Exception as e:
                 output = f"Error: {e}"
