@@ -76,43 +76,8 @@ class Agent:
                 messages.append(_format_assistant_message(msg))
 
                 for tc in msg.tool_calls:
-                    name = tc.function.name
-                    args = json.loads(tc.function.arguments)
-
-                    if name == "submit":
-                        submission = args.get("output", "")
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": "Submitted.",
-                        })
-                        print("Submit:", submission)
-                        result["exit_status"] = "submitted"
-                        result["submission"] = submission
+                    if self._handle_tool_call(tc, messages, result):
                         return result
-
-                    if name != "bash":
-                        continue
-
-                    command = args["command"]
-                    max_lines = args.get("lines", DEFAULT_MAX_LINES)
-                    timeout = args.get("timeout", DEFAULT_TIMEOUT)
-                    print("Action:", command)
-
-                    try:
-                        raw = self.environment.execute(command, timeout=timeout)
-                        output = _truncate_output(raw, max_lines)
-                    except Exception as e:
-                        output = f"Error: {e}"
-
-                    print("Output:", output)
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": output,
-                        }
-                    )
 
             except KeyboardInterrupt:
                 result["exit_status"] = "interrupted"
@@ -125,6 +90,59 @@ class Agent:
         # Ran out of steps — return partial progress.
         result["exit_status"] = "max_steps"
         return result
+
+    # ------------------------------------------------------------------
+    # tool dispatch
+    # ------------------------------------------------------------------
+
+    def _handle_tool_call(self, tc, messages: list[dict], result: dict) -> bool:
+        """Execute a single tool call and update *messages* in place.
+
+        Returns ``True`` when the tool signals the agent loop should exit
+        (e.g. ``submit``), ``False`` otherwise.
+        """
+        name = tc.function.name
+        args = json.loads(tc.function.arguments)
+
+        if name == "submit":
+            submission = args.get("output", "")
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": "Submitted.",
+            })
+            print("Submit:", submission)
+            result["exit_status"] = "submitted"
+            result["submission"] = submission
+            return True
+
+        if name == "bash":
+            command = args["command"]
+            max_lines = args.get("lines", DEFAULT_MAX_LINES)
+            timeout = args.get("timeout", DEFAULT_TIMEOUT)
+            print("Action:", command)
+
+            try:
+                raw = self.environment.execute(command, timeout=timeout)
+                output = _truncate_output(raw, max_lines)
+            except Exception as e:
+                output = f"Error: {e}"
+
+            print("Output:", output)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": output,
+            })
+            return False
+
+        # Unknown tool — tell the model so it can self-correct.
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": f"Error: unknown tool '{name}'. Available tools: bash, submit.",
+        })
+        return False
 
 
 def _format_assistant_message(msg) -> dict:
