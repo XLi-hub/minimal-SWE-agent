@@ -1,19 +1,16 @@
 """Agent 主循环 — 使用模型 tool calling 替代文本解析."""
 
-import json
-import subprocess
 import time
 
 from src.mini_agent.config import (
     BASH_TOOL,
-    DEFAULT_MAX_LINES,
     DEFAULT_MAX_STEPS,
     DEFAULT_MAX_TIME,
-    DEFAULT_TIMEOUT,
     INSTANCE_TEMPLATE,
     SUBMIT_TOOL,
     SYSTEM_PROMPT,
 )
+from src.mini_agent.tools import execute_tool_call, format_assistant_message
 
 
 class Agent:
@@ -85,10 +82,10 @@ class Agent:
 
                 print("LM output:", msg.content)
 
-                messages.append(_format_assistant_message(msg))
+                messages.append(format_assistant_message(msg))
 
                 for tc in msg.tool_calls:
-                    if self._handle_tool_call(tc, messages, result):
+                    if execute_tool_call(tc, messages, result, self.environment):
                         return result
 
             except KeyboardInterrupt:
@@ -102,133 +99,6 @@ class Agent:
         # Ran out of steps — return partial progress.
         result["exit_status"] = "max_steps"
         return result
-
-    # ------------------------------------------------------------------
-    # tool dispatch
-    # ------------------------------------------------------------------
-
-    def _handle_tool_call(self, tc, messages: list[dict], result: dict) -> bool:
-        """Execute a single tool call and update *messages* in place.
-
-        Returns ``True`` when the tool signals the agent loop should exit
-        (e.g. ``submit``), ``False`` otherwise.
-        """
-        name = tc.function.name
-        args = json.loads(tc.function.arguments)
-
-        if name == "submit":
-            submission = args.get("output", "")
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": "Submitted.",
-            })
-            print("Submit:", submission)
-            result["exit_status"] = "submitted"
-            result["submission"] = submission
-            return True
-
-        if name == "bash":
-            command = args["command"]
-            max_lines = args.get("lines", DEFAULT_MAX_LINES)
-            timeout = args.get("timeout", DEFAULT_TIMEOUT)
-            print("Action:", command)
-
-            try:
-                raw = self.environment.execute(command, timeout=timeout)
-                output = _truncate_output(raw, max_lines)
-            except subprocess.TimeoutExpired as e:
-                partial = _decode_timeout_output(e)
-                output = (
-                    f"{_truncate_output(partial, max_lines)}\n"
-                    f"[STILL RUNNING: Command has been executing for "
-                    f"{timeout}s and is not finished yet. The process "
-                    f"is still alive. To wait for it, re-run with a "
-                    f"higher 'timeout' (e.g. timeout={timeout * 2}). "
-                    f"To abort and restart, kill the old process first "
-                    f"(use 'ps aux | grep' to find its PID, then 'kill'). "
-                    f"Do NOT re-run without killing — two instances "
-                    f"of the same command will conflict.]"
-                )
-            except Exception as e:
-                output = f"Error: {e}"
-
-            print("Output:", output)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": output,
-            })
-            return False
-
-        # Unknown tool — tell the model so it can self-correct.
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": f"Error: unknown tool '{name}'. Available tools: bash, submit.",
-        })
-        return False
-
-
-def _format_assistant_message(msg) -> dict:
-    """Convert an OpenAI message object to the dict format for the API."""
-    return {
-        "role": "assistant",
-        "content": msg.content,
-        "tool_calls": [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments,
-                },
-            }
-            for tc in msg.tool_calls
-        ],
-    }
-
-
-def _decode_timeout_output(exc: subprocess.TimeoutExpired) -> str:
-    """Extract partial output from a :class:`subprocess.TimeoutExpired` exception.
-
-    Returns the captured stdout as a string, or a placeholder if nothing
-    was captured before the timeout.
-    """
-    raw = exc.stdout
-    if raw is None:
-        return "(no output before timeout)"
-    if isinstance(raw, bytes):
-        return raw.decode("utf-8", errors="replace")
-    return raw
-
-
-def _truncate_output(output: str, max_lines: int) -> str:
-    """Truncate *output* to at most *max_lines* lines.
-
-    When truncation happens the first ``max_lines // 2`` and last
-    ``max_lines // 2`` lines are kept with an elision marker in between,
-    so the model sees both the beginning and the end of the output.
-    """
-    if max_lines < 2:
-        max_lines = 2  # minimum: 1 head + 1 tail
-
-    lines = output.splitlines()
-    if len(lines) <= max_lines:
-        return output
-
-    half = max(1, max_lines // 2)
-    head = lines[:half]
-    tail = lines[-half:]
-    elided = len(lines) - max_lines
-
-    warning = (
-        f"[... {elided} lines truncated ({len(lines)} total, {max_lines} shown) ...]\n"
-        f"[WARNING: Output was truncated. To see more, re-run with a higher "
-        f"'lines' value (e.g. lines={len(lines)}), or use head/tail/sed to "
-        f"narrow down the output.]"
-    )
-    return "\n".join(head + [warning] + tail)
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key

@@ -2,11 +2,11 @@ import json
 import subprocess
 from unittest.mock import MagicMock
 
-from src.mini_agent.agent import (
-    Agent,
-    _decode_timeout_output,
-    _format_assistant_message,
-    _truncate_output,
+from src.mini_agent.agent import Agent
+from src.mini_agent.tools import (
+    decode_timeout_output,
+    format_assistant_message,
+    truncate_output,
 )
 
 
@@ -258,20 +258,20 @@ def test_submit_with_patch():
 
 
 class TestTruncateOutput:
-    """Tests for _truncate_output."""
+    """Tests for truncate_output."""
 
     def test_short_output_passes_through(self):
         output = "line 1\nline 2\nline 3"
-        assert _truncate_output(output, max_lines=10) == output
+        assert truncate_output(output, max_lines=10) == output
 
     def test_exactly_at_limit_passes_through(self):
         output = "\n".join(str(i) for i in range(10))
-        assert _truncate_output(output, max_lines=10) == output
+        assert truncate_output(output, max_lines=10) == output
 
     def test_long_output_is_truncated(self):
         lines = [f"line {i}" for i in range(200)]
         output = "\n".join(lines)
-        result = _truncate_output(output, max_lines=100)
+        result = truncate_output(output, max_lines=100)
         result_lines = result.splitlines()
         assert len(result_lines) == 102  # 50 head + 2 (marker+warning) + 50 tail
         assert result_lines[0] == "line 0"
@@ -281,21 +281,21 @@ class TestTruncateOutput:
     def test_truncation_includes_elision_info(self):
         lines = [f"L{i:04d}" for i in range(500)]
         output = "\n".join(lines)
-        result = _truncate_output(output, max_lines=50)
+        result = truncate_output(output, max_lines=50)
         assert "450 lines truncated" in result
         assert "500 total" in result
         assert "50 shown" in result
 
     def test_minimum_lines_is_2(self):
         output = "\n".join(str(i) for i in range(10))
-        result = _truncate_output(output, max_lines=1)
+        result = truncate_output(output, max_lines=1)
         result_lines = result.splitlines()
         assert len(result_lines) == 4  # 1 head + 2 (marker+warning) + 1 tail
         assert "8 lines truncated" in result
 
     def test_lines_zero_is_clamped(self):
         output = "a\nb\nc\nd\ne"
-        result = _truncate_output(output, max_lines=0)
+        result = truncate_output(output, max_lines=0)
         result_lines = result.splitlines()
         assert len(result_lines) == 4  # 1 head + 2 (marker+warning) + 1 tail
         assert result_lines[0] == "a"
@@ -489,11 +489,11 @@ def test_submit_and_bash_in_same_response_stops_immediately():
     assert result["submission"] == "final answer"
 
 
-# --- _format_assistant_message ---
+# --- format_assistant_message ---
 
 
-def test_format_assistant_message_with_tool_calls():
-    """验证 _format_assistant_message 输出正确的 dict 结构。"""
+def testformat_assistant_message_with_tool_calls():
+    """验证 format_assistant_message 输出正确的 dict 结构。"""
     msg = MagicMock()
     msg.content = "I will run a command."
 
@@ -503,7 +503,7 @@ def test_format_assistant_message_with_tool_calls():
     tc.function.arguments = '{"command": "ls"}'
     msg.tool_calls = [tc]
 
-    result = _format_assistant_message(msg)
+    result = format_assistant_message(msg)
 
     assert result["role"] == "assistant"
     assert result["content"] == "I will run a command."
@@ -514,13 +514,13 @@ def test_format_assistant_message_with_tool_calls():
     assert result["tool_calls"][0]["function"]["arguments"] == '{"command": "ls"}'
 
 
-def test_format_assistant_message_without_tool_calls():
+def testformat_assistant_message_without_tool_calls():
     """无 tool_calls 时应返回空列表。"""
     msg = MagicMock()
     msg.content = "Hello."
     msg.tool_calls = []
 
-    result = _format_assistant_message(msg)
+    result = format_assistant_message(msg)
 
     assert result["role"] == "assistant"
     assert result["content"] == "Hello."
@@ -651,36 +651,36 @@ def test_custom_timeout_from_tool_call():
 
 
 # ---------------------------------------------------------------------------
-# _decode_timeout_output
+# decode_timeout_output
 # ---------------------------------------------------------------------------
 
 
 class TestDecodeTimeoutOutput:
-    """Tests for _decode_timeout_output."""
+    """Tests for decode_timeout_output."""
 
     def test_decodes_bytes_stdout(self):
         exc = subprocess.TimeoutExpired(cmd="sleep 10", timeout=5)
         exc.stdout = b"partial output line 1\npartial line 2\n"
-        result = _decode_timeout_output(exc)
+        result = decode_timeout_output(exc)
         assert "partial output line 1" in result
         assert "partial line 2" in result
 
     def test_handles_none_stdout(self):
         exc = subprocess.TimeoutExpired(cmd="sleep 10", timeout=5)
         exc.stdout = None
-        result = _decode_timeout_output(exc)
+        result = decode_timeout_output(exc)
         assert "no output before timeout" in result.lower()
 
     def test_passes_through_string_stdout(self):
         exc = subprocess.TimeoutExpired(cmd="sleep 10", timeout=5)
         exc.stdout = "already a string"
-        result = _decode_timeout_output(exc)
+        result = decode_timeout_output(exc)
         assert result == "already a string"
 
     def test_decodes_with_bad_encoding(self):
         exc = subprocess.TimeoutExpired(cmd="cat broken.bin", timeout=5)
         exc.stdout = b"valid start \xff\xfe bad bytes"
-        result = _decode_timeout_output(exc)
+        result = decode_timeout_output(exc)
         assert "valid start" in result
 
 
