@@ -267,7 +267,7 @@ class TestTruncateOutput:
         output = "\n".join(lines)
         result = _truncate_output(output, max_lines=100)
         result_lines = result.splitlines()
-        assert len(result_lines) == 101
+        assert len(result_lines) == 102  # 50 head + 2 (marker+warning) + 50 tail
         assert result_lines[0] == "line 0"
         assert result_lines[-1] == "line 199"
         assert any("100 lines truncated" in line for line in result_lines)
@@ -284,16 +284,17 @@ class TestTruncateOutput:
         output = "\n".join(str(i) for i in range(10))
         result = _truncate_output(output, max_lines=1)
         result_lines = result.splitlines()
-        assert len(result_lines) == 3
+        assert len(result_lines) == 4  # 1 head + 2 (marker+warning) + 1 tail
         assert "8 lines truncated" in result
 
     def test_lines_zero_is_clamped(self):
         output = "a\nb\nc\nd\ne"
         result = _truncate_output(output, max_lines=0)
         result_lines = result.splitlines()
-        assert len(result_lines) == 3
+        assert len(result_lines) == 4  # 1 head + 2 (marker+warning) + 1 tail
         assert result_lines[0] == "a"
         assert result_lines[-1] == "e"
+        assert "WARNING" in result
 
 
 class TestAgentTruncation:

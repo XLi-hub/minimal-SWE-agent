@@ -33,7 +33,7 @@ class Agent:
             The user's task description.
         max_steps:
             Maximum tool-calling iterations before the agent stops
-            (default: *DEFAULT_MAX_STEPS* = 50).  Each ``model.query()``
+            (default: *DEFAULT_MAX_STEPS* = 250).  Each ``model.query()``
             call counts as one step, regardless of how many tool
             calls the model makes in that step.
 
@@ -165,11 +165,13 @@ def _truncate_output(output: str, max_lines: int) -> str:
     tail = lines[-half:]
     elided = len(lines) - max_lines
 
-    return "\n".join(
-        head
-        + [f"[... {elided} lines truncated ({len(lines)} total, {max_lines} shown) ...]"]
-        + tail
+    warning = (
+        f"[... {elided} lines truncated ({len(lines)} total, {max_lines} shown) ...]\n"
+        f"[WARNING: Output was truncated. To see more, re-run with a higher "
+        f"'lines' value (e.g. lines={len(lines)}), or use head/tail/sed to "
+        f"narrow down the output.]"
     )
+    return "\n".join(head + [warning] + tail)
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key
