@@ -7,6 +7,7 @@ from src.mini_agent.config import (
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_STEPS,
     DEFAULT_TIMEOUT,
+    INSTANCE_TEMPLATE,
     SUBMIT_TOOL,
     SYSTEM_PROMPT,
 )
@@ -48,7 +49,7 @@ class Agent:
         """
         messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": task},
+            {"role": "user", "content": INSTANCE_TEMPLATE.format(task=task)},
         ]
 
         result: dict = {"exit_status": "error", "submission": "", "messages": messages}

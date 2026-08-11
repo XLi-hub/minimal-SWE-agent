@@ -3,6 +3,7 @@ from src.mini_agent.config import (
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_STEPS,
     DEFAULT_TIMEOUT,
+    INSTANCE_TEMPLATE,
     SUBMIT_TOOL,
     SYSTEM_PROMPT,
 )
@@ -64,6 +65,62 @@ def test_system_prompt_mentions_bash_tool():
 
 def test_system_prompt_mentions_submit():
     assert "submit" in SYSTEM_PROMPT.lower()
+
+
+def test_system_prompt_defines_role():
+    """System prompt should give the model a clear expert identity."""
+    assert "software engineer" in SYSTEM_PROMPT.lower()
+
+
+def test_system_prompt_requires_one_command_at_a_time():
+    """Single-action discipline: ONE command per turn."""
+    assert "one" in SYSTEM_PROMPT.lower() and "command" in SYSTEM_PROMPT.lower()
+
+
+def test_system_prompt_emphasizes_read_before_edit():
+    """Read before you edit — avoids blind changes."""
+    assert "read before you edit" in SYSTEM_PROMPT.lower()
+
+
+def test_system_prompt_emphasizes_smallest_change():
+    """Minimal-change principle."""
+    assert "smallest change" in SYSTEM_PROMPT.lower()
+
+
+def test_system_prompt_guides_error_recovery():
+    """Don't blindly retry — read errors and adapt."""
+    prompt_lower = SYSTEM_PROMPT.lower()
+    assert "fail" in prompt_lower or "error" in prompt_lower
+
+
+def test_system_prompt_requires_verify_before_submit():
+    """Verification gate: test or check before calling submit."""
+    assert "verify" in SYSTEM_PROMPT.lower()
+
+
+# --- instance template ---
+
+def test_instance_template_contains_task_placeholder():
+    assert "{task}" in INSTANCE_TEMPLATE
+
+
+def test_instance_template_formats_task():
+    result = INSTANCE_TEMPLATE.format(task="fix the bug")
+    assert "fix the bug" in result
+
+
+def test_instance_template_contains_workflow():
+    """Instance template should include a structured workflow."""
+    assert "Explore" in INSTANCE_TEMPLATE
+    assert "Diagnose" in INSTANCE_TEMPLATE
+    assert "Fix" in INSTANCE_TEMPLATE
+    assert "Verify" in INSTANCE_TEMPLATE
+    assert "Submit" in INSTANCE_TEMPLATE
+
+
+def test_instance_template_starts_with_task():
+    """Task should appear before the workflow steps."""
+    assert INSTANCE_TEMPLATE.startswith("## Task\n{task}")
 
 
 # --- submit tool ---
