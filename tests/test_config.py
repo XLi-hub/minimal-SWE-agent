@@ -2,6 +2,7 @@ from src.mini_agent.config import (
     BASH_TOOL,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_STEPS,
+    DEFAULT_MAX_TIME,
     DEFAULT_TIMEOUT,
     INSTANCE_TEMPLATE,
     SUBMIT_TOOL,
@@ -156,3 +157,7 @@ def test_default_max_steps_is_positive():
 
 def test_default_timeout_is_positive():
     assert DEFAULT_TIMEOUT > 0
+
+
+def test_default_max_time_is_positive():
+    assert DEFAULT_MAX_TIME > 0

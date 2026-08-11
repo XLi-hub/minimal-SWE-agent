@@ -2,11 +2,13 @@
 
 import json
 import subprocess
+import time
 
 from src.mini_agent.config import (
     BASH_TOOL,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_STEPS,
+    DEFAULT_MAX_TIME,
     DEFAULT_TIMEOUT,
     INSTANCE_TEMPLATE,
     SUBMIT_TOOL,
@@ -25,7 +27,8 @@ class Agent:
         self.model = model
         self.environment = environment
 
-    def run(self, task: str, max_steps: int = DEFAULT_MAX_STEPS) -> dict:
+    def run(self, task: str, max_steps: int = DEFAULT_MAX_STEPS,
+            max_time: float | None = DEFAULT_MAX_TIME) -> dict:
         """Run the agent loop for a given user task.
 
         Parameters
@@ -37,6 +40,10 @@ class Agent:
             (default: *DEFAULT_MAX_STEPS* = 250).  Each ``model.query()``
             call counts as one step, regardless of how many tool
             calls the model makes in that step.
+        max_time:
+            Maximum wall-clock time in seconds for the entire run
+            (default: *DEFAULT_MAX_TIME* = 1800).  Pass ``None`` to
+            disable the time limit.
 
         Returns
         -------
@@ -44,7 +51,7 @@ class Agent:
             With keys:
 
             - ``exit_status``: one of ``"submitted"``, ``"no_tool_calls"``,
-              ``"max_steps"``, ``"interrupted"``, ``"error"``
+              ``"max_steps"``, ``"max_time"``, ``"interrupted"``, ``"error"``
             - ``submission``: the final answer (empty if not submitted)
             - ``messages``: the full message history
         """
@@ -54,8 +61,12 @@ class Agent:
         ]
 
         result: dict = {"exit_status": "error", "submission": "", "messages": messages}
+        deadline = time.monotonic() + max_time if max_time is not None else None
 
         for _ in range(max_steps):
+            if deadline is not None and time.monotonic() > deadline:
+                result["exit_status"] = "max_time"
+                return result
             try:
                 response = self.model.query(
                     messages, tools=[BASH_TOOL, SUBMIT_TOOL]
@@ -221,10 +232,11 @@ def _truncate_output(output: str, max_lines: int) -> str:
 _default_agent: Agent | None = None
 
 
-def run(task: str, max_steps: int = DEFAULT_MAX_STEPS) -> dict:
+def run(task: str, max_steps: int = DEFAULT_MAX_STEPS,
+        max_time: float | None = DEFAULT_MAX_TIME) -> dict:
     global _default_agent
     if _default_agent is None:
         from src.mini_agent.model import Model            # noqa: E402
         from src.mini_agent.environments.local import LocalEnvironment  # noqa: E402
         _default_agent = Agent(Model(), LocalEnvironment())
-    return _default_agent.run(task, max_steps=max_steps)
+    return _default_agent.run(task, max_steps=max_steps, max_time=max_time)

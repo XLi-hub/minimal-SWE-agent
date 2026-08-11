@@ -547,9 +547,11 @@ def test_module_level_run_uses_default_agent():
 
     assert result["exit_status"] == "submitted"
     assert result["submission"] == "ok"
-    from src.mini_agent.config import DEFAULT_MAX_STEPS
+    from src.mini_agent.config import DEFAULT_MAX_STEPS, DEFAULT_MAX_TIME
 
-    mock_agent.run.assert_called_once_with("test task", max_steps=DEFAULT_MAX_STEPS)
+    mock_agent.run.assert_called_once_with(
+        "test task", max_steps=DEFAULT_MAX_STEPS, max_time=DEFAULT_MAX_TIME,
+    )
 
     # Clean up — reset global so other tests aren't affected
     agent_module._default_agent = None
@@ -820,3 +822,61 @@ class TestAgentTimeout:
         # Model switched from pip install to pip install --no-deps.
         second_call = env.execute.call_args_list[1][0][0]
         assert "--no-deps" in second_call
+
+
+# ---------------------------------------------------------------------------
+# max_time — wall-clock budget
+# ---------------------------------------------------------------------------
+
+
+class TestMaxTime:
+    """Agent respects the total wall-clock time budget."""
+
+    def test_max_time_exceeded_returns_early(self):
+        """max_time=0 应该立即退出。"""
+        env = MagicMock()
+        env.execute.return_value = ""
+
+        agent = Agent(MagicMock(), env)
+        result = agent.run("some task", max_steps=100, max_time=0)
+
+        assert result["exit_status"] == "max_time"
+        assert result["submission"] == ""
+
+    def test_max_time_none_disables_limit(self):
+        """max_time=None 时不检查时间。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Done.",
+                tool_calls=[
+                    _make_tool_call("c1", "submit", {"output": "all good"}),
+                ],
+            ),
+        ]
+        env = MagicMock()
+        env.execute.return_value = ""
+
+        agent = Agent(model, env)
+        result = agent.run("task", max_steps=5, max_time=None)
+
+        assert result["exit_status"] == "submitted"
+
+    def test_max_time_not_exceeded_within_budget(self):
+        """时间预算充足时正常完成。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Done.",
+                tool_calls=[
+                    _make_tool_call("c1", "submit", {"output": "done"}),
+                ],
+            ),
+        ]
+        env = MagicMock()
+        env.execute.return_value = ""
+
+        agent = Agent(model, env)
+        result = agent.run("task", max_steps=5, max_time=3600)
+
+        assert result["exit_status"] == "submitted"

@@ -15,7 +15,7 @@ Usage::
 import argparse
 
 from src.mini_agent.agent import Agent
-from src.mini_agent.config import DEFAULT_MAX_STEPS
+from src.mini_agent.config import DEFAULT_MAX_STEPS, DEFAULT_MAX_TIME
 from src.mini_agent.model import Model
 from src.mini_agent.environments import get_environment
 
@@ -40,6 +40,10 @@ def _parse_args():
         help=f"Maximum tool-calling iterations (default: {DEFAULT_MAX_STEPS})",
     )
     p.add_argument(
+        "--max-time", type=float, default=DEFAULT_MAX_TIME,
+        help=f"Maximum wall-clock time in seconds (default: {DEFAULT_MAX_TIME})",
+    )
+    p.add_argument(
         "-t", "--task", default=None,
         help="Task to run (if omitted, prompt interactively)",
     )
@@ -58,7 +62,7 @@ if __name__ == "__main__":
 
     task = args.task if args.task else input("Task: ")
     agent = Agent(Model(), env)
-    result = agent.run(task, max_steps=args.max_steps)
+    result = agent.run(task, max_steps=args.max_steps, max_time=args.max_time)
 
     print(f"\nExit status: {result['exit_status']}")
     if result["submission"]:

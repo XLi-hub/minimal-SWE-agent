@@ -131,3 +131,6 @@ DEFAULT_TIMEOUT = 30
 
 DEFAULT_MAX_STEPS = 250
 """Default maximum tool-calling iterations before the agent stops."""
+
+DEFAULT_MAX_TIME = 1800
+"""Default maximum wall-clock time (seconds) for the entire agent run."""
