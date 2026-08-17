@@ -50,6 +50,30 @@ echo 'def add(a, b): return a - b  # bug: should be +' > /tmp/buggy.py
 python main.py --task "修一下 /tmp/buggy.py 的 bug"
 ```
 
+## 配置
+
+所有可调项（模型、prompt、工具 schema、价格、环境、步数/时长/成本上限…）都外置在
+[config/default.yaml](src/mini_agent/config/default.yaml)，由四层来源合并，后写优先：
+
+```
+default.yaml  <  --config 文件/key=value  <  MINI_AGENT_* 环境变量  <  CLI 参数
+```
+
+```bash
+# 用 YAML 文件覆盖一整套配置
+python main.py --config my_config.yaml
+
+# 用点号 key=value 覆盖单个字段（可重复）
+python main.py -c agent.max_steps=50 -c agent.cost_limit=5
+
+# 用环境变量覆盖（__ 为嵌套分隔符）
+MINI_AGENT_AGENT__MAX_STEPS=500 python main.py
+```
+
+API key **绝不**进 YAML（YAML 会被 git 提交/打包）——它留在 `.env`（已 gitignore），
+YAML 里只记环境变量「名」`model.api_key_env`（默认 `DEEPSEEK_API_KEY`）。合并、优先级、
+模板渲染、校验的完整讲解见 [docs/config.md](docs/config.md)。
+
 ## 项目结构
 
 ```
@@ -58,8 +82,11 @@ src/mini_agent/
 ├── tools.py                  # 工具分发 + 输出截断 + 异常格式化
 ├── cost.py                   # 成本计算（token → USD）
 ├── context.py                # 上下文压缩（token 估算 + LLM 增量摘要）
-├── config.py                 # SYSTEM_PROMPT, BASH_TOOL, SUBMIT_TOOL 定义
 ├── model.py                  # DeepSeek API 封装（OpenAI 兼容协议）
+├── config/                   # 配置包（YAML + pydantic + 模板渲染）
+│   ├── __init__.py            #   recursive_merge / build_config / render_template
+│   ├── models.py              #   pydantic v2 模型（Config + 5 个子配置）
+│   └── default.yaml           #   权威默认值（prompt / 工具 schema / 价格 / 环境）
 └── environments/             # 执行环境（可插拔）
     ├── __init__.py            #   Environment ABC + get_environment() 工厂
     ├── local.py               #   LocalEnvironment — 本机 shell
@@ -67,10 +94,11 @@ src/mini_agent/
 
 tests/
 ├── test_agent.py               # Agent 循环 + 截断 + submit + 异常 + 轨迹 + 成本 + 压缩（60 个测试）
-├── test_config.py              # 工具 schema + system prompt + 默认值 + 定价（33 个测试）
+├── test_config.py              # 工具 schema + system prompt + 默认值 + 定价（35 个测试）
+├── test_config_loading.py      # 配置合并/优先级/渲染/校验（20 个测试）
 ├── test_cost.py                # 成本计算 compute_cost（7 个测试，全部 mock）
 ├── test_context.py             # 上下文压缩纯函数（17 个测试，全部 mock）
-├── test_model.py               # API 调用（7 个测试，全部 mock）
+├── test_model.py               # API 调用（8 个测试，全部 mock）
 ├── test_environment.py         # 本地环境（9 个测试）
 ├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
 ├── test_docker.py              # Docker 环境（10 个测试，含跳过逻辑）
@@ -118,7 +146,7 @@ result = agent.run("fix the bug")
 Agent 自动从每次模型调用的 `response.usage`（`prompt_tokens` / `completion_tokens` /
 `prompt_tokens_details.cached_tokens`）按 USD 单价累计成本，缓存命中比未命中便宜得多：
 
-- 单价定义在 [config.py](src/mini_agent/config.py)（`PRICE_INPUT_PER_1M` 等，可按需改）。
+- 单价定义在 [config/default.yaml](src/mini_agent/config/default.yaml) 的 `cost` 段（`price_input_per_1m` 等，可按需改）。
 - 累计成本写入轨迹的 `info.model_stats.instance_cost`（USD）。
 - 用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本超过就停止，`exit_status` 为 `"cost_limit"`。
 
@@ -179,7 +207,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio -m "not 
 # E2E 测试 — 真调 DeepSeek API（2 个，花钱，偶尔跑一次）
 python -m pytest tests/ -v -m e2e
 
-# 全量 — 包括 E2E（166 个测试）
+# 全量 — 包括 E2E（189 个测试）
 python -m pytest tests/ -v -p no:anyio
 
 # 只跑单元测试（跳过 Docker 集成 + E2E）
@@ -188,13 +216,14 @@ python -m pytest tests/ -v -p no:anyio -m "not e2e" -k "not test_docker_echo and
 
 Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `DEEPSEEK_API_KEY` 时自动跳过。
 
-**测试分层**：134 单元 + 30 集成（含 Docker）+ 2 E2E = 166 总计。
+**测试分层**：157 单元 + 30 集成（含 Docker）+ 2 E2E = 189 总计。
 
 ## 学习文档
 
 项目代码力求简洁，但很多设计决策值得展开：
 
 - **[架构设计](docs/architecture.md)** — 为什么分模块、依赖注入、接口设计
+- **[配置外置](docs/config.md)** — YAML / 环境变量替代硬编码，`recursive_merge` + 模板渲染 + pydantic 校验
 - **[知识点索引](docs/concepts.md)** — ABC、工厂模式、mock 测试、function calling 概念解释
 - **[工具调用演进](docs/tool-calling.md)** — 从文本解析到 OpenAI function calling
 - **[环境分流](docs/environment.md)** — 注册表模式、local vs docker、如何加新环境

@@ -1,0 +1,124 @@
+# 权威默认配置 —— 所有可调项都在这里，按需覆盖即可。
+# 优先级（低 → 高）：本文件 < --config 文件/key=value < MINI_AGENT_* 环境变量 < CLI 参数。
+# 注意：API key 不放在这里 —— 它留在 .env（已 gitignore），这里只记环境变量「名」。
+
+model:
+  model_name: deepseek-chat
+  base_url: https://api.deepseek.com
+  api_key_env: DEEPSEEK_API_KEY
+
+agent:
+  system_prompt: |
+    You are an autonomous software engineer solving tasks in a Linux environment. You have two tools:
+    - `bash`: execute a shell command and see its output.
+    - `submit`: call this when your task is complete.
+
+    ## Core rules
+
+    1. Think before you act — reason about what you need to do and why, then execute ONE bash command at a time. Never batch multiple commands in a single call.
+    2. Read before you edit — use cat, grep, ls, or find to understand the code before making changes. Guessing leads to wrong fixes.
+    3. Make the smallest change that solves the problem. Avoid unrelated refactoring, style changes, or adding unnecessary features.
+    4. If a command fails, read the error message carefully and adapt. Do not blindly retry the same thing.
+    5. Verify your work — run tests, check outputs, or use git diff to review your changes before calling submit.
+    6. When you are stuck, explore more rather than guessing. Use ls, find, grep, and git log to gather context.
+
+    ## Output limits
+
+    Command output is truncated to 100 lines by default. If you need more context, pass a higher `lines` value or use head/tail/sed to narrow down. For long-running commands like pip install or git clone, pass a higher `timeout` value (default 30s).
+
+  instance_template: |
+    ## Task
+    {{ task }}
+
+    ## Workflow
+    Follow these steps to complete the task:
+
+    1. **Explore** — understand the repository structure. Find and read the files relevant to the task.
+    2. **Diagnose** — identify the root cause. If it is a bug, create a minimal script to reproduce it before fixing.
+    3. **Fix** — make the necessary changes. Edit source files to resolve the issue.
+    4. **Verify** — confirm the fix works. Re-run your reproduction script, run existing tests, or check the output manually.
+    5. **Submit** — call the submit tool with your patch (from git diff), the final answer, or a summary of what was done.
+
+    Start now — begin with step 1 (Explore).
+
+  summary_prompt: |
+    Summarize the agent's conversation history so it can continue without the full transcript. Be concise and factual; preserve exact file paths, command names, error messages, and test results. Use these headers:
+
+    ## Task
+    ## Files Changed
+    ## Key Decisions
+    ## Errors / Test Results
+    ## Current State
+    ## Next Steps
+
+    ### Existing summary (may be empty)
+    {{ existing_summary }}
+
+    ### New history since the last summary
+    {{ new_lines }}
+
+  summary_marker: "[CONTEXT SUMMARY]"
+  context_window: 64000
+  compress_threshold: 0.8
+  reserve_tokens: 2000
+  keep_last_n_turns: 4
+  max_steps: 250
+  max_time: 1800.0
+  cost_limit: 3.0
+
+tools:
+  bash_tool:
+    type: function
+    function:
+      name: bash
+      description: Execute a bash command in the terminal and return its output. Use the optional 'lines' parameter to limit how many lines are returned (default 100). The output is truncated when it exceeds this limit — if you need more context, re-run with a higher 'lines' value or use head/tail/sed to narrow down. Use the optional 'timeout' parameter (seconds, default 30) for commands that need more time — e.g. pip install or git clone.
+      parameters:
+        type: object
+        properties:
+          command:
+            type: string
+            description: The bash command to execute.
+          lines:
+            type: integer
+            description: Maximum lines of output to return (default 100). Set higher for more context, lower to save tokens.
+          timeout:
+            type: integer
+            description: Maximum seconds to wait for the command (default 30). Set higher for slow commands like pip install, git clone, or long builds.
+        required:
+          - command
+
+  submit_tool:
+    type: function
+    function:
+      name: submit
+      description: Submit your final answer when the task is complete. Call this once you have finished all necessary work — pass your patch, answer, or summary as the output.
+      parameters:
+        type: object
+        properties:
+          output:
+            type: string
+            description: Final answer, patch, or summary of what was done.
+        required:
+          - output
+
+  default_max_lines: 100
+  default_timeout: 30
+
+cost:
+  # deepseek-chat (deepseek-v4-flash) USD 单价/百万 token（2026/07 固定价，可按需改）。
+  price_input_per_1m: 0.14
+  price_input_cache_hit_per_1m: 0.0028
+  price_output_per_1m: 0.28
+
+environment:
+  type: local
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: "-R"
+    PIP_PROGRESS_BAR: "off"
+    TQDM_DISABLE: "1"
+  image: python:3.11-slim
+  cwd: "/"
+  timeout: 30
+  container_timeout: 2h

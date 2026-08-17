@@ -16,7 +16,7 @@ Agent 循环每步都会往 ``messages`` 里追加 assistant/tool 消息，历�
 
 import json
 
-from src.mini_agent.config import KEEP_LAST_N_TURNS, SUMMARY_MARKER, SUMMARY_PROMPT
+from src.mini_agent.config import Config, UNSET, get_default_config, render_template
 
 
 def estimate_tokens(text: str) -> int:
@@ -88,20 +88,24 @@ def flatten(units: list[list[dict]]) -> str:
     return "\n".join(lines)
 
 
-def summarize(model, existing_summary: str | None, new_lines: str) -> tuple[str, object]:
+def summarize(model, existing_summary: str | None, new_lines: str,
+              config: Config | None = None) -> tuple[str, object]:
     """一次无工具的 LLM 调用，把 ``new_lines`` 折叠进 ``existing_summary``。
 
     返回 ``(summary_text, response)`` —— 连同完整 response 一起返回，调用方才能
     从 ``response.usage`` 记账（否则摘要这次 API 调用会被漏算）。
     """
-    prompt = SUMMARY_PROMPT.format(
-        existing_summary=existing_summary or "", new_lines=new_lines
+    prompt = render_template(
+        (config or get_default_config()).agent.summary_prompt,
+        existing_summary=existing_summary or "",
+        new_lines=new_lines,
     )
     response = model.query([{"role": "user", "content": prompt}])
     return response.choices[0].message.content, response
 
 
-def compress(messages, model, keep_last_n_turns=KEEP_LAST_N_TURNS) -> tuple[list[dict], object | None]:
+def compress(messages, model, keep_last_n_turns=UNSET,
+             config: Config | None = None) -> tuple[list[dict], object | None]:
     """压缩历史，返回 ``(新列表, 摘要响应)``：``[system, user(task)] + 摘要 + 最近 N 个单元``。
 
     只压缩「中间」——system prompt 和原始任务永不动，最近 ``keep_last_n_turns``
@@ -111,6 +115,11 @@ def compress(messages, model, keep_last_n_turns=KEEP_LAST_N_TURNS) -> tuple[list
     摘要响应在**没有发生摘要**时（无中间内容 / 中间只有旧摘要）为 ``None``，
     调用方据此判断是否要为这次摘要调用记账。
     """
+    agent_cfg = (config or get_default_config()).agent
+    if keep_last_n_turns is UNSET:
+        keep_last_n_turns = agent_cfg.keep_last_n_turns
+    marker = agent_cfg.summary_marker
+
     units = group_round_trips(messages)
     n = len(units)
     # system/task 永不当"尾部"；夹紧避免 keep=0 时 units[2:-0] 变成空切片，
@@ -129,16 +138,18 @@ def compress(messages, model, keep_last_n_turns=KEEP_LAST_N_TURNS) -> tuple[list
             len(unit) == 1
             and m.get("role") == "user"
             and isinstance(m.get("content"), str)
-            and m["content"].startswith(SUMMARY_MARKER)
+            and m["content"].startswith(marker)
         ):
-            existing_summary = m["content"][len(SUMMARY_MARKER) :].strip()
+            existing_summary = m["content"][len(marker) :].strip()
         else:
             to_summarize.append(unit)
     if not to_summarize:
         return list(messages), None  # 中间只有旧摘要，无新内容
 
-    summary_text, response = summarize(model, existing_summary, flatten(to_summarize))
-    summary_msg = {"role": "user", "content": f"{SUMMARY_MARKER}\n{summary_text}"}
+    summary_text, response = summarize(
+        model, existing_summary, flatten(to_summarize), config=config
+    )
+    summary_msg = {"role": "user", "content": f"{marker}\n{summary_text}"}
     return [messages[0], messages[1], summary_msg] + [
         m for unit in tail for m in unit
     ], response

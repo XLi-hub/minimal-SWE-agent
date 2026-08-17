@@ -71,7 +71,7 @@ OpenAI/DeepSeek 协议要求：每条 `assistant` 消息里的 `tool_call_id` �
 
 压缩可能发生多次。第二次压缩时，中间已经有一条旧的摘要消息。`compress()` 会：
 
-1. 识别带 `SUMMARY_MARKER` 前缀的 user 消息，剥离 marker 后当作 `existing_summary`。
+1. 识别带 `summary_marker`（默认 `[CONTEXT SUMMARY]`）前缀的 user 消息，剥离 marker 后当作 `existing_summary`。
 2. 把旧摘要**排除**出待摘要内容（避免"把摘要再摘要进自己"）。
 3. 调用 summarizer 时传入 `existing_summary + new_lines`，生成一条**新**摘要。
 
@@ -156,6 +156,7 @@ if should_compress(...):
 - 纯函数：[context.py](../src/mini_agent/context.py) — `estimate_tokens` / `count_tokens` /
   `should_compress` / `group_round_trips` / `flatten` / `summarize` / `compress`。
 - 循环钩子：[agent.py](../src/mini_agent/agent.py) 的 `run()` 循环顶部。
-- 常量：[config.py](../src/mini_agent/config.py) — `CONTEXT_WINDOW` / `COMPRESS_THRESHOLD` /
-  `RESERVE_TOKENS` / `KEEP_LAST_N_TURNS` / `SUMMARY_MARKER` / `SUMMARY_PROMPT`。
+- 常量（现为配置）：[config/default.yaml](../src/mini_agent/config/default.yaml) 的 `agent` 段 —
+  `context_window` / `compress_threshold` / `reserve_tokens` / `keep_last_n_turns` /
+  `summary_marker` / `summary_prompt`。
 - 测试：[test_context.py](../tests/test_context.py)（纯函数 17 个）+ `test_agent.py`（Agent 级 6 个）。

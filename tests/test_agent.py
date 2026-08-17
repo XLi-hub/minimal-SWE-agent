@@ -3,12 +3,15 @@ import subprocess
 from unittest.mock import MagicMock
 
 from src.mini_agent.agent import Agent
-from src.mini_agent.config import SUMMARY_MARKER
+from src.mini_agent.config import get_default_config
 from src.mini_agent.tools import (
     decode_timeout_output,
     format_assistant_message,
     truncate_output,
 )
+
+DEFAULTS = get_default_config()
+SUMMARY_MARKER = DEFAULTS.agent.summary_marker
 
 
 # --- helpers ---
@@ -559,15 +562,11 @@ def test_module_level_run_uses_default_agent():
 
     assert result["exit_status"] == "submitted"
     assert result["submission"] == "ok"
-    from src.mini_agent.config import (
-        DEFAULT_COST_LIMIT,
-        DEFAULT_MAX_STEPS,
-        DEFAULT_MAX_TIME,
-    )
 
     mock_agent.run.assert_called_once_with(
-        "test task", max_steps=DEFAULT_MAX_STEPS, max_time=DEFAULT_MAX_TIME,
-        cost_limit=DEFAULT_COST_LIMIT,
+        "test task", max_steps=DEFAULTS.agent.max_steps,
+        max_time=DEFAULTS.agent.max_time,
+        cost_limit=DEFAULTS.agent.cost_limit,
     )
 
     # Clean up — reset global so other tests aren't affected
@@ -610,13 +609,11 @@ def test_max_steps_default_is_applied_when_not_specified():
     env.execute.return_value = "output"
 
     agent = Agent(model, env)
-
-    import src.mini_agent.config as cfg
     result = agent.run("never ending task")
 
-    # Should exit with max_steps after DEFAULT_MAX_STEPS iterations
+    # Should exit with max_steps after the default max_steps iterations
     assert result["exit_status"] == "max_steps"
-    assert model.query.call_count == cfg.DEFAULT_MAX_STEPS
+    assert model.query.call_count == DEFAULTS.agent.max_steps
 
 
 # --- timeout forwarding ---
@@ -636,11 +633,10 @@ def test_default_timeout_passed_to_execute():
     env.execute.return_value = "output"
 
     agent = Agent(model, env)
-    from src.mini_agent.config import DEFAULT_TIMEOUT
 
     agent.run("list files", max_steps=5)
 
-    env.execute.assert_called_once_with("ls", timeout=DEFAULT_TIMEOUT)
+    env.execute.assert_called_once_with("ls", timeout=DEFAULTS.tools.default_timeout)
 
 
 def test_custom_timeout_from_tool_call():

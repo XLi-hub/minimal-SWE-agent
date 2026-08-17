@@ -7,7 +7,7 @@ orchestration, while tool-specific logic lives in its own module.
 import json
 import subprocess
 
-from src.mini_agent.config import DEFAULT_MAX_LINES, DEFAULT_TIMEOUT
+from src.mini_agent.config import Config, get_default_config
 
 
 # ---------------------------------------------------------------------------
@@ -15,7 +15,8 @@ from src.mini_agent.config import DEFAULT_MAX_LINES, DEFAULT_TIMEOUT
 # ---------------------------------------------------------------------------
 
 
-def execute_tool_call(tc, messages: list[dict], result: dict, environment) -> bool:
+def execute_tool_call(tc, messages: list[dict], result: dict, environment,
+                      config: Config | None = None) -> bool:
     """Execute a single tool call and update *messages* in place.
 
     Parameters
@@ -29,6 +30,9 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment) -> bo
         The run result dict (mutated in place for ``submit``).
     environment:
         An execution environment with ``.execute(command, timeout) -> str``.
+    config:
+        Optional :class:`Config` — supplies ``default_max_lines`` /
+        ``default_timeout`` when the model omits them.
 
     Returns
     -------
@@ -38,6 +42,7 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment) -> bo
     """
     name = tc.function.name
     args = json.loads(tc.function.arguments)
+    tool_defaults = (config or get_default_config()).tools
 
     if name == "submit":
         submission = args.get("output", "")
@@ -53,8 +58,8 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment) -> bo
 
     if name == "bash":
         command = args["command"]
-        max_lines = args.get("lines", DEFAULT_MAX_LINES)
-        timeout = args.get("timeout", DEFAULT_TIMEOUT)
+        max_lines = args.get("lines", tool_defaults.default_max_lines)
+        timeout = args.get("timeout", tool_defaults.default_timeout)
         print("Action:", command)
 
         try:

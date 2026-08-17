@@ -95,7 +95,7 @@ python main.py                            # local
 python main.py --env docker --image ...   # docker
 ```
 
-`main.py` 里解析 `--env` 参数，传给 `get_environment()`。和参考项目 mini-swe-agent 的思路一样——配置决定用哪个实现，Agent 代码不变。
+`main.py` 里解析 `--env` 参数，把它映射成配置里的 `environment.type`，再传给 `get_environment()`。环境相关的默认值（`type`、`image`、`cwd`、`timeout`）都在 [config/default.yaml](../src/mini_agent/config/default.yaml) 的 `environment` 段。和参考项目 mini-swe-agent 的思路一样——配置决定用哪个实现，Agent 代码不变。
 
 ## 参考项目的做法
 

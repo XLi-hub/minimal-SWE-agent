@@ -153,7 +153,7 @@ response = client.chat.completions.create(
 | 提取命令 | 正则 `re.findall` | `response.choices[0].message.tool_calls` |
 | 可靠性 | 模型可能不按格式写 | 100% 准确（模型被训练来遵守 schema） |
 
-**在本项目中**：[config.py](../src/mini_agent/config.py) 定义工具，[agent.py](../src/mini_agent/agent.py) 处理调用。
+**在本项目中**：工具 schema 定义在 [config/default.yaml](../src/mini_agent/config/default.yaml) 的 `tools` 段（`bash_tool` / `submit_tool`），[agent.py](../src/mini_agent/agent.py) 处理调用。
 
 ---
 
@@ -297,7 +297,44 @@ Config(max_steps="not a number")  # ❌ ValidationError
 
 **mini-swe-agent 为什么用 pydantic**：有几十个配置项（模型名、API key、超时、成本上限、镜像名、环境变量…），YAML 配置文件的字段全靠 pydantic 校验——用户写错了当场知道，而不是跑到深层代码时才炸。
 
-**本项目为什么不用**：配置项太少（image、cwd、max_steps 三个），argparse + kwargs 够用。**如果你以后给项目加更多配置项（超过 10 个），就该换上去了**。
+**本项目现在也用**：配置外置到 YAML 后，配置项从 3 个涨到 ~25 个（模型、prompt、工具 schema、压缩参数、价格、环境…），argparse + kwargs 扛不住了——于是换成和参考项目同款的 **pydantic v2**。`build_config()` 合并完各来源后，最后一步 `Config.model_validate(...)` 一次性校验所有字段。详见 [config.md](config.md#4-pydantic-v2-校验)。
+
+---
+
+## recursive_merge（递归合并）+ UNSET 哨兵
+
+把多个 dict **递归**合并成一个，后写的赢。和 `{**a, **b}` 的区别在于：嵌套 dict 是逐层合并，而不是整层替换。
+
+```python
+# 普通合并：a 的 "agent" 整层被 b 覆盖，max_steps 之外的字段全丢
+{**{"agent": {"max_steps": 250, "cost_limit": 3.0}}, **{"agent": {"max_steps": 50}}}
+# → {"agent": {"max_steps": 50}}          # cost_limit 没了！
+
+# 递归合并：只覆盖 max_steps，cost_limit 保留
+recursive_merge({"agent": {"max_steps": 250, "cost_limit": 3.0}},
+                {"agent": {"max_steps": 50}})
+# → {"agent": {"max_steps": 50, "cost_limit": 3.0}}
+```
+
+配套的 `UNSET = object()` 哨兵解决「**未指定**」和「**合法的 None**」的冲突——CLI 里没传的参数用 `UNSET` 占位，合并时跳过，不覆盖下层已有值；而 `max_time=None`（关闭限制）是真实值，照常合并。
+
+**在本项目中**：[config/__init__.py](../src/mini_agent/config/__init__.py) 的 `recursive_merge` / `UNSET` / `build_config`，是「default.yaml < --config < 环境变量 < CLI」优先级链的基石。详见 [config.md](config.md#2-recursive_merge--unset优先级链的基石)。
+
+---
+
+## Jinja2 模板渲染
+
+在字符串里留 `{{ 变量 }}` 占位符，运行时填充。和 `str.format()` 的最大区别：`StrictUndefined` 让「引用了不存在的变量」**当场报错**，而不是静默渲染成空串。
+
+```python
+from jinja2 import Template, StrictUndefined
+
+tpl = Template("## Task\n{{ task }}", undefined=StrictUndefined)
+tpl.render(task="修一下 bug")   # "## Task\n修一下 bug"
+tpl.render()                    # UndefinedError: 'task' is undefined
+```
+
+**在本项目中**：`agent.instance_template` / `agent.summary_prompt` 都存在 [default.yaml](../src/mini_agent/config/default.yaml) 里，运行时由 [render_template](../src/mini_agent/config/__init__.py) 渲染。详见 [config.md](config.md#3-jinja2-模板渲染-vs-format)。
 
 ---
 
@@ -324,7 +361,7 @@ agent = Agent(model, env)                    # Agent 不知道是假的
 
 特点：**最快（毫秒级）、最便宜（0 元）、数量最多**。
 
-**在本项目中**：test_agent.py（mock Model + Environment）、test_config.py（纯数据验证）、test_model.py（mock httpx）、test_cost.py（mock usage 对象，验证 token → USD 换算）
+**在本项目中**：test_agent.py（mock Model + Environment）、test_config.py（YAML 与 pydantic 默认一致）、test_config_loading.py（合并/优先级/渲染/校验）、test_model.py（mock httpx）、test_cost.py（mock usage 对象，验证 token → USD 换算）
 
 ---
 
@@ -368,7 +405,7 @@ def test_simple_echo_task():
 
 特点：**最慢（秒~分钟）、花钱（调 API 要按 token 计费）、数量最少**。
 
-**为什么 E2E 只需要 2 个（日常 141 个）**：单元测试和集成测试已经把逻辑验证完了，E2E 只回答一个问题——"模型真的理解我们的 tool schema 吗？真的会调 bash 和 submit 吗？"这是 mock 永远验证不了的。
+**为什么 E2E 只需要 2 个（日常 187 个）**：单元测试和集成测试已经把逻辑验证完了，E2E 只回答一个问题——"模型真的理解我们的 tool schema 吗？真的会调 bash 和 submit 吗？"这是 mock 永远验证不了的。
 
 **在本项目中**：test_e2e.py（2 个，默认跳过，手动 `-m e2e` 才跑）
 
@@ -416,10 +453,10 @@ assert "disk full" in result["messages"][-2]["content"]
       ╱       ╲
      ╱ 集成    ╲       集成测试       30 个   中级     "两个模块配合对了吗?"
     ╱           ╲
-   ╱  单元测试   ╲     单元测试       111 个  快/免费  "每个函数行为对吗?"
+   ╱  单元测试   ╲     单元测试       157 个  快/免费  "每个函数行为对吗?"
   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 ```
 
 金字塔倒过来就是灾难——E2E 最多、单元测试最少。那样的测试又慢又贵，没人愿意跑，最后就没人跑了。
 
-**在本项目中**：143 个测试，111 单元 + 30 集成 + 2 E2E，符合金字塔比例。
+**在本项目中**：189 个测试，157 单元 + 30 集成 + 2 E2E，符合金字塔比例。

@@ -4,27 +4,35 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
+from src.mini_agent.config import ModelConfig, get_default_config
+
 load_dotenv()  # 从项目根目录 .env 加载环境变量
 
 
 class Model:
-    """DeepSeek 语言模型适配器。"""
+    """DeepSeek 语言模型适配器。
 
-    def __init__(self) -> None:
+    ``config`` 为可选的 :class:`ModelConfig`；缺省时用 ``default.yaml``
+    里的默认值（模型名 / base_url / api_key 环境变量名）。
+    """
+
+    def __init__(self, config: ModelConfig | None = None) -> None:
         """延迟创建客户端，绕过 httpx 自动读取 ALL_PROXY 的问题。
 
         httpx 自动扫所有 *_PROXY 环境变量，但 Clash 设的
         ALL_PROXY=socks://... 是不合法的 scheme，直接 ValueError。
         解决：显式传 http_client，只用 HTTP_PROXY，不碰 ALL_PROXY。
         """
+        self.config = config or get_default_config().model
+
         import httpx
 
         http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
         http_client = httpx.Client(proxy=http_proxy) if http_proxy else None
 
         self._client = OpenAI(
-            api_key=os.environ["DEEPSEEK_API_KEY"],
-            base_url="https://api.deepseek.com",
+            api_key=os.environ[self.config.api_key_env],
+            base_url=self.config.base_url,
             http_client=http_client,
         )
 
@@ -39,7 +47,7 @@ class Model:
         if tools:
             kwargs["tools"] = tools
         return self._client.chat.completions.create(
-            model="deepseek-chat",
+            model=self.config.model_name,
             messages=messages,
             **kwargs,
         )

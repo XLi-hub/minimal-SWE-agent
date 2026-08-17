@@ -36,17 +36,18 @@ finally:
 ## 模块职责
 
 ```
-main.py                          # 入口：组装零件 + CLI 参数解析
+main.py                          # 入口：组装零件 + CLI 参数解析 + 合并配置
   │
-Agent(model, env)                # 循环逻辑：什么时候查模型、什么时候执行
-  │           │
-Model        Environment (ABC)   # 接口：只定义方法签名，不关心实现
+Agent(model, env, config)        # 循环逻辑：什么时候查模型、什么时候执行
+  │           │           │
+Model        Environment  Config  # 接口 + 配置：只定义方法签名 / 只描述数据
 .query()     .execute()
   │           │
 DeepSeek     Local / Docker      # 实现：具体的 API 调用 / shell 执行
 
-cost.py                          # 纯函数 compute_cost(response) → USD（只依赖 config，不碰 Model/Env）
-context.py                       # 纯函数 token 估算 + LLM 摘要（只依赖 config，不碰 Model/Env）
+cost.py                          # 纯函数 compute_cost(response, config) → USD（只依赖 config 包）
+context.py                       # 纯函数 token 估算 + LLM 摘要（只依赖 config 包）
+config/                          # 配置包：YAML 加载 + recursive_merge + pydantic 校验 + Jinja2 渲染
 ```
 
 ### 为什么分模块而不是一个文件
@@ -142,9 +143,9 @@ agent.run("fix the bug", output="run.traj.json")   # 结束后生成 run.traj.js
 ### 成本（cost）
 
 成本不靠外部库，直接用模型返回的 `response.usage`（`prompt_tokens` / `completion_tokens` /
-`prompt_tokens_details.cached_tokens`）× 每百万 token 单价（USD）累加。单价是
-[config.py](../src/mini_agent/config.py) 里的常量，[cost.py](../src/mini_agent/cost.py)
-的 `compute_cost()` 负责算单次调用，缓存命中比未命中便宜一个数量级：
+`prompt_tokens_details.cached_tokens`）× 每百万 token 单价（USD）累加。单价定义在
+[config/default.yaml](../src/mini_agent/config/default.yaml) 的 `cost` 段（`price_input_per_1m`
+等），[cost.py](../src/mini_agent/cost.py) 的 `compute_cost()` 负责算单次调用，缓存命中比未命中便宜一个数量级：
 
 ```python
 # 100 万输入 token，其中 50 万命中缓存，无输出
@@ -155,20 +156,20 @@ compute_cost(response)  # ≈ 0.14 * 0.5 + 0.0028 * 0.5 = 0.0714 USD
 在累计成本超过阈值后停止，`exit_status` 记为 `"cost_limit"`。三者一起保证单次运行的
 步数、时长、花费都有上限。
 
-`compute_cost` 独立成 `cost.py`（只依赖 config）而不是塞进 `model.py`，是为了不破坏
+`compute_cost` 独立成 `cost.py`（只依赖 config 包）而不是塞进 `model.py`，是为了不破坏
 `agent.py` 的延迟 import model 约定——`model.py` 在模块级 import openai + 执行
 load_dotenv，agent 不想在 import 时就被迫加载它们。
 
 ## 参考：mini-swe-agent 怎么做的
 
-参考项目用了完全一样的架构（Agent / Model / Environment 三件套），但多了一层配置系统：
+参考项目用了完全一样的架构（Agent / Model / Environment 三件套），配置系统也是同款流程：
 
 ```
 mini-swe-agent:
     main.py → 读 YAML 配置 → get_model(config) → get_environment(config) → get_agent(...)
 
-我们的项目:
-    main.py → argparse 解析 → get_environment(name) → Agent(Model(), env)
+我们的项目（现已对齐）:
+    main.py → build_config(文件/环境变量/CLI) → get_environment(type, config) → Agent(Model(config.model), env, config)
 ```
 
-参考项目用 YAML + pydantic 做配置校验，我们目前用 argparse + kwargs。本质一样——都是依赖注入的不同写法。
+两者都用 **YAML + pydantic 校验 + recursive_merge** 做配置，本质一样——都是依赖注入的另一种写法：不再在 `main.py` 里逐个 `argparse` 值插进构造函数，而是先把所有来源合并成一个 `Config`，再把它作为第三个依赖（和 Model、Environment 并列）注入各组件。详见 [config.md](config.md)。

@@ -1,186 +1,192 @@
-from src.mini_agent.config import (
-    BASH_TOOL,
-    DEFAULT_COST_LIMIT,
-    DEFAULT_MAX_LINES,
-    DEFAULT_MAX_STEPS,
-    DEFAULT_MAX_TIME,
-    DEFAULT_TIMEOUT,
-    INSTANCE_TEMPLATE,
-    PRICE_INPUT_CACHE_HIT_PER_1M,
-    PRICE_INPUT_PER_1M,
-    PRICE_OUTPUT_PER_1M,
-    SUBMIT_TOOL,
-    SYSTEM_PROMPT,
-)
+"""Tests for the default configuration (``default.yaml`` + pydantic models)."""
+
+from src.mini_agent.config import get_default_config, render_template
+
+cfg = get_default_config()  # 权威默认值，来自 default.yaml
 
 
 # --- tool schema ---
 
 def test_bash_tool_has_correct_type():
-    assert BASH_TOOL["type"] == "function"
+    assert cfg.tools.bash_tool["type"] == "function"
 
 
 def test_bash_tool_has_name():
-    assert BASH_TOOL["function"]["name"] == "bash"
+    assert cfg.tools.bash_tool["function"]["name"] == "bash"
 
 
 def test_bash_tool_has_description():
-    assert len(BASH_TOOL["function"]["description"]) > 0
+    assert len(cfg.tools.bash_tool["function"]["description"]) > 0
 
 
 def test_bash_tool_requires_only_command():
-    assert BASH_TOOL["function"]["parameters"]["required"] == ["command"]
+    assert cfg.tools.bash_tool["function"]["parameters"]["required"] == ["command"]
 
 
 def test_bash_tool_command_is_string():
-    props = BASH_TOOL["function"]["parameters"]["properties"]
+    props = cfg.tools.bash_tool["function"]["parameters"]["properties"]
     assert props["command"]["type"] == "string"
 
 
 def test_bash_tool_lines_is_integer():
-    props = BASH_TOOL["function"]["parameters"]["properties"]
+    props = cfg.tools.bash_tool["function"]["parameters"]["properties"]
     assert "lines" in props
     assert props["lines"]["type"] == "integer"
 
 
 def test_bash_tool_lines_is_not_required():
     """lines 是可选参数。"""
-    required = BASH_TOOL["function"]["parameters"]["required"]
+    required = cfg.tools.bash_tool["function"]["parameters"]["required"]
     assert "lines" not in required
 
 
 def test_bash_tool_timeout_is_integer():
     """timeout 参数类型应为 integer。"""
-    props = BASH_TOOL["function"]["parameters"]["properties"]
+    props = cfg.tools.bash_tool["function"]["parameters"]["properties"]
     assert "timeout" in props
     assert props["timeout"]["type"] == "integer"
 
 
 def test_bash_tool_timeout_is_not_required():
     """timeout 是可选参数。"""
-    required = BASH_TOOL["function"]["parameters"]["required"]
+    required = cfg.tools.bash_tool["function"]["parameters"]["required"]
     assert "timeout" not in required
 
 
 # --- system prompt ---
 
 def test_system_prompt_mentions_bash_tool():
-    assert "bash" in SYSTEM_PROMPT.lower()
+    assert "bash" in cfg.agent.system_prompt.lower()
 
 
 def test_system_prompt_mentions_submit():
-    assert "submit" in SYSTEM_PROMPT.lower()
+    assert "submit" in cfg.agent.system_prompt.lower()
 
 
 def test_system_prompt_defines_role():
     """System prompt should give the model a clear expert identity."""
-    assert "software engineer" in SYSTEM_PROMPT.lower()
+    assert "software engineer" in cfg.agent.system_prompt.lower()
 
 
 def test_system_prompt_requires_one_command_at_a_time():
     """Single-action discipline: ONE command per turn."""
-    assert "one" in SYSTEM_PROMPT.lower() and "command" in SYSTEM_PROMPT.lower()
+    assert "one" in cfg.agent.system_prompt.lower() and "command" in cfg.agent.system_prompt.lower()
 
 
 def test_system_prompt_emphasizes_read_before_edit():
     """Read before you edit — avoids blind changes."""
-    assert "read before you edit" in SYSTEM_PROMPT.lower()
+    assert "read before you edit" in cfg.agent.system_prompt.lower()
 
 
 def test_system_prompt_emphasizes_smallest_change():
     """Minimal-change principle."""
-    assert "smallest change" in SYSTEM_PROMPT.lower()
+    assert "smallest change" in cfg.agent.system_prompt.lower()
 
 
 def test_system_prompt_guides_error_recovery():
     """Don't blindly retry — read errors and adapt."""
-    prompt_lower = SYSTEM_PROMPT.lower()
+    prompt_lower = cfg.agent.system_prompt.lower()
     assert "fail" in prompt_lower or "error" in prompt_lower
 
 
 def test_system_prompt_requires_verify_before_submit():
     """Verification gate: test or check before calling submit."""
-    assert "verify" in SYSTEM_PROMPT.lower()
+    assert "verify" in cfg.agent.system_prompt.lower()
 
 
 # --- instance template ---
 
 def test_instance_template_contains_task_placeholder():
-    assert "{task}" in INSTANCE_TEMPLATE
+    assert "{{ task }}" in cfg.agent.instance_template
 
 
 def test_instance_template_formats_task():
-    result = INSTANCE_TEMPLATE.format(task="fix the bug")
+    result = render_template(cfg.agent.instance_template, task="fix the bug")
     assert "fix the bug" in result
 
 
 def test_instance_template_contains_workflow():
     """Instance template should include a structured workflow."""
-    assert "Explore" in INSTANCE_TEMPLATE
-    assert "Diagnose" in INSTANCE_TEMPLATE
-    assert "Fix" in INSTANCE_TEMPLATE
-    assert "Verify" in INSTANCE_TEMPLATE
-    assert "Submit" in INSTANCE_TEMPLATE
+    assert "Explore" in cfg.agent.instance_template
+    assert "Diagnose" in cfg.agent.instance_template
+    assert "Fix" in cfg.agent.instance_template
+    assert "Verify" in cfg.agent.instance_template
+    assert "Submit" in cfg.agent.instance_template
 
 
 def test_instance_template_starts_with_task():
     """Task should appear before the workflow steps."""
-    assert INSTANCE_TEMPLATE.startswith("## Task\n{task}")
+    assert cfg.agent.instance_template.startswith("## Task\n")
 
 
 # --- submit tool ---
 
 
 def test_submit_tool_has_correct_type():
-    assert SUBMIT_TOOL["type"] == "function"
+    assert cfg.tools.submit_tool["type"] == "function"
 
 
 def test_submit_tool_has_name():
-    assert SUBMIT_TOOL["function"]["name"] == "submit"
+    assert cfg.tools.submit_tool["function"]["name"] == "submit"
 
 
 def test_submit_tool_has_output_param():
-    props = SUBMIT_TOOL["function"]["parameters"]["properties"]
+    props = cfg.tools.submit_tool["function"]["parameters"]["properties"]
     assert "output" in props
     assert props["output"]["type"] == "string"
 
 
 def test_submit_tool_requires_output():
-    assert SUBMIT_TOOL["function"]["parameters"]["required"] == ["output"]
+    assert cfg.tools.submit_tool["function"]["parameters"]["required"] == ["output"]
+
+
+# --- summary prompt (Jinja2 template) ---
+
+def test_summary_prompt_has_placeholders():
+    assert "{{ existing_summary }}" in cfg.agent.summary_prompt
+    assert "{{ new_lines }}" in cfg.agent.summary_prompt
+
+
+def test_summary_prompt_renders():
+    rendered = render_template(
+        cfg.agent.summary_prompt, existing_summary="OLD", new_lines="NEW"
+    )
+    assert "OLD" in rendered
+    assert "NEW" in rendered
 
 
 # --- defaults ---
 
 def test_default_max_lines_is_positive():
-    assert DEFAULT_MAX_LINES > 0
+    assert cfg.tools.default_max_lines > 0
 
 
 def test_default_max_steps_is_positive():
-    assert DEFAULT_MAX_STEPS > 0
+    assert cfg.agent.max_steps > 0
 
 
 def test_default_timeout_is_positive():
-    assert DEFAULT_TIMEOUT > 0
+    assert cfg.tools.default_timeout > 0
 
 
 def test_default_max_time_is_positive():
-    assert DEFAULT_MAX_TIME > 0
+    assert cfg.agent.max_time > 0
 
 
 # --- cost tracking ---
 
 def test_default_cost_limit_is_positive():
-    assert DEFAULT_COST_LIMIT > 0
+    assert cfg.agent.cost_limit > 0
 
 
 def test_input_prices_are_positive():
-    assert PRICE_INPUT_PER_1M > 0
-    assert PRICE_INPUT_CACHE_HIT_PER_1M > 0
+    assert cfg.cost.price_input_per_1m > 0
+    assert cfg.cost.price_input_cache_hit_per_1m > 0
 
 
 def test_output_price_is_positive():
-    assert PRICE_OUTPUT_PER_1M > 0
+    assert cfg.cost.price_output_per_1m > 0
 
 
 def test_cache_hit_is_cheaper_than_miss():
-    assert PRICE_INPUT_CACHE_HIT_PER_1M < PRICE_INPUT_PER_1M
+    assert cfg.cost.price_input_cache_hit_per_1m < cfg.cost.price_input_per_1m

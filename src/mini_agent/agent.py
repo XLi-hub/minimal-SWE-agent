@@ -4,19 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from src.mini_agent.config import (
-    BASH_TOOL,
-    COMPRESS_THRESHOLD,
-    CONTEXT_WINDOW,
-    DEFAULT_COST_LIMIT,
-    DEFAULT_MAX_STEPS,
-    DEFAULT_MAX_TIME,
-    INSTANCE_TEMPLATE,
-    KEEP_LAST_N_TURNS,
-    RESERVE_TOKENS,
-    SUBMIT_TOOL,
-    SYSTEM_PROMPT,
-)
+from src.mini_agent.config import Config, UNSET, get_default_config, render_template
 from src.mini_agent.context import compress, should_compress
 from src.mini_agent.cost import compute_cost
 from src.mini_agent.tools import execute_tool_call, format_assistant_message
@@ -27,19 +15,33 @@ class Agent:
 
     model 需提供 .query(messages, tools=None) → OpenAI response.
     environment 需提供 .execute(command, timeout=30) → str.
+
+    ``config`` 为可选的 :class:`Config`；缺省时用 ``default.yaml``。其余
+    关键字参数用于按次覆盖个别配置项（``UNSET`` 哨兵表示「未指定，读配置」）。
     """
 
     def __init__(self, model, environment,
-                 context_window=CONTEXT_WINDOW,
-                 compress_threshold=COMPRESS_THRESHOLD,
-                 reserve_tokens=RESERVE_TOKENS,
-                 keep_last_n_turns=KEEP_LAST_N_TURNS):
+                 config: Config | None = None,
+                 context_window=UNSET,
+                 compress_threshold=UNSET,
+                 reserve_tokens=UNSET,
+                 keep_last_n_turns=UNSET):
+        self.config = config or get_default_config()
+        agent_cfg = self.config.agent
         self.model = model
         self.environment = environment
-        self.context_window = context_window
-        self.compress_threshold = compress_threshold
-        self.reserve_tokens = reserve_tokens
-        self.keep_last_n_turns = keep_last_n_turns
+        self.context_window = (
+            agent_cfg.context_window if context_window is UNSET else context_window
+        )
+        self.compress_threshold = (
+            agent_cfg.compress_threshold if compress_threshold is UNSET else compress_threshold
+        )
+        self.reserve_tokens = (
+            agent_cfg.reserve_tokens if reserve_tokens is UNSET else reserve_tokens
+        )
+        self.keep_last_n_turns = (
+            agent_cfg.keep_last_n_turns if keep_last_n_turns is UNSET else keep_last_n_turns
+        )
         # Trajectory state — reset and updated by run().
         self.messages: list[dict] = []
         self.n_calls = 0
@@ -48,10 +50,10 @@ class Agent:
         self.exit_status = ""
         self.submission = ""
 
-    def run(self, task: str, max_steps: int = DEFAULT_MAX_STEPS,
-            max_time: float | None = DEFAULT_MAX_TIME,
+    def run(self, task: str, max_steps=UNSET,
+            max_time=UNSET,
             output: str | Path | None = None,
-            cost_limit: float | None = DEFAULT_COST_LIMIT) -> dict:
+            cost_limit=UNSET) -> dict:
         """Run the agent loop for a given user task.
 
         Parameters
@@ -60,20 +62,20 @@ class Agent:
             The user's task description.
         max_steps:
             Maximum tool-calling iterations before the agent stops
-            (default: *DEFAULT_MAX_STEPS* = 250).  Each ``model.query()``
-            call counts as one step, regardless of how many tool
-            calls the model makes in that step.
+            (default: ``config.agent.max_steps`` = 250).  Each
+            ``model.query()`` call counts as one step, regardless of how
+            many tool calls the model makes in that step.
         max_time:
             Maximum wall-clock time in seconds for the entire run
-            (default: *DEFAULT_MAX_TIME* = 1800).  Pass ``None`` to
+            (default: ``config.agent.max_time`` = 1800).  Pass ``None`` to
             disable the time limit.
         output:
             Optional path (``.traj.json``) to save the trajectory to when
             the run finishes.  Pass ``None`` (default) to skip saving.
         cost_limit:
             Maximum accumulated cost in USD before the agent stops
-            (default: *DEFAULT_COST_LIMIT* = 3.0).  Pass ``0`` or ``None``
-            to disable the limit.
+            (default: ``config.agent.cost_limit`` = 3.0).  Pass ``0`` or
+            ``None`` to disable the limit.
 
         Returns
         -------
@@ -86,9 +88,19 @@ class Agent:
             - ``submission``: the final answer (empty if not submitted)
             - ``messages``: the full message history
         """
+        agent_cfg = self.config.agent
+        if max_steps is UNSET:
+            max_steps = agent_cfg.max_steps
+        if max_time is UNSET:
+            max_time = agent_cfg.max_time
+        if cost_limit is UNSET:
+            cost_limit = agent_cfg.cost_limit
+
+        tools = [self.config.tools.bash_tool, self.config.tools.submit_tool]
+
         self.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": INSTANCE_TEMPLATE.format(task=task)},
+            {"role": "system", "content": agent_cfg.system_prompt},
+            {"role": "user", "content": render_template(agent_cfg.instance_template, task=task)},
         ]
         self.n_calls = 0
         self.cost = 0.0
@@ -109,19 +121,20 @@ class Agent:
                     result["exit_status"] = "cost_limit"
                     return result
                 if should_compress(
-                    messages, [BASH_TOOL, SUBMIT_TOOL],
+                    messages, tools,
                     self.context_window, self.compress_threshold,
                     self.reserve_tokens,
                 ):
                     try:
                         compressed, summary_response = compress(
-                            messages, self.model, self.keep_last_n_turns
+                            messages, self.model, self.keep_last_n_turns,
+                            config=self.config,
                         )
                         # 摘要也是一次真实 API 调用 —— 计入调用次数与成本，
                         # 否则 model_stats 会漏算摘要那次的 token 用量。
                         if summary_response is not None:
                             self.n_calls += 1
-                            self.cost += compute_cost(summary_response)
+                            self.cost += compute_cost(summary_response, self.config)
                         # 就地切片赋值：messages / self.messages / result["messages"]
                         # 是同一个 list 对象，切片赋值让三者保持一致（重绑定是隐蔽 bug）。
                         messages[:] = compressed
@@ -129,10 +142,8 @@ class Agent:
                         pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
                 try:
                     self.n_calls += 1
-                    response = self.model.query(
-                        messages, tools=[BASH_TOOL, SUBMIT_TOOL]
-                    )
-                    self.cost += compute_cost(response)
+                    response = self.model.query(messages, tools=tools)
+                    self.cost += compute_cost(response, self.config)
                     choice = response.choices[0]
                     msg = choice.message
 
@@ -150,7 +161,9 @@ class Agent:
                     messages.append(format_assistant_message(msg))
 
                     for tc in msg.tool_calls:
-                        if execute_tool_call(tc, messages, result, self.environment):
+                        if execute_tool_call(
+                            tc, messages, result, self.environment, config=self.config
+                        ):
                             return result
 
                 except KeyboardInterrupt:
@@ -217,14 +230,23 @@ class Agent:
 _default_agent: Agent | None = None
 
 
-def run(task: str, max_steps: int = DEFAULT_MAX_STEPS,
-        max_time: float | None = DEFAULT_MAX_TIME,
-        cost_limit: float | None = DEFAULT_COST_LIMIT) -> dict:
+def run(task: str, max_steps=UNSET,
+        max_time=UNSET,
+        cost_limit=UNSET) -> dict:
+    """Convenience wrapper around the default ``Agent``.
+
+    ``UNSET`` arguments fall back to the default config's ``agent`` values,
+    so ``run("fix the bug")`` behaves exactly like the old module-level API.
+    """
     global _default_agent
     if _default_agent is None:
         from src.mini_agent.model import Model            # noqa: E402
         from src.mini_agent.environments.local import LocalEnvironment  # noqa: E402
         _default_agent = Agent(Model(), LocalEnvironment())
+    agent_cfg = get_default_config().agent
     return _default_agent.run(
-        task, max_steps=max_steps, max_time=max_time, cost_limit=cost_limit,
+        task,
+        max_steps=agent_cfg.max_steps if max_steps is UNSET else max_steps,
+        max_time=agent_cfg.max_time if max_time is UNSET else max_time,
+        cost_limit=agent_cfg.cost_limit if cost_limit is UNSET else cost_limit,
     )

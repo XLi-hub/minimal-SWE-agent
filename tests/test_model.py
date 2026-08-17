@@ -97,6 +97,17 @@ def test_query_uses_deepseek_chat_model(mock_openai):
     assert kwargs["model"] == "deepseek-chat"
 
 
+def test_query_uses_custom_model_name(mock_openai):
+    """传入 ModelConfig 可覆盖模型名（外置配置的核心）。"""
+    from src.mini_agent.config import ModelConfig
+
+    model = Model(ModelConfig(model_name="other-model"))
+    model.query([{"role": "user", "content": "ping"}])
+
+    kwargs = mock_openai.chat.completions.create.call_args.kwargs
+    assert kwargs["model"] == "other-model"
+
+
 # ---------------------------------------------------------------------------
 # query_lm 便捷函数测试
 # ---------------------------------------------------------------------------

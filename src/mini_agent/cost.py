@@ -6,21 +6,22 @@ cache hits — ``usage.prompt_tokens_details.cached_tokens``).  We turn those
 into a USD figure using the per-1M-token prices defined in ``config``.
 """
 
-from src.mini_agent.config import (
-    PRICE_INPUT_CACHE_HIT_PER_1M,
-    PRICE_INPUT_PER_1M,
-    PRICE_OUTPUT_PER_1M,
-)
+from src.mini_agent.config import Config, get_default_config
 
 
-def compute_cost(response) -> float:
+def compute_cost(response, config: Config | None = None) -> float:
     """Return the USD cost of a model response, or ``0.0`` when unknown.
 
     The cost is split by cache hit vs. miss on the input side: cached
     input tokens are much cheaper than fresh ones.  Any missing or
     non-numeric usage field (e.g. a mock without ``.usage``) yields
     ``0.0`` so callers can accumulate unconditionally.
+
+    ``config`` is optional — when omitted the prices from ``default.yaml``
+    are used.
     """
+    prices = (config or get_default_config()).cost
+
     usage = getattr(response, "usage", None)
     if usage is None:
         return 0.0
@@ -38,8 +39,8 @@ def compute_cost(response) -> float:
 
     miss = prompt - cached
     cost = (
-        miss / 1e6 * PRICE_INPUT_PER_1M
-        + cached / 1e6 * PRICE_INPUT_CACHE_HIT_PER_1M
-        + completion / 1e6 * PRICE_OUTPUT_PER_1M
+        miss / 1e6 * prices.price_input_per_1m
+        + cached / 1e6 * prices.price_input_cache_hit_per_1m
+        + completion / 1e6 * prices.price_output_per_1m
     )
     return round(cost, 8)

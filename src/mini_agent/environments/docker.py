@@ -3,6 +3,7 @@
 import subprocess
 import uuid
 
+from src.mini_agent.config import EnvironmentConfig, get_default_config
 from src.mini_agent.environments import Environment
 
 
@@ -28,18 +29,23 @@ class DockerEnvironment(Environment):
 
     def __init__(
         self,
-        image: str,
+        image: str | None = None,
         *,
-        cwd: str = "/",
+        config: EnvironmentConfig | None = None,
+        cwd: str | None = None,
         env: dict[str, str] | None = None,
-        timeout: int = 30,
-        container_timeout: str = "2h",
+        timeout: int | None = None,
+        container_timeout: str | None = None,
     ):
-        self._image = image
-        self._cwd = cwd
-        self._env = dict(env) if env else {}
-        self._timeout = timeout
-        self._container_timeout = container_timeout
+        # 显式参数优先，否则回落到 default.yaml 里的 environment 配置。
+        cfg = config or get_default_config().environment
+        self._image = image if image is not None else cfg.image
+        self._cwd = cwd if cwd is not None else cfg.cwd
+        self._env = dict(env) if env is not None else dict(cfg.env)
+        self._timeout = timeout if timeout is not None else cfg.timeout
+        self._container_timeout = (
+            container_timeout if container_timeout is not None else cfg.container_timeout
+        )
         self._container_id: str | None = None
         self._start_container()
 

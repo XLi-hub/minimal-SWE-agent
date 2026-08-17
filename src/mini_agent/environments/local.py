@@ -3,22 +3,21 @@
 import os
 import subprocess
 
+from src.mini_agent.config import EnvironmentConfig, get_default_config
 from src.mini_agent.environments import Environment
-
-# Disable interactive pagers and progress bars so the agent doesn't hang.
-_ENV = {
-    "PAGER": "cat",
-    "MANPAGER": "cat",
-    "LESS": "-R",
-    "PIP_PROGRESS_BAR": "off",
-    "TQDM_DISABLE": "1",
-}
 
 
 class LocalEnvironment(Environment):
-    """Execute shell commands directly on the local machine."""
+    """Execute shell commands directly on the local machine.
 
-    def execute(self, command: str, timeout: int = 30) -> str:
+    ``config`` supplies the environment variables (pager/progress-bar
+    overrides) and the default per-command timeout.
+    """
+
+    def __init__(self, config: EnvironmentConfig | None = None) -> None:
+        self.config = config or get_default_config().environment
+
+    def execute(self, command: str, timeout: int | None = None) -> str:
         """Run a shell command and return its combined stdout+stderr.
 
         If the command does not finish within *timeout* seconds the
@@ -31,14 +30,16 @@ class LocalEnvironment(Environment):
             command,
             shell=True,
             text=True,
-            env=os.environ | _ENV,
+            env=os.environ | self.config.env,
             encoding="utf-8",
             errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
         try:
-            stdout, _ = proc.communicate(timeout=timeout)
+            stdout, _ = proc.communicate(
+                timeout=timeout if timeout is not None else self.config.timeout,
+            )
             return stdout
         except subprocess.TimeoutExpired:
             # Process is still alive — don't kill it, just raise so the

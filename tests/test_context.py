@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from src.mini_agent.config import BASH_TOOL, SUMMARY_MARKER
+from src.mini_agent.config import get_default_config
 from src.mini_agent.context import (
     compress,
     count_tokens,
@@ -12,6 +12,10 @@ from src.mini_agent.context import (
     should_compress,
     summarize,
 )
+
+DEFAULTS = get_default_config()
+BASH_TOOL = DEFAULTS.tools.bash_tool
+SUMMARY_MARKER = DEFAULTS.agent.summary_marker
 
 
 # --- helpers ---

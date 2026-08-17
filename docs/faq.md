@@ -8,7 +8,7 @@
 
 | mini-swe-agent | minimal-SWE-agent |
 |---|---|
-| YAML + pydantic 配置系统 | argparse + kwargs |
+| YAML + pydantic 配置系统 | YAML + pydantic（同款，但更小） |
 | litellm / openrouter / portkey 多商 | 只用 openai SDK，连 DeepSeek |
 | 正则解析 `bash` 块 | OpenAI function calling |
 | Docker/Singularity/Bubblewrap/... 多后端 | Local + Docker 两个 |
@@ -64,6 +64,8 @@ python main.py --max-steps 50    # 限制步数
 python main.py --max-steps 500   # 给复杂任务更多步
 ```
 
+除了 `--max-steps`，也可以用 `-c agent.max_steps=50` 或 `MINI_AGENT_AGENT__MAX_STEPS=500` 覆盖同一个字段。所有配置项的覆盖方式统一见 [config.md](config.md)。
+
 **`timeout=30`**：默认 30 秒对 `ls`、`cat`、`git diff` 足够。对于 `pip install`、`git clone`、长编译——模型可以在 tool call 里指定更长的时间：
 
 ```python
@@ -86,7 +88,7 @@ bash(command="pip install torch", timeout=120)
 成本怎么算的：
 
 1. 每次调用后从 `response.usage` 拿 token 数（输入命中缓存 / 未命中 / 输出三档）。
-2. 乘以 config 里的 USD 单价（`PRICE_INPUT_PER_1M`、`PRICE_INPUT_CACHE_HIT_PER_1M`、`PRICE_OUTPUT_PER_1M`）。
+2. 乘以 config 里的 USD 单价（`cost.price_input_per_1m`、`cost.price_input_cache_hit_per_1m`、`cost.price_output_per_1m`，定义在 [default.yaml](../src/mini_agent/config/default.yaml)）。
 3. 累计值写进轨迹的 `info.model_stats.instance_cost`。
 
 DeepSeek 2026/08/17 起改成了峰谷计价，这里的单价是固定默认值（注释里标了来源），可按需改。`cost_limit` 传 `0` 或 `None` 就关闭限制（CLI 用 `--cost-limit 0`）。
@@ -121,7 +123,7 @@ DeepSeek 2026/08/17 起改成了峰谷计价，这里的单价是固定默认值
 ```
 E2E (2个)     → 我（开发者）：提交代码前跑一次，验证模型真的理解工具schema
 集成 (30个)   → CI：每次 push 自动跑，验证模块配合没坏
-单元 (111个)  → 写代码时随手跑：改一行，跑一秒，确认没坏
+单元 (157个)  → 写代码时随手跑：改一行，跑一秒，确认没坏
 ```
 
 如果只有 E2E，跑一次花 30 秒 + 花钱，你就不跑了。如果只有单元测试，mock 的假输出可能和真输出行为不一致（我们在集成测试里就抓过一个——`echo` 会解释反斜杠但 `printf '%s'` 不会）。
@@ -136,14 +138,17 @@ E2E (2个)     → 我（开发者）：提交代码前跑一次，验证模型�
 2. **API 兼容**：DeepSeek 的 API 格式和 OpenAI 一模一样，换个 `base_url` 就能切成 OpenAI
 3. **能力够用**：对于理解代码、运行命令、生成 patch 这类任务，DeepSeek 足够了
 
-切成 OpenAI 只需要改两个地方：
+切成 OpenAI 只需要改一个地方——`model` 段：
 
-```python
-# model.py
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  # 去掉 base_url
-# config.py
-# 不改，OpenAI 也支持 tools 参数
+```yaml
+# config/default.yaml
+model:
+  model_name: gpt-4o
+  base_url: ""                  # 去掉 base_url，走 OpenAI 默认端点
+  api_key_env: OPENAI_API_KEY   # .env 里换成 OPENAI_API_KEY=你的key
 ```
+
+tools 参数不用改——OpenAI 原生支持。更多覆盖方式（`-c`、环境变量、`--config`）见 [config.md](config.md)。
 
 切成 Claude 需要换成 `anthropic` SDK，但 API 概念（messages、tools、tool_calls）完全一样。
 
@@ -174,7 +179,7 @@ When your task is complete, call the submit tool.
 
 **设计原则**：对于教学项目，system prompt 是"模型看到的第一份文档"。把它写清楚，比让模型自己摸索更高效。这个 prompt 借鉴了 SWE-agent 的 instance template（5 步工作流）、Claude Code 的行为规范（surgical changes）、以及 ReAct 论文的思考-行动交替模式。
 
-`INSTANCE_TEMPLATE` 把裸任务包裹进结构化的 5 步清单——这和 mini-swe-agent 在 instance template 里的做法一致，目的是给模型一个明确的 mental model。
+`agent.instance_template` 把裸任务包裹进结构化的 5 步清单——这和 mini-swe-agent 在 instance template 里的做法一致，目的是给模型一个明确的 mental model。
 
 ## 为什么没做后台任务系统？
 
