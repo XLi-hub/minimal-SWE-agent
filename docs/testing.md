@@ -48,6 +48,11 @@ assert result["exit_status"] == "no_tool_calls"
 | `test_exits_with_max_steps` | 循环不会无限跑 |
 | `test_custom_timeout_from_tool_call` | timeout 参数被正确传递 |
 | `test_truncation` | 长输出被截断 |
+| `test_run_accumulates_cost` | 每次模型调用后累加成本 |
+| `test_cost_limit_stops_agent` | 成本超限时停止 |
+
+`compute_cost`（token → USD 换算）甚至不需要 mock 任何外部对象——构造一个带 `usage` 的
+假 response 就够了，见 `tests/test_cost.py`。
 
 **好处**：毫秒级，0 元，可以每改一行就跑一次。
 
@@ -142,15 +147,15 @@ def test_simple_echo_task():
 ```
        ╱‾‾‾‾‾╲         E2E:   2 个   真 API + 真 shell    30s    "模型理解工具吗?"
       ╱       ╲
-     ╱ 集成    ╲       集成:  21 个   假 API + 真 shell     秒     "shell 输出正确解析吗?"
+     ╱ 集成    ╲       集成:  30 个   假 API + 真 shell     秒     "shell 输出正确解析吗?"
     ╱           ╲
-   ╱  单元测试   ╲     单元:  74 个   假 API + 假 shell     ms     "每个函数行为对吗?"
+   ╱  单元测试   ╲     单元:  111 个  假 API + 假 shell     ms     "每个函数行为对吗?"
   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 ```
 
 三条原则：
 
-1. **越底层越多**：从 74 → 21 → 2，不是反过来的
+1. **越底层越多**：从 111 → 30 → 2，不是反过来的
 2. **每层测不同的事**：单元测逻辑、集成测编码、E2E 测 API schema——没有重叠
 3. **每层的 mock 点不同**：单元全 mock、集成半 mock、E2E 不 mock
 

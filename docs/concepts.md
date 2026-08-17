@@ -324,7 +324,7 @@ agent = Agent(model, env)                    # Agent 不知道是假的
 
 特点：**最快（毫秒级）、最便宜（0 元）、数量最多**。
 
-**在本项目中**：test_agent.py（mock Model + Environment）、test_config.py（纯数据验证）、test_model.py（mock httpx）
+**在本项目中**：test_agent.py（mock Model + Environment）、test_config.py（纯数据验证）、test_model.py（mock httpx）、test_cost.py（mock usage 对象，验证 token → USD 换算）
 
 ---
 
@@ -344,7 +344,7 @@ def test_executes_tool_call_then_exits():
 
 特点：**秒级、比单元测试慢但比 E2E 快**。
 
-**在本项目中**：`test_integration.py`（真 shell + 假 Model，11 个）、`test_environment.py`（真 shell 执行，9 个）、`test_docker.py` 集成部分（真 Docker daemon，4 个）
+**在本项目中**：`test_integration.py`（真 shell + 假 Model，11 个）、`test_environment.py`（真 shell 执行，9 个）、`test_docker.py`（真 Docker daemon，10 个，无 daemon 时自动跳过）
 
 ---
 
@@ -368,7 +368,7 @@ def test_simple_echo_task():
 
 特点：**最慢（秒~分钟）、花钱（调 API 要按 token 计费）、数量最少**。
 
-**为什么 E2E 只需要 2 个（日常 95 个）**：单元测试和集成测试已经把逻辑验证完了，E2E 只回答一个问题——"模型真的理解我们的 tool schema 吗？真的会调 bash 和 submit 吗？"这是 mock 永远验证不了的。
+**为什么 E2E 只需要 2 个（日常 141 个）**：单元测试和集成测试已经把逻辑验证完了，E2E 只回答一个问题——"模型真的理解我们的 tool schema 吗？真的会调 bash 和 submit 吗？"这是 mock 永远验证不了的。
 
 **在本项目中**：test_e2e.py（2 个，默认跳过，手动 `-m e2e` 才跑）
 
@@ -414,12 +414,12 @@ assert "disk full" in result["messages"][-2]["content"]
 ```
        ╱‾‾‾‾‾╲         E2E           2 个    慢/贵    "整条链路通了吗?"
       ╱       ╲
-     ╱ 集成    ╲       集成测试       21 个   中级     "两个模块配合对了吗?"
+     ╱ 集成    ╲       集成测试       30 个   中级     "两个模块配合对了吗?"
     ╱           ╲
-   ╱  单元测试   ╲     单元测试       74 个   快/免费  "每个函数行为对吗?"
+   ╱  单元测试   ╲     单元测试       111 个  快/免费  "每个函数行为对吗?"
   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 ```
 
 金字塔倒过来就是灾难——E2E 最多、单元测试最少。那样的测试又慢又贵，没人愿意跑，最后就没人跑了。
 
-**在本项目中**：97 个测试，74 单元 + 21 集成 + 2 E2E，符合金字塔比例。
+**在本项目中**：143 个测试，111 单元 + 30 集成 + 2 E2E，符合金字塔比例。

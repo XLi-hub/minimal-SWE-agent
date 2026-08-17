@@ -56,6 +56,7 @@ python main.py --task "修一下 /tmp/buggy.py 的 bug"
 src/mini_agent/
 ├── agent.py                  # Agent 循环 — 查询 LM → 执行工具 → 循环
 ├── tools.py                  # 工具分发 + 输出截断 + 异常格式化
+├── cost.py                   # 成本计算（token → USD）
 ├── config.py                 # SYSTEM_PROMPT, BASH_TOOL, SUBMIT_TOOL 定义
 ├── model.py                  # DeepSeek API 封装（OpenAI 兼容协议）
 └── environments/             # 执行环境（可插拔）
@@ -64,8 +65,9 @@ src/mini_agent/
     └── docker.py              #   DockerEnvironment — 容器内执行
 
 tests/
-├── test_agent.py               # Agent 循环 + 截断 + submit + 异常（41 个测试）
-├── test_config.py              # 工具 schema + system prompt + 默认值（29 个测试）
+├── test_agent.py               # Agent 循环 + 截断 + submit + 异常 + 轨迹 + 成本（54 个测试）
+├── test_config.py              # 工具 schema + system prompt + 默认值 + 定价（33 个测试）
+├── test_cost.py                # 成本计算 compute_cost（7 个测试，全部 mock）
 ├── test_model.py               # API 调用（7 个测试，全部 mock）
 ├── test_environment.py         # 本地环境（9 个测试）
 ├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
@@ -106,7 +108,21 @@ Agent 给模型两个工具：
 ```python
 result = agent.run("fix the bug")
 # {"exit_status": "submitted", "submission": "diff --git ...", "messages": [...]}
-# exit_status: "submitted" | "no_tool_calls" | "max_steps" | "interrupted" | "error"
+# exit_status: "submitted" | "no_tool_calls" | "max_steps" | "max_time" | "cost_limit" | "interrupted" | "error"
+```
+
+## 成本统计
+
+Agent 自动从每次模型调用的 `response.usage`（`prompt_tokens` / `completion_tokens` /
+`prompt_tokens_details.cached_tokens`）按 USD 单价累计成本，缓存命中比未命中便宜得多：
+
+- 单价定义在 [config.py](src/mini_agent/config.py)（`PRICE_INPUT_PER_1M` 等，可按需改）。
+- 累计成本写入轨迹的 `info.model_stats.instance_cost`（USD）。
+- 用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本超过就停止，`exit_status` 为 `"cost_limit"`。
+
+```python
+agent.run("fix the bug", output="run.traj.json", cost_limit=1.5)
+# 或 CLI：python main.py --task "..." -o run.traj.json --cost-limit 1.5
 ```
 
 ## 环境分流
@@ -139,7 +155,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio -m "not 
 # E2E 测试 — 真调 DeepSeek API（2 个，花钱，偶尔跑一次）
 python -m pytest tests/ -v -m e2e
 
-# 全量 — 包括 E2E（119 个测试）
+# 全量 — 包括 E2E（143 个测试）
 python -m pytest tests/ -v -p no:anyio
 
 # 只跑单元测试（跳过 Docker 集成 + E2E）
@@ -148,7 +164,7 @@ python -m pytest tests/ -v -p no:anyio -m "not e2e" -k "not test_docker_echo and
 
 Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `DEEPSEEK_API_KEY` 时自动跳过。
 
-**测试分层**：87 单元 + 30 集成（含 Docker）+ 2 E2E = 119 总计。
+**测试分层**：111 单元 + 30 集成（含 Docker）+ 2 E2E = 143 总计。
 
 ## 学习文档
 

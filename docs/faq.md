@@ -79,14 +79,49 @@ bash(command="pip install torch", timeout=120)
 
 ---
 
+## `cost_limit=3.0` 怎么定的？
+
+和 `max_steps`/`max_time` 一样，是"兜底上限"而不是精确预算。默认 3 美元对一次 SWE-bench 风格的修 bug 任务（读代码 → 改一行 → 跑测试，通常 10-50 步）绰绰有余，同时防止死循环把 API 费用烧穿。
+
+成本怎么算的：
+
+1. 每次调用后从 `response.usage` 拿 token 数（输入命中缓存 / 未命中 / 输出三档）。
+2. 乘以 config 里的 USD 单价（`PRICE_INPUT_PER_1M`、`PRICE_INPUT_CACHE_HIT_PER_1M`、`PRICE_OUTPUT_PER_1M`）。
+3. 累计值写进轨迹的 `info.model_stats.instance_cost`。
+
+DeepSeek 2026/08/17 起改成了峰谷计价，这里的单价是固定默认值（注释里标了来源），可按需改。`cost_limit` 传 `0` 或 `None` 就关闭限制（CLI 用 `--cost-limit 0`）。
+
+## 轨迹 .traj.json 里有什么？
+
+每次运行 `agent.run(..., output="run.traj.json")`（CLI 用 `-o`）都会把整场会话落盘：
+
+```json
+{
+  "trajectory_format": "mini-agent-0.1",
+  "messages": [ ... ],                          // 完整的模型思考 + 工具执行历史
+  "info": {
+    "exit_status": "submitted",                 // 怎么结束的
+    "submission": "diff --git ...",             // 最终结果
+    "model_stats": {
+      "api_calls": 12,                          // 调了几次模型
+      "instance_cost": 0.0428                   // 花了多少钱（USD）
+    }
+  }
+}
+```
+
+用途：回放推理链（`messages` 完整）、统计成本、调试（看模型卡在哪一步）。`run()` 用 `try/finally` 保证——即使 `max_steps` / `max_time` / `cost_limit` / 报错退出，只要传了 `output` 就一定写文件。
+
+---
+
 ## 测试分三层？是不是过度设计了？
 
 不是。三层各自的职责不同，跑测试的人也不同：
 
 ```
 E2E (2个)     → 我（开发者）：提交代码前跑一次，验证模型真的理解工具schema
-集成 (21个)   → CI：每次 push 自动跑，验证模块配合没坏
-单元 (74个)   → 写代码时随手跑：改一行，跑一秒，确认没坏
+集成 (30个)   → CI：每次 push 自动跑，验证模块配合没坏
+单元 (111个)  → 写代码时随手跑：改一行，跑一秒，确认没坏
 ```
 
 如果只有 E2E，跑一次花 30 秒 + 花钱，你就不跑了。如果只有单元测试，mock 的假输出可能和真输出行为不一致（我们在集成测试里就抓过一个——`echo` 会解释反斜杠但 `printf '%s'` 不会）。

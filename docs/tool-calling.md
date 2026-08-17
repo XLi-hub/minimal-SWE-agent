@@ -165,7 +165,9 @@ Agent.run() 返回结构化结果：
 |---|---|---|
 | `submitted` | 正常完成 | 模型调了 submit |
 | `no_tool_calls` | 意外退出 | 模型没调任何工具（fallback） |
-| `max_steps` | 达到上限 | 循环到达 `max_steps` 限制（默认 250） |
+| `max_steps` | 达到步数上限 | 循环到达 `max_steps` 限制（默认 250） |
+| `max_time` | 达到时长上限 | 运行超过 `max_time`（默认 1800s） |
+| `cost_limit` | 达到成本上限 | 累计成本超过 `cost_limit`（默认 3.0 USD） |
 | `interrupted` | 用户打断 | Ctrl+C |
 | `error` | 异常 | Agent 内部未处理的错误 |
 

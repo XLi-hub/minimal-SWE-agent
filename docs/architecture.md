@@ -6,15 +6,22 @@ AI Agent 的本质就是一个循环：
 
 ```
 deadline = time.monotonic() + max_time
-for _ in range(max_steps):
-    if time.monotonic() > deadline:           # 0. 超时检查
-        exit_status = "max_time"; break
-    msg = model.query(messages, tools)        # 1. 模型思考
-    if 模型调了submit: break                   # 2. 提交结果 → 退出
-    _handle_tool_call(tc, messages, result)   # 3. 工具分发 + 执行
-    # 循环 — 结果已在 _handle_tool_call 中写入 messages
+try:
+    for _ in range(max_steps):
+        if time.monotonic() > deadline:              # 0. 超时检查
+            exit_status = "max_time"; break
+        if cost_limit and self.cost >= cost_limit:   # 0b. 成本上限检查
+            exit_status = "cost_limit"; break
+        response = model.query(messages, tools)      # 1. 模型思考
+        self.cost += compute_cost(response)          # 1b. 累加本次成本（USD）
+        if 模型调了submit: break                      # 2. 提交结果 → 退出
+        _handle_tool_call(tc, messages, result)      # 3. 工具分发 + 执行
+        # 循环 — 结果已在 _handle_tool_call 中写入 messages
+finally:
+    if output: save(output)                          # 无论怎么退出都落盘 .traj.json
 # 超出 max_steps → exit_status="max_steps"
 # 超出 max_time  → exit_status="max_time"
+# 超出 cost_limit → exit_status="cost_limit"
 ```
 
 核心逻辑从 `run()` 里的大段代码拆成了三个层次：
@@ -35,6 +42,8 @@ Model        Environment (ABC)   # 接口：只定义方法签名，不关心实
 .query()     .execute()
   │           │
 DeepSeek     Local / Docker      # 实现：具体的 API 调用 / shell 执行
+
+cost.py                          # 纯函数 compute_cost(response) → USD（只依赖 config，不碰 Model/Env）
 ```
 
 ### 为什么分四个模块而不是一个文件
@@ -54,11 +63,13 @@ Agent 内部方法分工：
 
 | 方法 | 职责 |
 |---|---|
-| `run()` | 循环控制：查模型 → 调分发器 → 检查时间/步数上限 |
+| `run()` | 循环控制：查模型 → 累加成本 → 调分发器 → 检查时间/步数/成本上限 |
 | `_handle_tool_call()` | 工具分发：submit（退出）/ bash（执行）/ unknown（报错） |
 | `_format_assistant_message()` | SDK 对象 → dict，供下轮 `model.query()` 使用 |
 | `_truncate_output()` | 长输出截断，保留头尾 + WARNING 引导 |
 | `_decode_timeout_output()` | 解码超时异常中的部分输出（bytes → str） |
+| `serialize()` | 整场会话（messages + exit_status + submission + 成本）整理成结构化 dict |
+| `save(path)` | `serialize()` 结果 JSON 序列化，落盘为 `.traj.json` |
 
 ## 依赖注入
 
@@ -103,6 +114,46 @@ class DockerEnvironment(Environment):
 ```
 
 Agent 只和 `Environment` 接口打交道，不关心是 local 还是 docker。这叫**面向接口编程**。
+
+## 轨迹保存 + 成本统计
+
+循环跑完之后，除了返回结果，还有两件"副产品"需要记录：轨迹和成本。
+
+### 轨迹（trajectory）
+
+`Agent.serialize()` 把整场会话整理成结构化 dict（`messages` 完整历史、`exit_status`、
+`submission`，以及 `info.model_stats` 里的调用次数和累计成本），`save(path)` 再
+`json.dumps` 落盘为 `.traj.json`。好处：
+
+- **可回放**：`messages` 完整记录每一轮"模型思考 → 工具执行"，事后能复现推理链。
+- **可分析**：`info.model_stats.instance_cost` / `api_calls` 让每次运行的成本一目了然。
+- **保证落盘**：`run()` 用 `try/finally`，无论正常提交、超时、超步数还是报错，只要传了
+  `output` 就一定会写文件。
+
+```python
+agent.run("fix the bug", output="run.traj.json")   # 结束后生成 run.traj.json
+# CLI 等价：python main.py --task "fix the bug" -o run.traj.json
+```
+
+### 成本（cost）
+
+成本不靠外部库，直接用模型返回的 `response.usage`（`prompt_tokens` / `completion_tokens` /
+`prompt_tokens_details.cached_tokens`）× 每百万 token 单价（USD）累加。单价是
+[config.py](../src/mini_agent/config.py) 里的常量，[cost.py](../src/mini_agent/cost.py)
+的 `compute_cost()` 负责算单次调用，缓存命中比未命中便宜一个数量级：
+
+```python
+# 100 万输入 token，其中 50 万命中缓存，无输出
+compute_cost(response)  # ≈ 0.14 * 0.5 + 0.0028 * 0.5 = 0.0714 USD
+```
+
+`cost_limit`（默认 3.0，`0`/`None` 关闭）是第三种"兜底"——像 `max_steps`/`max_time` 一样，
+在累计成本超过阈值后停止，`exit_status` 记为 `"cost_limit"`。三者一起保证单次运行的
+步数、时长、花费都有上限。
+
+`compute_cost` 独立成 `cost.py`（只依赖 config）而不是塞进 `model.py`，是为了不破坏
+`agent.py` 的延迟 import model 约定——`model.py` 在模块级 import openai + 执行
+load_dotenv，agent 不想在 import 时就被迫加载它们。
 
 ## 参考：mini-swe-agent 怎么做的
 
