@@ -881,3 +881,140 @@ class TestMaxTime:
         result = agent.run("task", max_steps=5, max_time=3600)
 
         assert result["exit_status"] == "submitted"
+
+
+# ---------------------------------------------------------------------------
+# trajectory saving — serialize / save
+# ---------------------------------------------------------------------------
+
+
+def _submitting_model():
+    """A model that answers with a single submit tool call."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Done.",
+            tool_calls=[
+                _make_tool_call("s1", "submit", {"output": "final answer"}),
+            ],
+        ),
+    ]
+    return model
+
+
+class TestSerialize:
+    """Tests for Agent.serialize()."""
+
+    def test_serialize_returns_structured_dict(self):
+        """serialize() 返回带 info/messages/trajectory_format 的 dict。"""
+        agent = Agent(_submitting_model(), MagicMock())
+        agent.run("do it")
+
+        data = agent.serialize()
+
+        assert data["trajectory_format"] == "mini-agent-0.1"
+        assert data["info"]["exit_status"] == "submitted"
+        assert data["info"]["submission"] == "final answer"
+        assert data["info"]["model_stats"]["api_calls"] == 1
+        assert data["info"]["config"]["agent_type"].endswith("Agent")
+        # messages must be the same list the agent used during the run
+        assert data["messages"] == agent.messages
+        assert data["messages"][0]["role"] == "system"
+
+    def test_serialize_before_run_is_empty(self):
+        """未运行前 serialize() 返回空轨迹。"""
+        agent = Agent(MagicMock(), MagicMock())
+
+        data = agent.serialize()
+
+        assert data["messages"] == []
+        assert data["info"]["exit_status"] == ""
+        assert data["info"]["submission"] == ""
+        assert data["info"]["model_stats"]["api_calls"] == 0
+
+    def test_serialize_is_json_serializable(self):
+        """serialize() 的输出可直接 json.dumps。"""
+        agent = Agent(_submitting_model(), MagicMock())
+        agent.run("do it")
+
+        json.dumps(agent.serialize())
+
+
+class TestSave:
+    """Tests for Agent.save()."""
+
+    def test_save_writes_traj_json(self, tmp_path):
+        """save() 写出合法的 .traj.json 文件，并返回相同数据。"""
+        agent = Agent(_submitting_model(), MagicMock())
+        agent.run("do it")
+
+        path = tmp_path / "out" / "run.traj.json"
+        data = agent.save(path)
+
+        assert path.exists()
+        loaded = json.loads(path.read_text())
+        assert loaded == data
+        assert loaded["info"]["exit_status"] == "submitted"
+
+    def test_save_none_returns_data_without_writing(self, tmp_path):
+        """save(None) 不写文件，只返回序列化数据。"""
+        agent = Agent(_submitting_model(), MagicMock())
+        agent.run("do it")
+
+        data = agent.save(None)
+
+        assert data["info"]["exit_status"] == "submitted"
+        assert list(tmp_path.iterdir()) == []
+
+    def test_save_creates_parent_directories(self, tmp_path):
+        """save() 自动创建父目录。"""
+        agent = Agent(_submitting_model(), MagicMock())
+        agent.run("do it")
+
+        path = tmp_path / "a" / "b" / "c.traj.json"
+        agent.save(path)
+
+        assert path.exists()
+
+
+class TestRunAutoSave:
+    """Tests that run(..., output=...) saves the trajectory automatically."""
+
+    def test_run_saves_when_output_given(self, tmp_path):
+        """run(output=...) 结束后自动写出轨迹文件。"""
+        agent = Agent(_submitting_model(), MagicMock())
+
+        path = tmp_path / "run.traj.json"
+        result = agent.run("do it", output=path)
+
+        assert path.exists()
+        loaded = json.loads(path.read_text())
+        assert loaded["info"]["exit_status"] == result["exit_status"]
+        assert loaded["info"]["submission"] == result["submission"]
+        assert loaded["messages"] == result["messages"]
+
+    def test_run_saves_on_max_steps(self, tmp_path):
+        """达到 max_steps 退出时也应保存轨迹。"""
+        model = MagicMock()
+        model.query.return_value = _make_response(
+            content="Running.",
+            tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+        )
+        env = MagicMock()
+        env.execute.return_value = "ok"
+
+        agent = Agent(model, env)
+        path = tmp_path / "partial.traj.json"
+        result = agent.run("infinite", max_steps=3, output=path)
+
+        assert result["exit_status"] == "max_steps"
+        assert path.exists()
+        assert json.loads(path.read_text())["info"]["exit_status"] == "max_steps"
+
+    def test_run_without_output_does_not_save(self, tmp_path):
+        """run(output=None) 不写文件，但 self 状态已同步可 serialize。"""
+        agent = Agent(_submitting_model(), MagicMock())
+        result = agent.run("do it")
+
+        assert list(tmp_path.iterdir()) == []
+        assert agent.serialize()["info"]["exit_status"] == result["exit_status"]

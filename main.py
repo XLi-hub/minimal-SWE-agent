@@ -10,6 +10,9 @@ Usage::
 
     # 自定义工作目录
     python main.py --env docker --image python:3.11-slim --cwd /workspace
+
+    # 保存轨迹到 .traj.json
+    python main.py --task "修一下 bug" -o last_run.traj.json
 """
 
 import argparse
@@ -47,6 +50,10 @@ def _parse_args():
         "-t", "--task", default=None,
         help="Task to run (if omitted, prompt interactively)",
     )
+    p.add_argument(
+        "-o", "--output", default=None,
+        help="Save the trajectory to this file (e.g. last_run.traj.json)",
+    )
     return p.parse_args()
 
 
@@ -62,7 +69,10 @@ if __name__ == "__main__":
 
     task = args.task if args.task else input("Task: ")
     agent = Agent(Model(), env)
-    result = agent.run(task, max_steps=args.max_steps, max_time=args.max_time)
+    result = agent.run(
+        task, max_steps=args.max_steps, max_time=args.max_time,
+        output=args.output,
+    )
 
     print(f"\nExit status: {result['exit_status']}")
     if result["submission"]:

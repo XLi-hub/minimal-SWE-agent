@@ -1,6 +1,8 @@
 """Agent 主循环 — 使用模型 tool calling 替代文本解析."""
 
+import json
 import time
+from pathlib import Path
 
 from src.mini_agent.config import (
     BASH_TOOL,
@@ -23,9 +25,16 @@ class Agent:
     def __init__(self, model, environment):
         self.model = model
         self.environment = environment
+        # Trajectory state — reset and updated by run().
+        self.messages: list[dict] = []
+        self.n_calls = 0
+        self.cost = 0.0  # not tracked by the DeepSeek adapter yet
+        self.exit_status = ""
+        self.submission = ""
 
     def run(self, task: str, max_steps: int = DEFAULT_MAX_STEPS,
-            max_time: float | None = DEFAULT_MAX_TIME) -> dict:
+            max_time: float | None = DEFAULT_MAX_TIME,
+            output: str | Path | None = None) -> dict:
         """Run the agent loop for a given user task.
 
         Parameters
@@ -41,6 +50,9 @@ class Agent:
             Maximum wall-clock time in seconds for the entire run
             (default: *DEFAULT_MAX_TIME* = 1800).  Pass ``None`` to
             disable the time limit.
+        output:
+            Optional path (``.traj.json``) to save the trajectory to when
+            the run finishes.  Pass ``None`` (default) to skip saving.
 
         Returns
         -------
@@ -52,53 +64,107 @@ class Agent:
             - ``submission``: the final answer (empty if not submitted)
             - ``messages``: the full message history
         """
-        messages: list[dict] = [
+        self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": INSTANCE_TEMPLATE.format(task=task)},
         ]
+        self.n_calls = 0
+        self.cost = 0.0
+        self.exit_status = "error"
+        self.submission = ""
 
+        messages = self.messages
         result: dict = {"exit_status": "error", "submission": "", "messages": messages}
         deadline = time.monotonic() + max_time if max_time is not None else None
 
-        for _ in range(max_steps):
-            if deadline is not None and time.monotonic() > deadline:
-                result["exit_status"] = "max_time"
-                return result
-            try:
-                response = self.model.query(
-                    messages, tools=[BASH_TOOL, SUBMIT_TOOL]
-                )
-                choice = response.choices[0]
-                msg = choice.message
-
-                # No tool calls → treat as exit (legacy / fallback)
-                if not msg.tool_calls:
-                    messages.append(
-                        {"role": "assistant", "content": msg.content}
-                    )
-                    print("LM output:", msg.content)
-                    result["exit_status"] = "no_tool_calls"
+        try:
+            for _ in range(max_steps):
+                if deadline is not None and time.monotonic() > deadline:
+                    result["exit_status"] = "max_time"
                     return result
+                try:
+                    self.n_calls += 1
+                    response = self.model.query(
+                        messages, tools=[BASH_TOOL, SUBMIT_TOOL]
+                    )
+                    choice = response.choices[0]
+                    msg = choice.message
 
-                print("LM output:", msg.content)
-
-                messages.append(format_assistant_message(msg))
-
-                for tc in msg.tool_calls:
-                    if execute_tool_call(tc, messages, result, self.environment):
+                    # No tool calls → treat as exit (legacy / fallback)
+                    if not msg.tool_calls:
+                        messages.append(
+                            {"role": "assistant", "content": msg.content}
+                        )
+                        print("LM output:", msg.content)
+                        result["exit_status"] = "no_tool_calls"
                         return result
 
-            except KeyboardInterrupt:
-                result["exit_status"] = "interrupted"
-                return result
-            except Exception as e:
-                messages.append(
-                    {"role": "user", "content": f"Error: {e}"}
-                )
+                    print("LM output:", msg.content)
 
-        # Ran out of steps — return partial progress.
-        result["exit_status"] = "max_steps"
-        return result
+                    messages.append(format_assistant_message(msg))
+
+                    for tc in msg.tool_calls:
+                        if execute_tool_call(tc, messages, result, self.environment):
+                            return result
+
+                except KeyboardInterrupt:
+                    result["exit_status"] = "interrupted"
+                    return result
+                except Exception as e:
+                    messages.append(
+                        {"role": "user", "content": f"Error: {e}"}
+                    )
+
+            # Ran out of steps — return partial progress.
+            result["exit_status"] = "max_steps"
+            return result
+        finally:
+            # Sync the run outcome onto the agent so a later serialize()
+            # call reflects it, then save the trajectory if requested.
+            self.exit_status = result["exit_status"]
+            self.submission = result["submission"]
+            if output is not None:
+                self.save(output)
+
+    def serialize(self) -> dict:
+        """Serialize the agent trajectory to a JSON-compatible dict.
+
+        Captures the full message history plus run metadata (exit status,
+        submission, model call stats).  Use :meth:`save` to write it to
+        disk as a ``.traj.json`` file.
+        """
+        return {
+            "info": {
+                "model_stats": {
+                    "instance_cost": self.cost,
+                    "api_calls": self.n_calls,
+                },
+                "config": {
+                    "agent_type": (
+                        f"{self.__class__.__module__}."
+                        f"{self.__class__.__name__}"
+                    ),
+                },
+                "exit_status": self.exit_status,
+                "submission": self.submission,
+            },
+            "messages": self.messages,
+            "trajectory_format": "mini-agent-0.1",
+        }
+
+    def save(self, path: str | Path | None) -> dict:
+        """Serialize the trajectory and write it to *path*.
+
+        The path conventionally ends in ``.traj.json``.  Parent
+        directories are created as needed.  When *path* is ``None`` no
+        file is written (the serialized data is still returned).
+        """
+        data = self.serialize()
+        if path is not None:
+            path = Path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, indent=2))
+        return data
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key
