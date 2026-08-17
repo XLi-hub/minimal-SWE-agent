@@ -6,12 +6,14 @@ from pathlib import Path
 
 from src.mini_agent.config import (
     BASH_TOOL,
+    DEFAULT_COST_LIMIT,
     DEFAULT_MAX_STEPS,
     DEFAULT_MAX_TIME,
     INSTANCE_TEMPLATE,
     SUBMIT_TOOL,
     SYSTEM_PROMPT,
 )
+from src.mini_agent.cost import compute_cost
 from src.mini_agent.tools import execute_tool_call, format_assistant_message
 
 
@@ -28,13 +30,15 @@ class Agent:
         # Trajectory state — reset and updated by run().
         self.messages: list[dict] = []
         self.n_calls = 0
-        self.cost = 0.0  # not tracked by the DeepSeek adapter yet
+        self.cost = 0.0
+        self.cost_limit: float | None = None
         self.exit_status = ""
         self.submission = ""
 
     def run(self, task: str, max_steps: int = DEFAULT_MAX_STEPS,
             max_time: float | None = DEFAULT_MAX_TIME,
-            output: str | Path | None = None) -> dict:
+            output: str | Path | None = None,
+            cost_limit: float | None = DEFAULT_COST_LIMIT) -> dict:
         """Run the agent loop for a given user task.
 
         Parameters
@@ -53,6 +57,10 @@ class Agent:
         output:
             Optional path (``.traj.json``) to save the trajectory to when
             the run finishes.  Pass ``None`` (default) to skip saving.
+        cost_limit:
+            Maximum accumulated cost in USD before the agent stops
+            (default: *DEFAULT_COST_LIMIT* = 3.0).  Pass ``0`` or ``None``
+            to disable the limit.
 
         Returns
         -------
@@ -60,7 +68,8 @@ class Agent:
             With keys:
 
             - ``exit_status``: one of ``"submitted"``, ``"no_tool_calls"``,
-              ``"max_steps"``, ``"max_time"``, ``"interrupted"``, ``"error"``
+              ``"max_steps"``, ``"max_time"``, ``"cost_limit"``,
+              ``"interrupted"``, ``"error"``
             - ``submission``: the final answer (empty if not submitted)
             - ``messages``: the full message history
         """
@@ -70,6 +79,7 @@ class Agent:
         ]
         self.n_calls = 0
         self.cost = 0.0
+        self.cost_limit = cost_limit
         self.exit_status = "error"
         self.submission = ""
 
@@ -82,11 +92,15 @@ class Agent:
                 if deadline is not None and time.monotonic() > deadline:
                     result["exit_status"] = "max_time"
                     return result
+                if cost_limit is not None and cost_limit > 0 and self.cost >= cost_limit:
+                    result["exit_status"] = "cost_limit"
+                    return result
                 try:
                     self.n_calls += 1
                     response = self.model.query(
                         messages, tools=[BASH_TOOL, SUBMIT_TOOL]
                     )
+                    self.cost += compute_cost(response)
                     choice = response.choices[0]
                     msg = choice.message
 
@@ -172,10 +186,13 @@ _default_agent: Agent | None = None
 
 
 def run(task: str, max_steps: int = DEFAULT_MAX_STEPS,
-        max_time: float | None = DEFAULT_MAX_TIME) -> dict:
+        max_time: float | None = DEFAULT_MAX_TIME,
+        cost_limit: float | None = DEFAULT_COST_LIMIT) -> dict:
     global _default_agent
     if _default_agent is None:
         from src.mini_agent.model import Model            # noqa: E402
         from src.mini_agent.environments.local import LocalEnvironment  # noqa: E402
         _default_agent = Agent(Model(), LocalEnvironment())
-    return _default_agent.run(task, max_steps=max_steps, max_time=max_time)
+    return _default_agent.run(
+        task, max_steps=max_steps, max_time=max_time, cost_limit=cost_limit,
+    )

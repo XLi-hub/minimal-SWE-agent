@@ -18,7 +18,7 @@ Usage::
 import argparse
 
 from src.mini_agent.agent import Agent
-from src.mini_agent.config import DEFAULT_MAX_STEPS, DEFAULT_MAX_TIME
+from src.mini_agent.config import DEFAULT_COST_LIMIT, DEFAULT_MAX_STEPS, DEFAULT_MAX_TIME
 from src.mini_agent.model import Model
 from src.mini_agent.environments import get_environment
 
@@ -54,6 +54,11 @@ def _parse_args():
         "-o", "--output", default=None,
         help="Save the trajectory to this file (e.g. last_run.traj.json)",
     )
+    p.add_argument(
+        "--cost-limit", type=float, default=DEFAULT_COST_LIMIT,
+        help=f"Stop when accumulated cost exceeds this USD value "
+             f"(default {DEFAULT_COST_LIMIT}, 0 disables)",
+    )
     return p.parse_args()
 
 
@@ -71,7 +76,7 @@ if __name__ == "__main__":
     agent = Agent(Model(), env)
     result = agent.run(
         task, max_steps=args.max_steps, max_time=args.max_time,
-        output=args.output,
+        output=args.output, cost_limit=args.cost_limit,
     )
 
     print(f"\nExit status: {result['exit_status']}")

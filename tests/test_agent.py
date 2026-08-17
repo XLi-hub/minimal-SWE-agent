@@ -12,7 +12,7 @@ from src.mini_agent.tools import (
 
 # --- helpers ---
 
-def _make_response(content=None, tool_calls=None):
+def _make_response(content=None, tool_calls=None, usage=None):
     """Build a mock OpenAI chat completion response."""
     msg = MagicMock()
     msg.content = content
@@ -23,7 +23,18 @@ def _make_response(content=None, tool_calls=None):
 
     response = MagicMock()
     response.choices = [choice]
+    response.usage = usage
     return response
+
+
+def _make_usage(prompt_tokens, completion_tokens, cached_tokens=None):
+    """Build a mock OpenAI usage object (token counts)."""
+    usage = MagicMock()
+    usage.prompt_tokens = prompt_tokens
+    usage.completion_tokens = completion_tokens
+    if cached_tokens is not None:
+        usage.prompt_tokens_details.cached_tokens = cached_tokens
+    return usage
 
 
 def _make_tool_call(id_: str, name: str, arguments: dict):
@@ -547,10 +558,15 @@ def test_module_level_run_uses_default_agent():
 
     assert result["exit_status"] == "submitted"
     assert result["submission"] == "ok"
-    from src.mini_agent.config import DEFAULT_MAX_STEPS, DEFAULT_MAX_TIME
+    from src.mini_agent.config import (
+        DEFAULT_COST_LIMIT,
+        DEFAULT_MAX_STEPS,
+        DEFAULT_MAX_TIME,
+    )
 
     mock_agent.run.assert_called_once_with(
         "test task", max_steps=DEFAULT_MAX_STEPS, max_time=DEFAULT_MAX_TIME,
+        cost_limit=DEFAULT_COST_LIMIT,
     )
 
     # Clean up — reset global so other tests aren't affected
@@ -1018,3 +1034,85 @@ class TestRunAutoSave:
 
         assert list(tmp_path.iterdir()) == []
         assert agent.serialize()["info"]["exit_status"] == result["exit_status"]
+
+
+# ---------------------------------------------------------------------------
+# cost tracking — compute_cost accumulation + cost_limit
+# ---------------------------------------------------------------------------
+
+
+class TestCostTracking:
+    """Agent accumulates response cost and honors cost_limit."""
+
+    def test_run_accumulates_cost(self):
+        """run() 应把每次 response 的成本累加到 self.cost 并序列化。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Running.",
+                tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+                usage=_make_usage(1_000_000, 1_000_000),
+            ),
+            _make_response(
+                content="Done.",
+                tool_calls=[_make_tool_call("s1", "submit", {"output": "ok"})],
+                usage=_make_usage(1_000_000, 0),
+            ),
+        ]
+        env = MagicMock()
+        env.execute.return_value = "out"
+
+        agent = Agent(model, env)
+        result = agent.run("task")
+
+        assert result["exit_status"] == "submitted"
+        assert agent.cost > 0
+        stats = agent.serialize()["info"]["model_stats"]
+        assert stats["instance_cost"] == agent.cost
+
+    def test_cost_limit_stops_agent(self):
+        """累计成本超过 cost_limit 时以 exit_status='cost_limit' 退出。"""
+        model = MagicMock()
+        model.query.return_value = _make_response(
+            content="Running.",
+            tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+            usage=_make_usage(1_000_000, 1_000_000),  # ~0.42 USD
+        )
+        env = MagicMock()
+        env.execute.return_value = "ok"
+
+        agent = Agent(model, env)
+        result = agent.run("task", max_steps=10, cost_limit=0.01)
+
+        assert result["exit_status"] == "cost_limit"
+        # 第一次查询就超过上限，第二次循环前即停止，不再发起新调用。
+        assert model.query.call_count == 1
+        assert agent.cost > 0.01
+
+    def test_cost_limit_zero_disables(self):
+        """cost_limit=0 表示不限制。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Done.",
+                tool_calls=[_make_tool_call("s1", "submit", {"output": "ok"})],
+                usage=_make_usage(1_000_000, 1_000_000),
+            ),
+        ]
+        agent = Agent(model, MagicMock())
+        result = agent.run("task", cost_limit=0)
+        assert result["exit_status"] == "submitted"
+
+    def test_cost_limit_none_disables(self):
+        """cost_limit=None 表示不限制。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Done.",
+                tool_calls=[_make_tool_call("s1", "submit", {"output": "ok"})],
+                usage=_make_usage(1_000_000, 1_000_000),
+            ),
+        ]
+        agent = Agent(model, MagicMock())
+        result = agent.run("task", cost_limit=None)
+        assert result["exit_status"] == "submitted"

@@ -1,10 +1,14 @@
 from src.mini_agent.config import (
     BASH_TOOL,
+    DEFAULT_COST_LIMIT,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_STEPS,
     DEFAULT_MAX_TIME,
     DEFAULT_TIMEOUT,
     INSTANCE_TEMPLATE,
+    PRICE_INPUT_CACHE_HIT_PER_1M,
+    PRICE_INPUT_PER_1M,
+    PRICE_OUTPUT_PER_1M,
     SUBMIT_TOOL,
     SYSTEM_PROMPT,
 )
@@ -161,3 +165,22 @@ def test_default_timeout_is_positive():
 
 def test_default_max_time_is_positive():
     assert DEFAULT_MAX_TIME > 0
+
+
+# --- cost tracking ---
+
+def test_default_cost_limit_is_positive():
+    assert DEFAULT_COST_LIMIT > 0
+
+
+def test_input_prices_are_positive():
+    assert PRICE_INPUT_PER_1M > 0
+    assert PRICE_INPUT_CACHE_HIT_PER_1M > 0
+
+
+def test_output_price_is_positive():
+    assert PRICE_OUTPUT_PER_1M > 0
+
+
+def test_cache_hit_is_cheaper_than_miss():
+    assert PRICE_INPUT_CACHE_HIT_PER_1M < PRICE_INPUT_PER_1M
