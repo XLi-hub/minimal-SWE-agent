@@ -6,13 +6,18 @@ from pathlib import Path
 
 from src.mini_agent.config import (
     BASH_TOOL,
+    COMPRESS_THRESHOLD,
+    CONTEXT_WINDOW,
     DEFAULT_COST_LIMIT,
     DEFAULT_MAX_STEPS,
     DEFAULT_MAX_TIME,
     INSTANCE_TEMPLATE,
+    KEEP_LAST_N_TURNS,
+    RESERVE_TOKENS,
     SUBMIT_TOOL,
     SYSTEM_PROMPT,
 )
+from src.mini_agent.context import compress, should_compress
 from src.mini_agent.cost import compute_cost
 from src.mini_agent.tools import execute_tool_call, format_assistant_message
 
@@ -24,9 +29,17 @@ class Agent:
     environment 需提供 .execute(command, timeout=30) → str.
     """
 
-    def __init__(self, model, environment):
+    def __init__(self, model, environment,
+                 context_window=CONTEXT_WINDOW,
+                 compress_threshold=COMPRESS_THRESHOLD,
+                 reserve_tokens=RESERVE_TOKENS,
+                 keep_last_n_turns=KEEP_LAST_N_TURNS):
         self.model = model
         self.environment = environment
+        self.context_window = context_window
+        self.compress_threshold = compress_threshold
+        self.reserve_tokens = reserve_tokens
+        self.keep_last_n_turns = keep_last_n_turns
         # Trajectory state — reset and updated by run().
         self.messages: list[dict] = []
         self.n_calls = 0
@@ -95,6 +108,25 @@ class Agent:
                 if cost_limit is not None and cost_limit > 0 and self.cost >= cost_limit:
                     result["exit_status"] = "cost_limit"
                     return result
+                if should_compress(
+                    messages, [BASH_TOOL, SUBMIT_TOOL],
+                    self.context_window, self.compress_threshold,
+                    self.reserve_tokens,
+                ):
+                    try:
+                        compressed, summary_response = compress(
+                            messages, self.model, self.keep_last_n_turns
+                        )
+                        # 摘要也是一次真实 API 调用 —— 计入调用次数与成本，
+                        # 否则 model_stats 会漏算摘要那次的 token 用量。
+                        if summary_response is not None:
+                            self.n_calls += 1
+                            self.cost += compute_cost(summary_response)
+                        # 就地切片赋值：messages / self.messages / result["messages"]
+                        # 是同一个 list 对象，切片赋值让三者保持一致（重绑定是隐蔽 bug）。
+                        messages[:] = compressed
+                    except Exception:
+                        pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
                 try:
                     self.n_calls += 1
                     response = self.model.query(

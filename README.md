@@ -57,6 +57,7 @@ src/mini_agent/
 ├── agent.py                  # Agent 循环 — 查询 LM → 执行工具 → 循环
 ├── tools.py                  # 工具分发 + 输出截断 + 异常格式化
 ├── cost.py                   # 成本计算（token → USD）
+├── context.py                # 上下文压缩（token 估算 + LLM 增量摘要）
 ├── config.py                 # SYSTEM_PROMPT, BASH_TOOL, SUBMIT_TOOL 定义
 ├── model.py                  # DeepSeek API 封装（OpenAI 兼容协议）
 └── environments/             # 执行环境（可插拔）
@@ -65,9 +66,10 @@ src/mini_agent/
     └── docker.py              #   DockerEnvironment — 容器内执行
 
 tests/
-├── test_agent.py               # Agent 循环 + 截断 + submit + 异常 + 轨迹 + 成本（54 个测试）
+├── test_agent.py               # Agent 循环 + 截断 + submit + 异常 + 轨迹 + 成本 + 压缩（60 个测试）
 ├── test_config.py              # 工具 schema + system prompt + 默认值 + 定价（33 个测试）
 ├── test_cost.py                # 成本计算 compute_cost（7 个测试，全部 mock）
+├── test_context.py             # 上下文压缩纯函数（17 个测试，全部 mock）
 ├── test_model.py               # API 调用（7 个测试，全部 mock）
 ├── test_environment.py         # 本地环境（9 个测试）
 ├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
@@ -125,6 +127,28 @@ agent.run("fix the bug", output="run.traj.json", cost_limit=1.5)
 # 或 CLI：python main.py --task "..." -o run.traj.json --cost-limit 1.5
 ```
 
+## 上下文压缩
+
+Agent 循环每步都会往 `messages` 追加模型思考和工具输出，历史会无限增长——250 步的
+bash 输出轻松超过 `deepseek-chat` 的 64K 上下文。当历史逼近上限时，Agent 会用一次
+**无工具的 LLM 调用**把中间的旧对话折叠成一条结构化摘要，只保留 system prompt、
+原始任务、以及最近 N 轮 verbatim：
+
+- 触发条件：`count_tokens >= 0.8 × (context_window − reserve)`（默认窗口 64000、阈值 0.8、预留 2000 token 给下一轮回复）。
+- 保留策略：永不压缩 system prompt 和原始任务；最近 `keep_last_n_turns`（默认 4）轮原样保留，只压中间。
+- 摘要方式：折叠式增量——已有摘要 + 新对话 → 新摘要，结构化标题（任务/文件改动/关键决策/错误与测试结果/当前状态/下一步）。
+- 原子性：`assistant(tool_calls)` 和紧随其后的 `tool` 结果作为一个整体保留或丢弃，绝不拆开（否则 OpenAI/DeepSeek 会 HTTP 400）。
+- 失败兜底：摘要调用失败时静默跳过本轮，继续用完整历史，不影响主循环。
+- 成本计入：摘要本身也是一次 API 调用，其 token 用量计入 `instance_cost` 和 `api_calls`，与主循环查询一视同仁。
+
+```python
+agent.run("fix the bug")   # 默认 64K 窗口，长任务会自动压缩
+# 或 CLI 强制触发（极小窗口）：
+# python main.py --context-window 2000 --keep-last-n-turns 2 --task "修一下 bug"
+```
+
+压缩是会话内行为，不写任何持久化记忆文件。详见 [上下文压缩](docs/context-compression.md)。
+
 ## 环境分流
 
 ```bash
@@ -155,7 +179,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio -m "not 
 # E2E 测试 — 真调 DeepSeek API（2 个，花钱，偶尔跑一次）
 python -m pytest tests/ -v -m e2e
 
-# 全量 — 包括 E2E（143 个测试）
+# 全量 — 包括 E2E（166 个测试）
 python -m pytest tests/ -v -p no:anyio
 
 # 只跑单元测试（跳过 Docker 集成 + E2E）
@@ -164,7 +188,7 @@ python -m pytest tests/ -v -p no:anyio -m "not e2e" -k "not test_docker_echo and
 
 Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `DEEPSEEK_API_KEY` 时自动跳过。
 
-**测试分层**：111 单元 + 30 集成（含 Docker）+ 2 E2E = 143 总计。
+**测试分层**：134 单元 + 30 集成（含 Docker）+ 2 E2E = 166 总计。
 
 ## 学习文档
 
@@ -174,6 +198,7 @@ Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在
 - **[知识点索引](docs/concepts.md)** — ABC、工厂模式、mock 测试、function calling 概念解释
 - **[工具调用演进](docs/tool-calling.md)** — 从文本解析到 OpenAI function calling
 - **[环境分流](docs/environment.md)** — 注册表模式、local vs docker、如何加新环境
+- **[上下文压缩](docs/context-compression.md)** — 为什么历史会无限增长、LLM 摘要怎么触发、tool-call 原子性约束
 - **[测试策略](docs/testing.md)** — 为什么分三层、每层测什么、mock 的边界
 - **[常见问题](docs/faq.md)** — 为什么这样设计、数字怎么定的、和 mini-swe-agent 的区别
 

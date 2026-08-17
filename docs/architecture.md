@@ -12,6 +12,8 @@ try:
             exit_status = "max_time"; break
         if cost_limit and self.cost >= cost_limit:   # 0b. 成本上限检查
             exit_status = "cost_limit"; break
+        if should_compress(messages, tools):         # 0c. 历史逼近上限 → 压缩
+            messages[:] = compress(messages, model)  #     就地替换，保留别名
         response = model.query(messages, tools)      # 1. 模型思考
         self.cost += compute_cost(response)          # 1b. 累加本次成本（USD）
         if 模型调了submit: break                      # 2. 提交结果 → 退出
@@ -44,9 +46,10 @@ Model        Environment (ABC)   # 接口：只定义方法签名，不关心实
 DeepSeek     Local / Docker      # 实现：具体的 API 调用 / shell 执行
 
 cost.py                          # 纯函数 compute_cost(response) → USD（只依赖 config，不碰 Model/Env）
+context.py                       # 纯函数 token 估算 + LLM 摘要（只依赖 config，不碰 Model/Env）
 ```
 
-### 为什么分四个模块而不是一个文件
+### 为什么分模块而不是一个文件
 
 **一个文件写完** → 改一行可能影响全局，测试只能"端到端"跑（必须联网 + 真的执行命令）
 
@@ -58,12 +61,13 @@ cost.py                          # 纯函数 compute_cost(response) → USD（�
 | `Environment` | 换 local / Docker / Singularity | Mock `subprocess.run`，不需要真执行 |
 | `Agent` | 换不同的循环策略 | Mock Model + Environment，不需要 API |
 | `Config` | 换工具定义 / system prompt | 纯数据验证，不涉及任何 IO |
+| `context` | 换不同的压缩/摘要策略 | Mock Model 返回固定摘要文本，不调 API |
 
 Agent 内部方法分工：
 
 | 方法 | 职责 |
 |---|---|
-| `run()` | 循环控制：查模型 → 累加成本 → 调分发器 → 检查时间/步数/成本上限 |
+| `run()` | 循环控制：检查时间/步数/成本上限 → 逼近上限则压缩 → 查模型 → 累加成本 → 调分发器 |
 | `_handle_tool_call()` | 工具分发：submit（退出）/ bash（执行）/ unknown（报错） |
 | `_format_assistant_message()` | SDK 对象 → dict，供下轮 `model.query()` 使用 |
 | `_truncate_output()` | 长输出截断，保留头尾 + WARNING 引导 |

@@ -13,12 +13,21 @@ Usage::
 
     # 保存轨迹到 .traj.json
     python main.py --task "修一下 bug" -o last_run.traj.json
+
+    # 强制上下文压缩（用极小窗口触发）
+    python main.py --context-window 2000 --task "修一下 bug"
 """
 
 import argparse
 
 from src.mini_agent.agent import Agent
-from src.mini_agent.config import DEFAULT_COST_LIMIT, DEFAULT_MAX_STEPS, DEFAULT_MAX_TIME
+from src.mini_agent.config import (
+    CONTEXT_WINDOW,
+    DEFAULT_COST_LIMIT,
+    DEFAULT_MAX_STEPS,
+    DEFAULT_MAX_TIME,
+    KEEP_LAST_N_TURNS,
+)
 from src.mini_agent.model import Model
 from src.mini_agent.environments import get_environment
 
@@ -59,6 +68,16 @@ def _parse_args():
         help=f"Stop when accumulated cost exceeds this USD value "
              f"(default {DEFAULT_COST_LIMIT}, 0 disables)",
     )
+    p.add_argument(
+        "--context-window", type=int, default=CONTEXT_WINDOW,
+        help=f"Estimated context window in tokens (default {CONTEXT_WINDOW}). "
+             f"Set small to force context compression.",
+    )
+    p.add_argument(
+        "--keep-last-n-turns", type=int, default=KEEP_LAST_N_TURNS,
+        help=f"Most-recent round-trip turns kept verbatim after compression "
+             f"(default {KEEP_LAST_N_TURNS})",
+    )
     return p.parse_args()
 
 
@@ -73,7 +92,11 @@ if __name__ == "__main__":
     env = get_environment(args.env, **kwargs)
 
     task = args.task if args.task else input("Task: ")
-    agent = Agent(Model(), env)
+    agent = Agent(
+        Model(), env,
+        context_window=args.context_window,
+        keep_last_n_turns=args.keep_last_n_turns,
+    )
     result = agent.run(
         task, max_steps=args.max_steps, max_time=args.max_time,
         output=args.output, cost_limit=args.cost_limit,
