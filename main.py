@@ -14,6 +14,9 @@ Usage::
     # 用 YAML 文件覆盖配置
     python main.py --config my_config.yaml
 
+    # 内置两套工具配置：default.yaml（默认 5 工具）/ default_bash.yaml（旧路线 2 工具）
+    python main.py --config default_bash
+
     # 用点号 key=value 覆盖单项配置（可重复）
     python main.py -c agent.max_steps=50 -c agent.cost_limit=5
 

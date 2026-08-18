@@ -188,6 +188,22 @@ api_key = os.environ[self.config.api_key_env]   # "DEEPSEEK_API_KEY" → 取 .en
 
 单个字段用 `-c`，一整套环境（比如切 OpenAI + 调价格）写一个 YAML 文件更清晰。
 
+### 内置两套工具配置
+
+仓库内置两套工具配置，都基于同一套 `recursive_merge` 机制：
+
+| 配置 | 工具集 | 用途 |
+|---|---|---|
+| [default.yaml](../src/mini_agent/config/default.yaml) | `bash` + `submit` + `read` + `edit` + `write` | **默认**——文件工具（读/改/写）默认启用 |
+| [default_bash.yaml](../src/mini_agent/config/default_bash.yaml) | `bash` + `submit` | 旧路线——一切通过 bash（`cat`/`sed`/heredoc），`read`/`edit`/`write` 被 `null` 禁用 |
+
+```bash
+python main.py                        # 默认：5 工具
+python main.py --config default_bash  # 旧路线：仅 bash + submit
+```
+
+`default_bash.yaml` 只声明两个增量：把 `tools.read_tool`/`edit_tool`/`write_tool` 置 `null`（禁用），并把 `agent.system_prompt` 换回两工具版；`bash_tool`/`submit_tool`/`model`/`cost`/`environment` 都从 `default.yaml` 继承。这正是「后写优先 + 嵌套合并」的体现——第二个 YAML 只写和默认不同的部分。
+
 ## 7. 对照代码
 
 - 合并/渲染/校验：[config/__init__.py](../src/mini_agent/config/__init__.py) + [config/models.py](../src/mini_agent/config/models.py)

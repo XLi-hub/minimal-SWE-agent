@@ -414,11 +414,28 @@ def test_agent_passes_both_bash_and_submit_tools():
     assert "submit" in tool_names
 
 
-def test_agent_passes_file_tools_when_configured():
-    """配置了 read/edit/write 时，应一并传给模型。"""
+def test_agent_passes_file_tools_by_default():
+    """默认配置（含 read/edit/write）时，五个工具都应传给模型。"""
+    model = MagicMock()
+    model.query.return_value = _make_response(
+        content="Done.",
+        tool_calls=[_make_tool_call("s1", "submit", {"output": "ok"})],
+    )
+    env = MagicMock()
+
+    agent = Agent(model, env)  # 默认 = default.yaml → 5 工具
+    agent.run("test")
+
+    tools = model.query.call_args.kwargs["tools"]
+    tool_names = [t["function"]["name"] for t in tools]
+    assert tool_names == ["bash", "submit", "read", "edit", "write"]
+
+
+def test_agent_bash_only_config_passes_only_bash_and_submit():
+    """--config default_bash 时，应只有 bash + submit 两个工具。"""
     from src.mini_agent.config import build_config
 
-    cfg = build_config(["default_read_edit"])
+    cfg = build_config(["default_bash"])
     model = MagicMock()
     model.query.return_value = _make_response(
         content="Done.",
@@ -431,8 +448,7 @@ def test_agent_passes_file_tools_when_configured():
 
     tools = model.query.call_args.kwargs["tools"]
     tool_names = [t["function"]["name"] for t in tools]
-    for expected in ("bash", "submit", "read", "edit", "write"):
-        assert expected in tool_names
+    assert tool_names == ["bash", "submit"]
 
 
 # --- keyboard interrupt ---

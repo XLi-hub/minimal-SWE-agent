@@ -172,3 +172,21 @@ Agent.run() 返回结构化结果：
 | `error` | 异常 | Agent 内部未处理的错误 |
 
 **安全设计**：循环用 `for _ in range(max_steps)` 而不是 `while True`——即使代码有 bug 也不会无限运行。模型可以通过 `timeout` 参数为慢命令（`pip install`, `git clone`）请求更长的超时时间。
+
+## v4 — 专用文件工具 read/edit/write（参考 PI）
+
+v1–v3 里模型一切文件操作都走 `bash`：`cat` 读、`sed -i` 改、heredoc 写。能用，但有隐患：
+
+- `sed` 匹配不到时**静默成功**（exit 0、文件没变、模型还以为改好了）
+- heredoc 里任意内容都要做 shell 转义，特殊字符易出错
+- 轨迹里 `bash` 的命令是黑盒字符串，harness 无法追踪「改了哪个文件的哪一段」
+
+参考 [PI](https://github.com/earendil-works/pi) 的做法，加了三个专用文件工具（现已**默认启用**，见 [config.md](config.md#内置两套工具配置)）：
+
+| 工具 | 作用 | 失败语义 |
+|---|---|---|
+| `read(path)` | 读文件，带行号 | 文件不存在 → 明确报错 |
+| `edit(path, old_string, new_string)` | 替换唯一一处 `old_string` | 缺失或出现多次 → **明确报错** |
+| `write(path, content)` | 整文件创建/覆盖 | 内容走 stdin，不做 shell 转义 |
+
+关键差异：`edit` 的 `apply_edit()` 对 `old_string` 做 `count==0` / `count>1` 校验——把原来 `sed` 的静默失败变成显式失败。想要回到纯 `bash` 路线，`python main.py --config default_bash` 即可（两套配置并存）。

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.mini_agent.config import build_config
+from src.mini_agent.config import get_default_config
 from src.mini_agent.tools import (
     EditError,
     apply_edit,
@@ -165,7 +165,7 @@ def test_write_empty_content_succeeds():
 
 
 def test_unknown_tool_lists_all_available_tools():
-    cfg = build_config(["default_read_edit"])
+    cfg = get_default_config()
     env = FakeEnv()
     messages: list = []
     result: dict = {}

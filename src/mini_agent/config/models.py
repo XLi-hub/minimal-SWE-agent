@@ -39,9 +39,10 @@ class AgentConfig(BaseModel):
 class ToolsConfig(BaseModel):
     """Tool schemas are passed through to the OpenAI API verbatim.
 
-    ``bash_tool`` / ``submit_tool`` are always present (``default.yaml``).
-    ``read_tool`` / ``edit_tool`` / ``write_tool`` are optional — enabled only
-    when a config declares them (e.g. ``default_read_edit.yaml``).
+    ``bash_tool`` / ``submit_tool`` are always present. ``read_tool`` /
+    ``edit_tool`` / ``write_tool`` are optional and enabled by default in
+    ``default.yaml``; ``default_bash.yaml`` sets them to ``null`` to restore
+    the legacy bash+submit-only route.
     """
 
     bash_tool: dict[str, Any]       # 必填 —— 来自 default.yaml
