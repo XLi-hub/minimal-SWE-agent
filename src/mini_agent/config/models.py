@@ -37,12 +37,31 @@ class AgentConfig(BaseModel):
 
 
 class ToolsConfig(BaseModel):
-    """Tool schemas are passed through to the OpenAI API verbatim."""
+    """Tool schemas are passed through to the OpenAI API verbatim.
 
-    bash_tool: dict[str, Any]       # 必填 —— 来自 YAML
-    submit_tool: dict[str, Any]     # 必填 —— 来自 YAML
+    ``bash_tool`` / ``submit_tool`` are always present (``default.yaml``).
+    ``read_tool`` / ``edit_tool`` / ``write_tool`` are optional — enabled only
+    when a config declares them (e.g. ``default_read_edit.yaml``).
+    """
+
+    bash_tool: dict[str, Any]       # 必填 —— 来自 default.yaml
+    submit_tool: dict[str, Any]     # 必填 —— 来自 default.yaml
+    read_tool: dict[str, Any] | None = None
+    edit_tool: dict[str, Any] | None = None
+    write_tool: dict[str, Any] | None = None
     default_max_lines: int = 100
     default_timeout: int = 30
+
+    def enabled_tools(self) -> list[dict[str, Any]]:
+        """The tool schemas actually sent to the model, in a stable order."""
+        tools = [self.bash_tool, self.submit_tool]
+        for extra in (self.read_tool, self.edit_tool, self.write_tool):
+            if extra is not None:
+                tools.append(extra)
+        return tools
+
+    def tool_names(self) -> list[str]:
+        return [t["function"]["name"] for t in self.enabled_tools()]
 
 
 class CostConfig(BaseModel):

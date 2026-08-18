@@ -414,6 +414,27 @@ def test_agent_passes_both_bash_and_submit_tools():
     assert "submit" in tool_names
 
 
+def test_agent_passes_file_tools_when_configured():
+    """配置了 read/edit/write 时，应一并传给模型。"""
+    from src.mini_agent.config import build_config
+
+    cfg = build_config(["default_read_edit"])
+    model = MagicMock()
+    model.query.return_value = _make_response(
+        content="Done.",
+        tool_calls=[_make_tool_call("s1", "submit", {"output": "ok"})],
+    )
+    env = MagicMock()
+
+    agent = Agent(model, env, config=cfg)
+    agent.run("test")
+
+    tools = model.query.call_args.kwargs["tools"]
+    tool_names = [t["function"]["name"] for t in tools]
+    for expected in ("bash", "submit", "read", "edit", "write"):
+        assert expected in tool_names
+
+
 # --- keyboard interrupt ---
 
 

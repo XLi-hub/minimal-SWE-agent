@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+from pathlib import Path
 
 from src.mini_agent.config import EnvironmentConfig, get_default_config
 from src.mini_agent.environments import Environment
@@ -45,3 +46,17 @@ class LocalEnvironment(Environment):
             # Process is still alive — don't kill it, just raise so the
             # Agent can format the partial output for the model.
             raise
+
+    def read_file(self, path: str) -> str:
+        """Read *path* relative to the host process cwd — the SAME cwd ``bash`` uses.
+
+        ``execute`` runs ``Popen(..., shell=True)`` with no ``cwd=``, so it inherits
+        the process cwd.  Resolving against the process cwd here keeps the file tools
+        and ``bash`` seeing the same tree.
+        """
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+
+    def write_file(self, path: str, content: str) -> None:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")

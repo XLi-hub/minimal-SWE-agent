@@ -18,6 +18,16 @@ class Environment(ABC):
         """Run *command* in a shell and return combined stdout + stderr."""
         ...
 
+    @abstractmethod
+    def read_file(self, path: str) -> str:
+        """Return the contents of *path* (UTF-8). Raise ``FileNotFoundError`` if absent."""
+        ...
+
+    @abstractmethod
+    def write_file(self, path: str, content: str) -> None:
+        """Write *content* to *path*, creating parent directories as needed."""
+        ...
+
     def cleanup(self) -> None:
         """Release any resources held by the environment.
 

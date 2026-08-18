@@ -1,3 +1,5 @@
+import pytest
+
 from src.mini_agent.environments.local import LocalEnvironment
 
 
@@ -57,3 +59,42 @@ def test_local_environment_timeout():
         # If no exception, the command returned something —
         # just verify no crash.
         pass
+
+
+# --- read_file / write_file ---
+
+
+def test_read_file_returns_content(tmp_path):
+    p = tmp_path / "f.txt"
+    p.write_text("hello\nworld\n", encoding="utf-8")
+    assert LocalEnvironment().read_file(str(p)) == "hello\nworld\n"
+
+
+def test_read_file_unicode_roundtrip(tmp_path):
+    p = tmp_path / "u.txt"
+    p.write_text("你好，世界\n", encoding="utf-8")
+    assert LocalEnvironment().read_file(str(p)) == "你好，世界\n"
+
+
+def test_read_file_missing_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        LocalEnvironment().read_file(str(tmp_path / "does_not_exist.txt"))
+
+
+def test_write_file_writes_content(tmp_path):
+    p = tmp_path / "out.txt"
+    LocalEnvironment().write_file(str(p), "abc")
+    assert p.read_text(encoding="utf-8") == "abc"
+
+
+def test_write_file_creates_parent_dirs(tmp_path):
+    p = tmp_path / "a" / "b" / "c.txt"
+    LocalEnvironment().write_file(str(p), "x")
+    assert p.read_text(encoding="utf-8") == "x"
+
+
+def test_write_file_overwrites(tmp_path):
+    p = tmp_path / "f.txt"
+    p.write_text("old", encoding="utf-8")
+    LocalEnvironment().write_file(str(p), "new")
+    assert p.read_text(encoding="utf-8") == "new"

@@ -165,6 +165,98 @@ def test_execute_raises_when_container_not_started():
         env.cleanup()
 
 
+def test_read_file_builds_correct_cmd():
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("file contents\n", None)
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        env = DockerEnvironment(image="python:3.11-slim", cwd="/workspace")
+        out = env.read_file("src/app.py")
+
+        cmd = mock_popen.call_args.args[0]
+        assert cmd[0] == "docker"
+        assert "exec" in cmd
+        assert "-w" in cmd
+        assert "/workspace" in cmd
+        assert "cat" in cmd
+        assert "--" in cmd
+        assert "src/app.py" in cmd
+        assert out == "file contents\n"
+
+        env.cleanup()
+
+
+def test_read_file_missing_raises_file_not_found():
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = (
+            "cat: nope: No such file or directory\n", None
+        )
+        mock_proc.returncode = 1
+        mock_popen.return_value = mock_proc
+
+        env = DockerEnvironment(image="python:3.11-slim")
+        with pytest.raises(FileNotFoundError):
+            env.read_file("nope")
+
+        env.cleanup()
+
+
+def test_write_file_passes_content_on_stdin():
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("", None)
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        env = DockerEnvironment(image="python:3.11-slim", cwd="/workspace")
+        env.write_file("src/app.py", "print('hi')\n")
+
+        cmd = mock_popen.call_args.args[0]
+        assert cmd[0] == "docker"
+        assert "exec" in cmd
+        assert "-i" in cmd
+        assert "-w" in cmd
+        assert "/workspace" in cmd
+        assert "sh" in cmd
+        assert "-c" in cmd
+        mock_proc.communicate.assert_called_once_with(
+            input="print('hi')\n", timeout=30
+        )
+
+        env.cleanup()
+
+
+def test_read_write_file_raise_when_not_started():
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+
+        env = DockerEnvironment(image="python:3.11-slim")
+        env._container_id = None
+
+        with pytest.raises(RuntimeError, match="not been started"):
+            env.read_file("x")
+        with pytest.raises(RuntimeError, match="not been started"):
+            env.write_file("x", "y")
+
+        env.cleanup()
+
+
 # ---------------------------------------------------------------------------
 # integration tests — only run when Docker is available
 # ---------------------------------------------------------------------------

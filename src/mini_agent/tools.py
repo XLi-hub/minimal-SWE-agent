@@ -89,11 +89,94 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
         })
         return False
 
+    if name == "read":
+        path = args.get("path")
+        if not path:
+            output = "Error: 'read' requires a 'path' argument."
+        else:
+            print("Read:", path)
+            try:
+                content = environment.read_file(path)
+            except FileNotFoundError:
+                output = f"Error: file not found: {path}"
+            except IsADirectoryError:
+                output = f"Error: {path} is a directory, not a file."
+            except Exception as e:
+                output = f"Error: {e}"
+            else:
+                output = format_read_output(content)
+            print("Output:", output)
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": output,
+        })
+        return False
+
+    if name == "edit":
+        path = args.get("path")
+        old_string = args.get("old_string")
+        new_string = args.get("new_string")
+        if not path or old_string is None or new_string is None:
+            output = "Error: 'edit' requires 'path', 'old_string', and 'new_string'."
+        else:
+            print("Edit:", path)
+            try:
+                original = environment.read_file(path)
+            except FileNotFoundError:
+                output = f"Error: file not found: {path}"
+            except Exception as e:
+                output = f"Error: {e}"
+            else:
+                try:
+                    updated = apply_edit(original, old_string, new_string)
+                except EditError as e:
+                    output = f"Error: {e}"
+                else:
+                    try:
+                        environment.write_file(path, updated)
+                    except Exception as e:
+                        output = f"Error: {e}"
+                    else:
+                        output = (
+                            f"Edited {path}: replaced the unique occurrence of:\n"
+                            f"--- old ---\n{old_string}\n--- new ---\n{new_string}"
+                        )
+            print("Output:", output)
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": output,
+        })
+        return False
+
+    if name == "write":
+        path = args.get("path")
+        content = args.get("content")
+        if not path or content is None:
+            output = "Error: 'write' requires 'path' and 'content'."
+        else:
+            print("Write:", path)
+            try:
+                environment.write_file(path, content)
+            except Exception as e:
+                output = f"Error: {e}"
+            else:
+                output = f"Wrote {path} ({len(content)} characters)."
+            print("Output:", output)
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": output,
+        })
+        return False
+
     # Unknown tool — tell the model so it can self-correct.
+    available = ", ".join(tool_defaults.tool_names())
     messages.append({
         "role": "tool",
         "tool_call_id": tc.id,
-        "content": f"Error: unknown tool '{name}'. Available tools: bash, submit.",
+        "content": f"Error: unknown tool '{name}'. Available tools: {available}.",
     })
     return False
 
@@ -167,3 +250,38 @@ def truncate_output(output: str, max_lines: int) -> str:
         f"narrow down the output.]"
     )
     return "\n".join(head + [warning] + tail)
+
+
+class EditError(ValueError):
+    """Raised when an edit cannot be applied unambiguously."""
+
+
+def apply_edit(content: str, old_string: str, new_string: str) -> str:
+    """Replace the single occurrence of ``old_string`` in ``content``.
+
+    Raises :class:`EditError` when ``old_string`` is empty, absent, or appears
+    more than once — the model must then provide more context to disambiguate.
+    """
+    if old_string == "":
+        raise EditError("old_string must be non-empty.")
+    count = content.count(old_string)
+    if count == 0:
+        raise EditError(
+            "old_string was not found in the file. The text must match exactly, "
+            "including whitespace and indentation."
+        )
+    if count > 1:
+        raise EditError(
+            f"old_string is ambiguous: found {count} occurrences. "
+            "Include more surrounding lines to make it unique."
+        )
+    return content.replace(old_string, new_string, 1)
+
+
+def format_read_output(content: str) -> str:
+    """Prefix each line with a 1-based line number for the ``read`` tool."""
+    if content == "":
+        return "(empty file)"
+    return "\n".join(
+        f"{i:>6}\t{line}" for i, line in enumerate(content.splitlines(), 1)
+    )

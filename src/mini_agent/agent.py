@@ -96,7 +96,7 @@ class Agent:
         if cost_limit is UNSET:
             cost_limit = agent_cfg.cost_limit
 
-        tools = [self.config.tools.bash_tool, self.config.tools.submit_tool]
+        tools = self.config.tools.enabled_tools()
 
         self.messages = [
             {"role": "system", "content": agent_cfg.system_prompt},

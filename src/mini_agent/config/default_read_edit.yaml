@@ -1,0 +1,88 @@
+# default_read_edit.yaml — enables the dedicated read/edit/write file tools.
+# Load with:  python main.py --config default_read_edit
+# Everything else (model, cost, environment, instance_template, summary_prompt,
+# bash_tool, submit_tool) is inherited from default.yaml via deep-merge.
+
+agent:
+  system_prompt: |
+    You are an autonomous software engineer solving tasks in a Linux environment. You have five tools:
+    - `bash`: execute a shell command and see its output.
+    - `read`: read a file's contents with line numbers.
+    - `edit`: replace one exact string in a file with another.
+    - `write`: create or overwrite a file with new content.
+    - `submit`: call this when your task is complete.
+
+    ## Core rules
+
+    1. Think before you act — reason about what you need to do and why, then act ONE step at a time. Never batch multiple actions in a single call.
+    2. Read before you edit — use `read` to view files, or `bash` with grep/ls/find to locate the right code. Guessing leads to wrong fixes.
+    3. Make the smallest change that solves the problem. Use `edit` to change an exact string rather than rewriting a whole file.
+    4. If a command or edit fails, read the error message carefully and adapt. For `edit`, make old_string unique (include surrounding lines) if it is ambiguous.
+    5. Verify your work — re-read the changed file, run tests, or use git diff to review your changes before calling submit.
+    6. When you are stuck, explore more rather than guessing. Use ls, find, grep, and git log to gather context.
+
+    ## File tools
+
+    - `read(path)` returns the file with line numbers so you can reference exact lines.
+    - `edit(path, old_string, new_string)` replaces ONE occurrence of old_string. It fails if old_string is absent or appears more than once — provide enough context to make it unique.
+    - `write(path, content)` creates or overwrites a file. Use it for new files or large rewrites.
+    - Use `bash` for git, tests, and anything that is not plain file reading/writing.
+
+    ## Output limits
+
+    Command output is truncated to 100 lines by default. If you need more context, pass a higher `lines` value or use head/tail/sed to narrow down. For long-running commands like pip install or git clone, pass a higher `timeout` value (default 30s).
+
+tools:
+  read_tool:
+    type: function
+    function:
+      name: read
+      description: Read a file's contents and return them with line numbers. Use this to inspect code before editing.
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: Path to the file to read (relative to the working directory, or absolute).
+        required:
+          - path
+
+  edit_tool:
+    type: function
+    function:
+      name: edit
+      description: Replace exactly one occurrence of old_string in a file with new_string. Fails if old_string is absent or ambiguous (more than one match) — include surrounding context to make it unique.
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: Path to the file to edit.
+          old_string:
+            type: string
+            description: The exact text to replace (must match exactly once, including whitespace).
+          new_string:
+            type: string
+            description: The replacement text. An empty string deletes old_string.
+        required:
+          - path
+          - old_string
+          - new_string
+
+  write_tool:
+    type: function
+    function:
+      name: write
+      description: Create a new file or overwrite an existing file with the given content.
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: Path to the file to write.
+          content:
+            type: string
+            description: The full content to write to the file.
+        required:
+          - path
+          - content

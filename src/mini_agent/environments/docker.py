@@ -89,6 +89,46 @@ class DockerEnvironment(Environment):
             # Process is still alive — don't kill it.
             raise
 
+    def read_file(self, path: str) -> str:
+        if self._container_id is None:
+            raise RuntimeError("Container has not been started")
+        cmd = ["docker", "exec", "-w", self._cwd, self._container_id,
+               "cat", "--", path]
+        proc = subprocess.Popen(
+            cmd,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        out, _ = proc.communicate(timeout=self._timeout)
+        if proc.returncode != 0:
+            if "no such file" in out.lower():
+                raise FileNotFoundError(out.strip() or path)
+            raise OSError(out.strip() or f"cannot read {path!r}")
+        return out
+
+    def write_file(self, path: str, content: str) -> None:
+        if self._container_id is None:
+            raise RuntimeError("Container has not been started")
+        # content on stdin (never quoted); path as positional "$1" (never
+        # interpolated).  `cat > "$1"` preserves an existing file's mode.
+        cmd = ["docker", "exec", "-i", "-w", self._cwd, self._container_id,
+               "sh", "-c", 'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", path]
+        proc = subprocess.Popen(
+            cmd,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        out, _ = proc.communicate(input=content, timeout=self._timeout)
+        if proc.returncode != 0:
+            raise OSError(out.strip() or f"failed to write {path!r}")
+
     def cleanup(self) -> None:
         """Stop and remove the Docker container."""
         if self._container_id is None:
