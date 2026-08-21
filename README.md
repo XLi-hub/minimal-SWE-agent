@@ -78,8 +78,8 @@ YAML 里只记环境变量「名」`model.api_key_env`（默认 `DEEPSEEK_API_KE
 
 ```
 src/mini_agent/
-├── agent.py                  # Agent 循环 — 查询 LM → 执行工具 → 循环
-├── tools.py                  # 工具分发 + 输出截断 + 异常格式化
+├── agent.py                  # Agent 循环（异常驱动）— 查询 LM → 执行工具 → 循环
+├── tools.py                  # 工具分发（bash/read/edit/write/submit）+ 消息格式化 + 输出截断
 ├── cost.py                   # 成本计算（token → USD）
 ├── context.py                # 上下文压缩（token 估算 + LLM 增量摘要）
 ├── model.py                  # DeepSeek API 封装（OpenAI 兼容协议）
@@ -93,15 +93,17 @@ src/mini_agent/
     └── docker.py              #   DockerEnvironment — 容器内执行
 
 tests/
-├── test_agent.py               # Agent 循环 + 截断 + submit + 异常 + 轨迹 + 成本 + 压缩（60 个测试）
+├── test_agent.py               # Agent 循环（异常驱动）+ submit + 轨迹 + 成本 + 压缩（62 个测试）
 ├── test_config.py              # 工具 schema + system prompt + 默认值 + 定价（35 个测试）
 ├── test_config_loading.py      # 配置合并/优先级/渲染/校验（20 个测试）
+├── test_config_read_edit.py    # 两套内置工具配置：5 工具默认 + 2 工具旧路线（6 个测试）
 ├── test_cost.py                # 成本计算 compute_cost（7 个测试，全部 mock）
 ├── test_context.py             # 上下文压缩纯函数（17 个测试，全部 mock）
 ├── test_model.py               # API 调用（8 个测试，全部 mock）
-├── test_environment.py         # 本地环境（9 个测试）
+├── test_tools.py               # 工具分发 read/edit/write + apply_edit + 输出截断（14 个测试）
+├── test_environment.py         # 本地环境（15 个测试）
 ├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
-├── test_docker.py              # Docker 环境（10 个测试，含跳过逻辑）
+├── test_docker.py              # Docker 环境（14 个测试，含跳过逻辑）
 ├── test_integration.py         # Agent+真Shell（11 个测试，mock Model）
 └── test_e2e.py                 # 端到端测试（2 个测试，默认跳过，需 API key）
 ```
@@ -126,11 +128,14 @@ main.py  ──►  Agent(model, env)
 
 ## 工具
 
-Agent 给模型两个工具：
+Agent 给模型五个工具：
 
 | 工具 | 用途 |
 |---|---|
 | `bash(command, lines?, timeout?)` | 执行 shell 命令，可选限制返回行数和超时秒数 |
+| `read(path)` | 读文件内容，带行号 |
+| `edit(path, old_string, new_string)` | 精确替换文件中唯一一处 `old_string` |
+| `write(path, content)` | 创建或覆盖文件 |
 | `submit(output)` | 提交最终结果（patch / 答案 / 总结） |
 
 模型主动调用 `submit` 退出，而非隐式停止。`run()` 返回结构化结果：
@@ -207,7 +212,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio -m "not 
 # E2E 测试 — 真调 DeepSeek API（2 个，花钱，偶尔跑一次）
 python -m pytest tests/ -v -m e2e
 
-# 全量 — 包括 E2E（189 个测试）
+# 全量 — 包括 E2E（221 个测试）
 python -m pytest tests/ -v -p no:anyio
 
 # 只跑单元测试（跳过 Docker 集成 + E2E）
@@ -216,7 +221,7 @@ python -m pytest tests/ -v -p no:anyio -m "not e2e" -k "not test_docker_echo and
 
 Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `DEEPSEEK_API_KEY` 时自动跳过。
 
-**测试分层**：157 单元 + 30 集成（含 Docker）+ 2 E2E = 189 总计。
+**测试分层**：179 单元 + 40 集成（含 Docker）+ 2 E2E = 221 总计。
 
 ## 学习文档
 
