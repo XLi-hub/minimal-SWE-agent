@@ -4,7 +4,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from src.mini_agent.config import ModelConfig, get_default_config
+from mini_agent.config import ModelConfig, get_default_config
 
 load_dotenv()  # 从项目根目录 .env 加载环境变量
 

@@ -6,7 +6,7 @@ cache hits — ``usage.prompt_tokens_details.cached_tokens``).  We turn those
 into a USD figure using the per-1M-token prices defined in ``config``.
 """
 
-from src.mini_agent.config import Config, get_default_config
+from mini_agent.config import Config, get_default_config
 
 
 def compute_cost(response, config: Config | None = None) -> float:

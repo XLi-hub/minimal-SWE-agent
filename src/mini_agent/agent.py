@@ -4,11 +4,11 @@ import json
 import time
 from pathlib import Path
 
-from src.mini_agent.config import Config, UNSET, get_default_config, render_template
-from src.mini_agent.context import compress, should_compress
-from src.mini_agent.cost import compute_cost
-from src.mini_agent.tools import execute_tool_call, format_assistant_message
-from src.mini_agent.exceptions import AgentExit, CostLimit, MaxSteps, MaxTime, NoToolCalls
+from mini_agent.config import Config, UNSET, get_default_config, render_template
+from mini_agent.context import compress, should_compress
+from mini_agent.cost import compute_cost
+from mini_agent.tools import execute_tool_call, format_assistant_message
+from mini_agent.exceptions import AgentExit, CostLimit, MaxSteps, MaxTime, NoToolCalls
 
 
 class Agent:
@@ -269,8 +269,8 @@ def run(task: str, max_steps=UNSET,
     """
     global _default_agent
     if _default_agent is None:
-        from src.mini_agent.model import Model            # noqa: E402
-        from src.mini_agent.environments.local import LocalEnvironment  # noqa: E402
+        from mini_agent.model import Model            # noqa: E402
+        from mini_agent.environments.local import LocalEnvironment  # noqa: E402
         _default_agent = Agent(Model(), LocalEnvironment())
     agent_cfg = get_default_config().agent
     return _default_agent.run(

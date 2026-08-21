@@ -7,8 +7,8 @@ interactions that mock return_values can't surface.
 
 from unittest.mock import MagicMock
 
-from src.mini_agent.agent import Agent
-from src.mini_agent.environments.local import LocalEnvironment
+from mini_agent.agent import Agent
+from mini_agent.environments.local import LocalEnvironment
 
 
 # ---------------------------------------------------------------------------

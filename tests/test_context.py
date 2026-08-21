@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock
 
-from src.mini_agent.config import get_default_config
-from src.mini_agent.context import (
+from mini_agent.config import get_default_config
+from mini_agent.context import (
     compress,
     count_tokens,
     estimate_tokens,

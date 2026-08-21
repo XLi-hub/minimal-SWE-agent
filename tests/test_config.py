@@ -1,6 +1,6 @@
 """Tests for the default configuration (``default.yaml`` + pydantic models)."""
 
-from src.mini_agent.config import get_default_config, render_template
+from mini_agent.config import get_default_config, render_template
 
 cfg = get_default_config()  # 权威默认值，来自 default.yaml
 

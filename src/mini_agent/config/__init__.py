@@ -26,7 +26,7 @@ from typing import Any
 import yaml
 from jinja2 import StrictUndefined, Template
 
-from src.mini_agent.config.models import (  # noqa: F401
+from mini_agent.config.models import (  # noqa: F401
     AgentConfig,
     Config,
     CostConfig,

@@ -7,8 +7,8 @@ orchestration, while tool-specific logic lives in its own module.
 import json
 import subprocess
 
-from src.mini_agent.config import Config, get_default_config
-from src.mini_agent.exceptions import Submitted
+from mini_agent.config import Config, get_default_config
+from mini_agent.exceptions import Submitted
 
 
 # ---------------------------------------------------------------------------

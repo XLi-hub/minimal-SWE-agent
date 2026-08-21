@@ -16,7 +16,7 @@ Agent 循环每步都会往 ``messages`` 里追加 assistant/tool 消息，历�
 
 import json
 
-from src.mini_agent.config import Config, UNSET, get_default_config, render_template
+from mini_agent.config import Config, UNSET, get_default_config, render_template
 
 
 def estimate_tokens(text: str) -> int:

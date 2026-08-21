@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.mini_agent.model import Model, query_lm
+from mini_agent.model import Model, query_lm
 
 
 # ---------------------------------------------------------------------------
@@ -15,7 +15,7 @@ from src.mini_agent.model import Model, query_lm
 @pytest.fixture(autouse=True)
 def _reset_global_model():
     """每个测试前重置全局 _model，避免状态污染。"""
-    import src.mini_agent.model as mod
+    import mini_agent.model as mod
 
     mod._model = None
 
@@ -28,7 +28,7 @@ def mock_openai():
     而不是 API 返回什么。
     """
     with patch("httpx.Client") as mock_http, \
-         patch("src.mini_agent.model.OpenAI") as mock_cls, \
+         patch("mini_agent.model.OpenAI") as mock_cls, \
          patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}):
 
         mock_http_client = MagicMock()
@@ -99,7 +99,7 @@ def test_query_uses_deepseek_chat_model(mock_openai):
 
 def test_query_uses_custom_model_name(mock_openai):
     """传入 ModelConfig 可覆盖模型名（外置配置的核心）。"""
-    from src.mini_agent.config import ModelConfig
+    from mini_agent.config import ModelConfig
 
     model = Model(ModelConfig(model_name="other-model"))
     model.query([{"role": "user", "content": "ping"}])

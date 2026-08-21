@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock
 
-from src.mini_agent.config import get_default_config
-from src.mini_agent.cost import compute_cost
+from mini_agent.config import get_default_config
+from mini_agent.cost import compute_cost
 
 PRICES = get_default_config().cost
 

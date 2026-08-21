@@ -14,9 +14,9 @@ import os
 
 import pytest
 
-from src.mini_agent.agent import Agent
-from src.mini_agent.model import Model
-from src.mini_agent.environments.local import LocalEnvironment
+from mini_agent.agent import Agent
+from mini_agent.model import Model
+from mini_agent.environments.local import LocalEnvironment
 
 
 # ---------------------------------------------------------------------------

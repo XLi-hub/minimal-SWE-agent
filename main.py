@@ -35,10 +35,10 @@ Usage::
 
 import argparse
 
-from src.mini_agent.agent import Agent
-from src.mini_agent.config import UNSET, build_config
-from src.mini_agent.model import Model
-from src.mini_agent.environments import get_environment
+from mini_agent.agent import Agent
+from mini_agent.config import UNSET, build_config
+from mini_agent.model import Model
+from mini_agent.environments import get_environment
 
 
 def _parse_args():

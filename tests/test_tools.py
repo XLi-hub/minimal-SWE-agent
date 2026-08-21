@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.mini_agent.config import get_default_config
-from src.mini_agent.tools import (
+from mini_agent.config import get_default_config
+from mini_agent.tools import (
     EditError,
     apply_edit,
     execute_tool_call,

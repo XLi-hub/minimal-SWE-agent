@@ -3,8 +3,8 @@
 import subprocess
 import uuid
 
-from src.mini_agent.config import EnvironmentConfig, get_default_config
-from src.mini_agent.environments import Environment
+from mini_agent.config import EnvironmentConfig, get_default_config
+from mini_agent.environments import Environment
 
 
 class DockerEnvironment(Environment):

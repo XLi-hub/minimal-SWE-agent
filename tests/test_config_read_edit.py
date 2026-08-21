@@ -1,6 +1,6 @@
 """Tests for the two builtin tool configs — 5-tool default + 2-tool legacy."""
 
-from src.mini_agent.config import build_config, get_default_config
+from mini_agent.config import build_config, get_default_config
 
 
 def test_default_enables_file_tools():

@@ -5,7 +5,7 @@ import pytest
 from jinja2 import UndefinedError
 from pydantic import ValidationError
 
-from src.mini_agent.config import (
+from mini_agent.config import (
     UNSET,
     build_config,
     get_default_config,

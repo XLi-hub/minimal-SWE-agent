@@ -36,8 +36,8 @@ class Environment(ABC):
         """
 
 
-from src.mini_agent.environments.local import LocalEnvironment  # noqa: E402, F401
-from src.mini_agent.environments.docker import DockerEnvironment  # noqa: E402, F401
+from mini_agent.environments.local import LocalEnvironment  # noqa: E402, F401
+from mini_agent.environments.docker import DockerEnvironment  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # factory — resolve a name string to an Environment instance

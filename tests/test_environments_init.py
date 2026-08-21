@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.mini_agent.environments import (
+from mini_agent.environments import (
     Environment,
     LocalEnvironment,
     DockerEnvironment,

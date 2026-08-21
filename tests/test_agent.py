@@ -2,9 +2,9 @@ import json
 import subprocess
 from unittest.mock import MagicMock
 
-from src.mini_agent.agent import Agent
-from src.mini_agent.config import get_default_config
-from src.mini_agent.tools import (
+from mini_agent.agent import Agent
+from mini_agent.config import get_default_config
+from mini_agent.tools import (
     decode_timeout_output,
     format_assistant_message,
     truncate_output,
@@ -433,7 +433,7 @@ def test_agent_passes_file_tools_by_default():
 
 def test_agent_bash_only_config_passes_only_bash_and_submit():
     """--config default_bash 时，应只有 bash + submit 两个工具。"""
-    from src.mini_agent.config import build_config
+    from mini_agent.config import build_config
 
     cfg = build_config(["default_bash"])
     model = MagicMock()
@@ -584,7 +584,7 @@ def testformat_assistant_message_without_tool_calls():
 
 def test_module_level_run_uses_default_agent():
     """向后兼容的 run(task) 应返回 dict，不抛异常。"""
-    import src.mini_agent.agent as agent_module
+    import mini_agent.agent as agent_module
 
     # Set up a mock agent so we don't need real Model/Environment
     mock_agent = MagicMock()

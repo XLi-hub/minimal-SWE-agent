@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.mini_agent.environments.docker import DockerEnvironment
+from mini_agent.environments.docker import DockerEnvironment
 
 
 # ---------------------------------------------------------------------------

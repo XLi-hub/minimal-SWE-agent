@@ -1,6 +1,6 @@
 import pytest
 
-from src.mini_agent.environments.local import LocalEnvironment
+from mini_agent.environments.local import LocalEnvironment
 
 
 def test_echo():
