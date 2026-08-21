@@ -8,6 +8,7 @@ from src.mini_agent.config import Config, UNSET, get_default_config, render_temp
 from src.mini_agent.context import compress, should_compress
 from src.mini_agent.cost import compute_cost
 from src.mini_agent.tools import execute_tool_call, format_assistant_message
+from src.mini_agent.exceptions import AgentExit, CostLimit, MaxSteps, MaxTime, NoToolCalls
 
 
 class Agent:
@@ -45,6 +46,7 @@ class Agent:
         # Trajectory state — reset and updated by run().
         self.messages: list[dict] = []
         self.n_calls = 0
+        self._steps = 0
         self.cost = 0.0
         self.cost_limit: float | None = None
         self.exit_status = ""
@@ -96,7 +98,11 @@ class Agent:
         if cost_limit is UNSET:
             cost_limit = agent_cfg.cost_limit
 
-        tools = self.config.tools.enabled_tools()
+        # Per-run state read by the decomposed step/query/execute_actions methods.
+        self._tools = self.config.tools.enabled_tools()
+        self._max_steps = max_steps
+        self._deadline = time.monotonic() + max_time if max_time is not None else None
+        self._steps = 0
 
         self.messages = [
             {"role": "system", "content": agent_cfg.system_prompt},
@@ -108,75 +114,21 @@ class Agent:
         self.exit_status = "error"
         self.submission = ""
 
-        messages = self.messages
-        result: dict = {"exit_status": "error", "submission": "", "messages": messages}
-        deadline = time.monotonic() + max_time if max_time is not None else None
+        result: dict = {"exit_status": "error", "submission": "", "messages": self.messages}
 
         try:
-            for _ in range(max_steps):
-                if deadline is not None and time.monotonic() > deadline:
-                    result["exit_status"] = "max_time"
-                    return result
-                if cost_limit is not None and cost_limit > 0 and self.cost >= cost_limit:
-                    result["exit_status"] = "cost_limit"
-                    return result
-                if should_compress(
-                    messages, tools,
-                    self.context_window, self.compress_threshold,
-                    self.reserve_tokens,
-                ):
-                    try:
-                        compressed, summary_response = compress(
-                            messages, self.model, self.keep_last_n_turns,
-                            config=self.config,
-                        )
-                        # 摘要也是一次真实 API 调用 —— 计入调用次数与成本，
-                        # 否则 model_stats 会漏算摘要那次的 token 用量。
-                        if summary_response is not None:
-                            self.n_calls += 1
-                            self.cost += compute_cost(summary_response, self.config)
-                        # 就地切片赋值：messages / self.messages / result["messages"]
-                        # 是同一个 list 对象，切片赋值让三者保持一致（重绑定是隐蔽 bug）。
-                        messages[:] = compressed
-                    except Exception:
-                        pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
+            while True:
                 try:
-                    self.n_calls += 1
-                    response = self.model.query(messages, tools=tools)
-                    self.cost += compute_cost(response, self.config)
-                    choice = response.choices[0]
-                    msg = choice.message
-
-                    # No tool calls → treat as exit (legacy / fallback)
-                    if not msg.tool_calls:
-                        messages.append(
-                            {"role": "assistant", "content": msg.content}
-                        )
-                        print("LM output:", msg.content)
-                        result["exit_status"] = "no_tool_calls"
-                        return result
-
-                    print("LM output:", msg.content)
-
-                    messages.append(format_assistant_message(msg))
-
-                    for tc in msg.tool_calls:
-                        if execute_tool_call(
-                            tc, messages, result, self.environment, config=self.config
-                        ):
-                            return result
-
+                    self.step()
+                except AgentExit as e:
+                    result["exit_status"] = e.exit_status
+                    result["submission"] = e.submission
+                    break
                 except KeyboardInterrupt:
                     result["exit_status"] = "interrupted"
-                    return result
+                    break
                 except Exception as e:
-                    messages.append(
-                        {"role": "user", "content": f"Error: {e}"}
-                    )
-
-            # Ran out of steps — return partial progress.
-            result["exit_status"] = "max_steps"
-            return result
+                    self.messages.append({"role": "user", "content": f"Error: {e}"})
         finally:
             # Sync the run outcome onto the agent so a later serialize()
             # call reflects it, then save the trajectory if requested.
@@ -184,6 +136,83 @@ class Agent:
             self.submission = result["submission"]
             if output is not None:
                 self.save(output)
+        return result
+
+    def step(self) -> None:
+        """One iteration: enforce limits, compress if needed, query, execute tools."""
+        self._check_limits()
+        self._maybe_compress()
+        self.execute_actions(self.query())
+
+    def _check_limits(self) -> None:
+        """Raise the matching :class:`AgentExit` when a run limit has been hit.
+
+        Order mirrors the original loop: the step budget (the old ``for``
+        boundary) is checked first, then wall-clock time, then cost.
+        """
+        if self._steps >= self._max_steps:
+            raise MaxSteps()
+        if self._deadline is not None and time.monotonic() > self._deadline:
+            raise MaxTime()
+        if self.cost_limit is not None and self.cost_limit > 0 and self.cost >= self.cost_limit:
+            raise CostLimit()
+
+    def query(self):
+        """Query the model once, append the assistant message, return the raw message.
+
+        Raises :class:`NoToolCalls` (after appending a plain assistant message)
+        when the model returns no tool calls.
+        """
+        self._steps += 1
+        self.n_calls += 1
+        response = self.model.query(self.messages, tools=self._tools)
+        self.cost += compute_cost(response, self.config)
+        choice = response.choices[0]
+        msg = choice.message
+
+        # No tool calls → treat as exit (legacy / fallback)
+        if not msg.tool_calls:
+            self.messages.append({"role": "assistant", "content": msg.content})
+            print("LM output:", msg.content)
+            raise NoToolCalls()
+
+        print("LM output:", msg.content)
+        self.messages.append(format_assistant_message(msg))
+        return msg
+
+    def execute_actions(self, msg) -> None:
+        """Execute every tool call in *msg*, appending tool results to messages.
+
+        ``execute_tool_call`` raises :class:`Submitted` on ``submit``, which
+        aborts the remaining tool calls and propagates up to :meth:`run`.
+        """
+        for tc in msg.tool_calls:
+            execute_tool_call(tc, self.messages, self.environment, config=self.config)
+
+    def _maybe_compress(self) -> None:
+        """Summarize the middle of the history when it nears the context window.
+
+        A compression failure is non-fatal: it is silently skipped and the loop
+        continues with the full (uncompressed) history.
+        """
+        if not should_compress(
+            self.messages, self._tools,
+            self.context_window, self.compress_threshold, self.reserve_tokens,
+        ):
+            return
+        try:
+            compressed, summary_response = compress(
+                self.messages, self.model, self.keep_last_n_turns, config=self.config,
+            )
+            # 摘要也是一次真实 API 调用 —— 计入调用次数与成本，
+            # 否则 model_stats 会漏算摘要那次的 token 用量。
+            if summary_response is not None:
+                self.n_calls += 1
+                self.cost += compute_cost(summary_response, self.config)
+            # 就地切片赋值，保持 self.messages / result["messages"] 别名一致。
+            self.messages[:] = compressed
+        except Exception:
+            pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
 
     def serialize(self) -> dict:
         """Serialize the agent trajectory to a JSON-compatible dict.

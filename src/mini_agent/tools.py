@@ -8,6 +8,7 @@ import json
 import subprocess
 
 from src.mini_agent.config import Config, get_default_config
+from src.mini_agent.exceptions import Submitted
 
 
 # ---------------------------------------------------------------------------
@@ -15,8 +16,8 @@ from src.mini_agent.config import Config, get_default_config
 # ---------------------------------------------------------------------------
 
 
-def execute_tool_call(tc, messages: list[dict], result: dict, environment,
-                      config: Config | None = None) -> bool:
+def execute_tool_call(tc, messages: list[dict], environment,
+                      config: Config | None = None) -> None:
     """Execute a single tool call and update *messages* in place.
 
     Parameters
@@ -26,19 +27,16 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
         and ``.function.arguments``.
     messages:
         The message history (mutated in place with tool results).
-    result:
-        The run result dict (mutated in place for ``submit``).
     environment:
         An execution environment with ``.execute(command, timeout) -> str``.
     config:
         Optional :class:`Config` — supplies ``default_max_lines`` /
         ``default_timeout`` when the model omits them.
 
-    Returns
-    -------
-    bool
-        ``True`` when the tool signals the agent loop should exit
-        (e.g. ``submit``), ``False`` otherwise.
+    Raises
+    ------
+    Submitted
+        When the tool is ``submit`` (the run completed with an answer).
     """
     name = tc.function.name
     args = json.loads(tc.function.arguments)
@@ -52,9 +50,7 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
             "content": "Submitted.",
         })
         print("Submit:", submission)
-        result["exit_status"] = "submitted"
-        result["submission"] = submission
-        return True
+        raise Submitted(submission)
 
     if name == "bash":
         command = args["command"]
@@ -87,7 +83,7 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
             "tool_call_id": tc.id,
             "content": output,
         })
-        return False
+        return None
 
     if name == "read":
         path = args.get("path")
@@ -111,7 +107,7 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
             "tool_call_id": tc.id,
             "content": output,
         })
-        return False
+        return None
 
     if name == "edit":
         path = args.get("path")
@@ -148,7 +144,7 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
             "tool_call_id": tc.id,
             "content": output,
         })
-        return False
+        return None
 
     if name == "write":
         path = args.get("path")
@@ -169,7 +165,7 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
             "tool_call_id": tc.id,
             "content": output,
         })
-        return False
+        return None
 
     # Unknown tool — tell the model so it can self-correct.
     available = ", ".join(tool_defaults.tool_names())
@@ -178,7 +174,7 @@ def execute_tool_call(tc, messages: list[dict], result: dict, environment,
         "tool_call_id": tc.id,
         "content": f"Error: unknown tool '{name}'. Available tools: {available}.",
     })
-    return False
+    return None
 
 
 # ---------------------------------------------------------------------------

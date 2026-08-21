@@ -94,11 +94,9 @@ def test_format_read_output_empty():
 def test_read_returns_numbered_content():
     env = FakeEnv(files={"f.py": "x = 1\n"})
     messages: list = []
-    result: dict = {}
-    exited = execute_tool_call(
-        _tc("c1", "read", {"path": "f.py"}), messages, result, env
+    execute_tool_call(
+        _tc("c1", "read", {"path": "f.py"}), messages, env
     )
-    assert exited is False
     assert messages[0]["role"] == "tool"
     assert "     1\tx = 1" in messages[0]["content"]
 
@@ -106,9 +104,8 @@ def test_read_returns_numbered_content():
 def test_read_missing_file_is_error_message():
     env = FakeEnv()
     messages: list = []
-    result: dict = {}
     execute_tool_call(
-        _tc("c1", "read", {"path": "nope"}), messages, result, env
+        _tc("c1", "read", {"path": "nope"}), messages, env
     )
     assert "file not found" in messages[0]["content"]
 
@@ -116,7 +113,6 @@ def test_read_missing_file_is_error_message():
 def test_edit_calls_read_and_write():
     env = FakeEnv(files={"f.py": "x = 1\n"})
     messages: list = []
-    result: dict = {}
     execute_tool_call(
         _tc(
             "c1",
@@ -124,7 +120,6 @@ def test_edit_calls_read_and_write():
             {"path": "f.py", "old_string": "x = 1", "new_string": "x = 2"},
         ),
         messages,
-        result,
         env,
     )
     assert env.read_calls == ["f.py"]
@@ -135,7 +130,6 @@ def test_edit_calls_read_and_write():
 def test_edit_ambiguous_does_not_write():
     env = FakeEnv(files={"f.py": "x = 1\nx = 1\n"})
     messages: list = []
-    result: dict = {}
     execute_tool_call(
         _tc(
             "c1",
@@ -143,7 +137,6 @@ def test_edit_ambiguous_does_not_write():
             {"path": "f.py", "old_string": "x = 1", "new_string": "x = 2"},
         ),
         messages,
-        result,
         env,
     )
     assert env.write_calls == []
@@ -153,11 +146,9 @@ def test_edit_ambiguous_does_not_write():
 def test_write_empty_content_succeeds():
     env = FakeEnv()
     messages: list = []
-    result: dict = {}
     execute_tool_call(
         _tc("c1", "write", {"path": "empty.txt", "content": ""}),
         messages,
-        result,
         env,
     )
     assert env.write_calls == [("empty.txt", "")]
@@ -168,9 +159,8 @@ def test_unknown_tool_lists_all_available_tools():
     cfg = get_default_config()
     env = FakeEnv()
     messages: list = []
-    result: dict = {}
     execute_tool_call(
-        _tc("c1", "frobnicate", {}), messages, result, env, config=cfg
+        _tc("c1", "frobnicate", {}), messages, env, config=cfg
     )
     content = messages[0]["content"]
     for name in ("bash", "submit", "read", "edit", "write"):
