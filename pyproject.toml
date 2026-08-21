@@ -26,6 +26,9 @@ dev = [
     "pytest>=9.0",
 ]
 
+[project.scripts]
+minimal = "mini_agent.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
