@@ -93,7 +93,7 @@ src/mini_agent/
     └── docker.py              #   DockerEnvironment — 容器内执行
 
 tests/
-├── test_agent.py               # Agent 循环（异常驱动）+ submit + 轨迹 + 成本 + 压缩（62 个测试）
+├── test_agent.py               # Agent 循环（异常驱动）+ 截断 + submit + 异常 + 轨迹 + 成本 + 压缩（62 个测试）
 ├── test_config.py              # 工具 schema + system prompt + 默认值 + 定价（35 个测试）
 ├── test_config_loading.py      # 配置合并/优先级/渲染/校验（20 个测试）
 ├── test_config_read_edit.py    # 两套内置工具配置：5 工具默认 + 2 工具旧路线（6 个测试）
