@@ -47,7 +47,9 @@ finally:
 ## 模块职责
 
 ```
-main.py                          # 入口：组装零件 + CLI 参数解析 + 合并配置
+src/mini_agent/cli.py            # CLI：参数解析 + 合并配置 + 组装零件
+src/mini_agent/__main__.py       # python -m mini_agent 的入口
+main.py                          # 兼容入口，转发到 mini_agent.cli
   │
 Agent(model, env, config)        # 循环逻辑：什么时候查模型、什么时候执行
   │           │           │
@@ -152,7 +154,7 @@ Agent 只和 `Environment` 接口打交道，不关心是 local 还是 docker。
 
 ```python
 agent.run("fix the bug", output="run.traj.json")   # 结束后生成 run.traj.json
-# CLI 等价：python main.py --task "fix the bug" -o run.traj.json
+# CLI 等价：minimal --task "fix the bug" -o run.traj.json
 ```
 
 ### 成本（cost）
@@ -181,10 +183,10 @@ load_dotenv，agent 不想在 import 时就被迫加载它们。
 
 ```
 mini-swe-agent:
-    main.py → 读 YAML 配置 → get_model(config) → get_environment(config) → get_agent(...)
+    cli.py → 读 YAML 配置 → get_environment(config) → Agent(Model(config.model), env, config)
 
 我们的项目（现已对齐）:
-    main.py → build_config(文件/环境变量/CLI) → get_environment(type, config) → Agent(Model(config.model), env, config)
+    cli.py → build_config(文件/环境变量/CLI) → get_environment(type, config) → Agent(Model(config.model), env, config)
 ```
 
-两者都用 **YAML + pydantic 校验 + recursive_merge** 做配置，本质一样——都是依赖注入的另一种写法：不再在 `main.py` 里逐个 `argparse` 值插进构造函数，而是先把所有来源合并成一个 `Config`，再把它作为第三个依赖（和 Model、Environment 并列）注入各组件。详见 [config.md](config.md)。
+两者都用 **YAML + pydantic 校验 + recursive_merge** 做配置，本质一样——都是依赖注入的另一种写法：不再在 CLI 入口里逐个 `argparse` 值插进构造函数，而是先把所有来源合并成一个 `Config`，再把它作为第三个依赖（和 Model、Environment 并列）注入各组件。详见 [config.md](config.md)。

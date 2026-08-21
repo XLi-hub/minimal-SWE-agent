@@ -29,25 +29,31 @@ pip install -e ".[dev]"
 # 配置 API Key（创建 .env 文件）
 echo 'DEEPSEEK_API_KEY=你的key' > .env
 
-# 日常使用（本地环境）
+# 日常使用（本地环境；安装后推荐）
+minimal
+
+# 不安装 console script 时，也可以这样启动
+python -m mini_agent
+
+# 兼容旧用法
 python main.py
 
 # 使用 Docker 隔离环境
-python main.py --env docker --image python:3.11-slim
+minimal --env docker --image python:3.11-slim
 ```
 
 **试试这些任务**：
 
 ```bash
 # 探索型：让 agent 理解项目结构
-python main.py --task "列出 src/ 下所有 .py 文件并概述每个模块的职责"
+minimal --task "列出 src/ 下所有 .py 文件并概述每个模块的职责"
 
 # 编码型：让 agent 写代码并测试
-python main.py --task "在 /tmp 下创建一个 Python 模块，实现斐波那契数列，并写一个简单的测试"
+minimal --task "在 /tmp 下创建一个 Python 模块，实现斐波那契数列，并写一个简单的测试"
 
 # 调试型：给一个故意有 bug 的文件，让 agent 修
 echo 'def add(a, b): return a - b  # bug: should be +' > /tmp/buggy.py
-python main.py --task "修一下 /tmp/buggy.py 的 bug"
+minimal --task "修一下 /tmp/buggy.py 的 bug"
 ```
 
 ## 配置
@@ -61,13 +67,13 @@ default.yaml  <  --config 文件/key=value  <  MINI_AGENT_* 环境变量  <  CLI
 
 ```bash
 # 用 YAML 文件覆盖一整套配置
-python main.py --config my_config.yaml
+minimal --config my_config.yaml
 
 # 用点号 key=value 覆盖单个字段（可重复）
-python main.py -c agent.max_steps=50 -c agent.cost_limit=5
+minimal -c agent.max_steps=50 -c agent.cost_limit=5
 
 # 用环境变量覆盖（__ 为嵌套分隔符）
-MINI_AGENT_AGENT__MAX_STEPS=500 python main.py
+MINI_AGENT_AGENT__MAX_STEPS=500 minimal
 ```
 
 API key **绝不**进 YAML（YAML 会被 git 提交/打包）——它留在 `.env`（已 gitignore），
@@ -78,6 +84,8 @@ YAML 里只记环境变量「名」`model.api_key_env`（默认 `DEEPSEEK_API_KE
 
 ```
 src/mini_agent/
+├── cli.py                    # CLI 参数解析、配置合并和 Agent 组装
+├── __main__.py               # python -m mini_agent 入口
 ├── agent.py                  # Agent 循环（异常驱动）— 查询 LM → 执行工具 → 循环
 ├── tools.py                  # 工具分发（bash/read/edit/write/submit）+ 消息格式化 + 输出截断
 ├── cost.py                   # 成本计算（token → USD）
@@ -111,7 +119,7 @@ tests/
 ## 架构
 
 ```
-main.py  ──►  Agent(model, env)
+minimal / python -m mini_agent  ──►  mini_agent.cli  ──►  Agent(model, env)
                  │          │
             Model          Environment (ABC)
            .query()        .execute()  .cleanup()
@@ -157,7 +165,7 @@ Agent 自动从每次模型调用的 `response.usage`（`prompt_tokens` / `compl
 
 ```python
 agent.run("fix the bug", output="run.traj.json", cost_limit=1.5)
-# 或 CLI：python main.py --task "..." -o run.traj.json --cost-limit 1.5
+# 或 CLI：minimal --task "..." -o run.traj.json --cost-limit 1.5
 ```
 
 ## 上下文压缩
@@ -177,7 +185,7 @@ bash 输出轻松超过 `deepseek-chat` 的 64K 上下文。当历史逼近上�
 ```python
 agent.run("fix the bug")   # 默认 64K 窗口，长任务会自动压缩
 # 或 CLI 强制触发（极小窗口）：
-# python main.py --context-window 2000 --keep-last-n-turns 2 --task "修一下 bug"
+# minimal --context-window 2000 --keep-last-n-turns 2 --task "修一下 bug"
 ```
 
 压缩是会话内行为，不写任何持久化记忆文件。详见 [上下文压缩](docs/context-compression.md)。
@@ -186,10 +194,10 @@ agent.run("fix the bug")   # 默认 64K 窗口，长任务会自动压缩
 
 ```bash
 # 本地
-python main.py
+minimal
 
 # Docker 隔离
-python main.py --env docker --image python:3.11-slim --cwd /workspace
+minimal --env docker --image python:3.11-slim --cwd /workspace
 ```
 
 用工厂函数 `get_environment(name, **kwargs)` 创建，加新环境只需写一个类 + 注册一行：

@@ -12,7 +12,7 @@
 | litellm / openrouter / portkey 多商 | 只用 openai SDK，连 DeepSeek |
 | 正则解析 `bash` 块 | OpenAI function calling |
 | Docker/Singularity/Bubblewrap/... 多后端 | Local + Docker 两个 |
-| Textual TUI / Interactive / CLI 三种界面 | 一个 `main.py` |
+| Textual TUI / Interactive / CLI 三种界面 | `minimal` / `python -m mini_agent` 两种 CLI 入口（`main.py` 保留兼容） |
 | 1000+ commits，13 个月迭代 | ~48 commits，多轮迭代 |
 
 去掉了这么多东西之后，你才能一眼看到 agent 循环到底在做什么。读懂了这个项目，再去看 mini-swe-agent 的源码就轻松了。
@@ -60,8 +60,8 @@ Function calling 让模型返回**结构化 JSON**——`tool_calls` 数组里�
 **`max_steps=250`**：来自 mini-swe-agent 的 SWE-bench 配置。SWE-bench 任务通常需要 10-50 步（查代码、定位 bug、修改、git diff、submit）。250 足够完成任何合理的任务，同时防止死循环把 API 费用烧光。你可以用 `--max-steps` 覆盖：
 
 ```bash
-python main.py --max-steps 50    # 限制步数
-python main.py --max-steps 500   # 给复杂任务更多步
+minimal --max-steps 50    # 限制步数
+minimal --max-steps 500   # 给复杂任务更多步
 ```
 
 除了 `--max-steps`，也可以用 `-c agent.max_steps=50` 或 `MINI_AGENT_AGENT__MAX_STEPS=500` 覆盖同一个字段。所有配置项的覆盖方式统一见 [config.md](config.md)。

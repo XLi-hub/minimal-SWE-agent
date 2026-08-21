@@ -247,10 +247,10 @@ print(args.image)  # "python:3.11-slim"
 等价效果：
 
 ```bash
-python main.py --env docker --image ubuntu:22.04
+minimal --env docker --image ubuntu:22.04
 ```
 
-**在本项目中**：[main.py](../main.py)
+**在本项目中**：[cli.py](../src/mini_agent/cli.py)；`main.py` 只是兼容入口。
 
 ---
 

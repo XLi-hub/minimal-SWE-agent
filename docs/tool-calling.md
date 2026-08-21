@@ -189,4 +189,4 @@ v1–v3 里模型一切文件操作都走 `bash`：`cat` 读、`sed -i` 改、he
 | `edit(path, old_string, new_string)` | 替换唯一一处 `old_string` | 缺失或出现多次 → **明确报错** |
 | `write(path, content)` | 整文件创建/覆盖 | 内容走 stdin，不做 shell 转义 |
 
-关键差异：`edit` 的 `apply_edit()` 对 `old_string` 做 `count==0` / `count>1` 校验——把原来 `sed` 的静默失败变成显式失败。想要回到纯 `bash` 路线，`python main.py --config default_bash` 即可（两套配置并存）。
+关键差异：`edit` 的 `apply_edit()` 对 `old_string` 做 `count==0` / `count>1` 校验——把原来 `sed` 的静默失败变成显式失败。想要回到纯 `bash` 路线，`minimal --config default_bash` 即可（两套配置并存）。

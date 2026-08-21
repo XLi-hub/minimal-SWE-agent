@@ -35,13 +35,13 @@ return Config.model_validate(recursive_merge(*layers))
 
 ```bash
 # 用 YAML 文件（一整份配置）
-python main.py --config my_config.yaml
+minimal --config my_config.yaml
 
 # 用点号 key=value（覆盖单个字段，可重复）
-python main.py -c agent.max_steps=50 -c agent.cost_limit=5
+minimal -c agent.max_steps=50 -c agent.cost_limit=5
 
 # 用环境变量（__ 是嵌套分隔符）
-MINI_AGENT_AGENT__MAX_STEPS=500 python main.py
+MINI_AGENT_AGENT__MAX_STEPS=500 minimal
 ```
 
 `agent.max_steps=50` 和 `MINI_AGENT_AGENT__MAX_STEPS=500` 都指向 `agent.max_steps` 这一个字段，只是来源不同、优先级不同。合并结果永远取**优先级最高那层**的值，而没有被覆盖的字段（比如 `tools.bash_tool`）保持默认不变——因为嵌套 dict 是递归合并，不是整层替换。
@@ -86,7 +86,7 @@ def recursive_merge(*dictionaries):
 | 嵌套递归合并 | `merge({"a":{"b":1,"c":2}}, {"a":{"c":3}})` | `{"a": {"b":1, "c":3}}` |
 | `UNSET` 跳过 | `merge({"a":1}, {"a":UNSET})` | `{"a": 1}` |
 
-第 3 条正是 `main.py` 里所有 CLI flag 默认值改 `None` 的原因——`_u(value)` 把 `None` 转成 `UNSET`，于是「没传 `--max-steps`」等价于「这一层对 `max_steps` 没意见」，下层的 `250` 得以保留。
+第 3 条正是 `cli.py` 里所有 CLI flag 默认值改 `None` 的原因——`_u(value)` 把 `None` 转成 `UNSET`，于是「没传 `--max-steps`」等价于「这一层对 `max_steps` 没意见」，下层的 `250` 得以保留。
 
 测试见 [test_config_loading.py](../tests/test_config_loading.py) 的前 6 条（`test_recursive_merge_*`）。
 
@@ -180,10 +180,10 @@ api_key = os.environ[self.config.api_key_env]   # "DEEPSEEK_API_KEY" → 取 .en
 
 | 方式 | 命令 | 优先级 |
 |---|---|---|
-| CLI 参数 | `python main.py --max-steps 50` | 最高 |
-| 环境变量 | `MINI_AGENT_AGENT__MAX_STEPS=500 python main.py` | 次高 |
-| `--config key=value` | `python main.py -c agent.max_steps=50` | 中 |
-| `--config 文件` | `python main.py --config my.yaml` | 较低 |
+| CLI 参数 | `minimal --max-steps 50` | 最高 |
+| 环境变量 | `MINI_AGENT_AGENT__MAX_STEPS=500 minimal` | 次高 |
+| `--config key=value` | `minimal -c agent.max_steps=50` | 中 |
+| `--config 文件` | `minimal --config my.yaml` | 较低 |
 | 改 `default.yaml` | 直接改 [default.yaml](../src/mini_agent/config/default.yaml) | 最低（权威默认） |
 
 单个字段用 `-c`，一整套环境（比如切 OpenAI + 调价格）写一个 YAML 文件更清晰。
@@ -198,8 +198,8 @@ api_key = os.environ[self.config.api_key_env]   # "DEEPSEEK_API_KEY" → 取 .en
 | [default_bash.yaml](../src/mini_agent/config/default_bash.yaml) | `bash` + `submit` | 旧路线——一切通过 bash（`cat`/`sed`/heredoc），`read`/`edit`/`write` 被 `null` 禁用 |
 
 ```bash
-python main.py                        # 默认：5 工具
-python main.py --config default_bash  # 旧路线：仅 bash + submit
+minimal                        # 默认：5 工具
+minimal --config default_bash  # 旧路线：仅 bash + submit
 ```
 
 `default_bash.yaml` 只声明两个增量：把 `tools.read_tool`/`edit_tool`/`write_tool` 置 `null`（禁用），并把 `agent.system_prompt` 换回两工具版；`bash_tool`/`submit_tool`/`model`/`cost`/`environment` 都从 `default.yaml` 继承。这正是「后写优先 + 嵌套合并」的体现——第二个 YAML 只写和默认不同的部分。
@@ -208,5 +208,6 @@ python main.py --config default_bash  # 旧路线：仅 bash + submit
 
 - 合并/渲染/校验：[config/__init__.py](../src/mini_agent/config/__init__.py) + [config/models.py](../src/mini_agent/config/models.py)
 - 权威默认值：[config/default.yaml](../src/mini_agent/config/default.yaml)
-- CLI 接线：[main.py](../main.py)（`build_config(...)` + `_u()`）
+- CLI 接线：[cli.py](../src/mini_agent/cli.py)（`build_config(...)` + `_u()`）
+- 兼容入口：[main.py](../main.py)（转发到 `mini_agent.cli.main`）
 - 测试：[test_config.py](../tests/test_config.py)（YAML 与 pydantic 默认一致）+ [test_config_loading.py](../tests/test_config_loading.py)（合并/解析/优先级/渲染/校验）

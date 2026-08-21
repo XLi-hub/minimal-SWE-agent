@@ -20,7 +20,7 @@
 
 ## 建议阅读顺序
 
-1. 先用 `python main.py` 跑一遍，感受 agent 是怎么工作的
+1. 先用 `minimal`（或 `python -m mini_agent`）跑一遍，感受 agent 是怎么工作的
 2. 读 [architecture.md](architecture.md)，对照代码看每个模块的职责
 3. 想改配置（步数、模型、prompt、价格）先读 [config.md](config.md)
 4. 遇到不懂的术语就去 [concepts.md](concepts.md) 查
