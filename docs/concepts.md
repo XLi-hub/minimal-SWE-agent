@@ -343,9 +343,9 @@ tpl.render()                    # UndefinedError: 'task' is undefined
 测试**一个函数或一个类**，不依赖任何外部资源（网络、文件系统、数据库、API）。
 
 ```python
-# 单元测试：只测 _truncate_output 这个函数
+# 单元测试：只测 truncate_output 这个函数
 def test_long_output_is_truncated():
-    result = _truncate_output("line1\nline2\n...\nline200", max_lines=100)
+    result = truncate_output("line1\nline2\n...\nline200", max_lines=100)
     assert "truncated" in result
 ```
 

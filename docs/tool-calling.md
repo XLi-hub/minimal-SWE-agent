@@ -58,7 +58,7 @@ Agent 不再需要 `parse_action()` 函数——`msg.tool_calls` 直接就是结
 长命令输出（如 `cat 大文件`）会撑爆上下文窗口。方案：
 
 1. `BASH_TOOL` 新增可选参数 `lines`（默认 100）和 `timeout`（默认 30 秒）
-2. Agent 执行后调用 `_truncate_output()`——保留头尾各一半 + "[... X lines truncated ...]"
+2. Agent 执行后调用 `truncate_output()`——保留头尾各一半 + "[... X lines truncated ...]"
 3. **v4 改进**：截断标记从被动提示变为主动引导——除了行数信息，还附带 `[WARNING]` 告诉模型可以调高 `lines` 或用 `head`/`tail`/`sed` 精确读
 4. 模型可以为慢命令（`pip install` 等）指定更高的 `timeout` 值
 
@@ -171,7 +171,7 @@ Agent.run() 返回结构化结果：
 | `interrupted` | 用户打断 | Ctrl+C |
 | `error` | 异常 | Agent 内部未处理的错误 |
 
-**安全设计**：循环用 `for _ in range(max_steps)` 而不是 `while True`——即使代码有 bug 也不会无限运行。模型可以通过 `timeout` 参数为慢命令（`pip install`, `git clone`）请求更长的超时时间。
+**安全设计**：循环是 `while True`，但由**异常驱动**退出——每轮 `step()` 开头先查步数/时长/成本上限，超限抛 `MaxSteps`/`MaxTime`/`CostLimit` 异常，`run()` 捕获后退出循环，所以即使代码有 bug 也不会无限运行。模型可以通过 `timeout` 参数为慢命令（`pip install`, `git clone`）请求更长的超时时间。
 
 ## v4 — 专用文件工具 read/edit/write（参考 PI）
 
