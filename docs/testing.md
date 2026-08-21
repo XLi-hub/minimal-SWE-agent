@@ -134,7 +134,7 @@ def test_simple_echo_task():
     assert result["exit_status"] == "submitted"
 ```
 
-**E2E 只回答一个问题**：模型真的理解我们的 `BASH_TOOL` 和 `SUBMIT_TOOL` 的 JSON schema 吗？会正确地构造 `tool_calls` 吗？
+**E2E 只回答一个问题**：模型真的理解我们 5 个工具（`bash`/`read`/`edit`/`write`/`submit`）的 JSON schema 吗？会正确地构造 `tool_calls` 吗？
 
 剩下的（Agent 循环是否正确、execute 是否转发了 timeout、truncation 是否正确……）前三层已经全覆盖了。
 
@@ -147,15 +147,15 @@ def test_simple_echo_task():
 ```
        ╱‾‾‾‾‾╲         E2E:   2 个   真 API + 真 shell    30s    "模型理解工具吗?"
       ╱       ╲
-     ╱ 集成    ╲       集成:  30 个   假 API + 真 shell     秒     "shell 输出正确解析吗?"
+     ╱ 集成    ╲       集成:  40 个   假 API + 真 shell     秒     "shell 输出正确解析吗?"
     ╱           ╲
-   ╱  单元测试   ╲     单元:  111 个  假 API + 假 shell     ms     "每个函数行为对吗?"
+   ╱  单元测试   ╲     单元:  179 个  假 API + 假 shell     ms     "每个函数行为对吗?"
   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 ```
 
 三条原则：
 
-1. **越底层越多**：从 111 → 30 → 2，不是反过来的
+1. **越底层越多**：从 179 → 40 → 2，不是反过来的
 2. **每层测不同的事**：单元测逻辑、集成测编码、E2E 测 API schema——没有重叠
 3. **每层的 mock 点不同**：单元全 mock、集成半 mock、E2E 不 mock
 

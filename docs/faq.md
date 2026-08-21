@@ -13,7 +13,7 @@
 | 正则解析 `bash` 块 | OpenAI function calling |
 | Docker/Singularity/Bubblewrap/... 多后端 | Local + Docker 两个 |
 | Textual TUI / Interactive / CLI 三种界面 | 一个 `main.py` |
-| 1000+ commits，13 个月迭代 | ~25 commits，一次会话写完 |
+| 1000+ commits，13 个月迭代 | ~48 commits，多轮迭代 |
 
 去掉了这么多东西之后，你才能一眼看到 agent 循环到底在做什么。读懂了这个项目，再去看 mini-swe-agent 的源码就轻松了。
 
@@ -122,8 +122,8 @@ DeepSeek 2026/08/17 起改成了峰谷计价，这里的单价是固定默认值
 
 ```
 E2E (2个)     → 我（开发者）：提交代码前跑一次，验证模型真的理解工具schema
-集成 (30个)   → CI：每次 push 自动跑，验证模块配合没坏
-单元 (157个)  → 写代码时随手跑：改一行，跑一秒，确认没坏
+集成 (40个)   → CI：每次 push 自动跑，验证模块配合没坏
+单元 (179个)  → 写代码时随手跑：改一行，跑一秒，确认没坏
 ```
 
 如果只有 E2E，跑一次花 30 秒 + 花钱，你就不跑了。如果只有单元测试，mock 的假输出可能和真输出行为不一致（我们在集成测试里就抓过一个——`echo` 会解释反斜杠但 `printf '%s'` 不会）。
