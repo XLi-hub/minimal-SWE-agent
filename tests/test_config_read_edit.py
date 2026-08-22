@@ -1,19 +1,18 @@
 """Tests for the two builtin tool configs — 5-tool default + 2-tool legacy."""
 
 from mini_agent.config import build_config, get_default_config
+from mini_agent.tools import TOOL_REGISTRY, get_enabled_tool_schemas
 
 
 def test_default_enables_file_tools():
-    cfg = get_default_config()
-    assert cfg.tools.read_tool["function"]["name"] == "read"
-    assert cfg.tools.edit_tool["function"]["name"] == "edit"
-    assert cfg.tools.write_tool["function"]["name"] == "write"
+    for name in ("read", "edit", "write"):
+        assert TOOL_REGISTRY[name].schema["function"]["name"] == name
 
 
 def test_default_enabled_tools_order():
     cfg = get_default_config()
     assert cfg.tools.tool_names() == ["bash", "submit", "read", "edit", "write"]
-    assert len(cfg.tools.enabled_tools()) == 5
+    assert len(get_enabled_tool_schemas(cfg)) == 5
 
 
 def test_default_prompt_mentions_file_tools():
@@ -25,16 +24,13 @@ def test_default_prompt_mentions_file_tools():
 
 def test_legacy_bash_config_has_no_file_tools():
     cfg = build_config(["default_bash"])
-    assert cfg.tools.read_tool is None
-    assert cfg.tools.edit_tool is None
-    assert cfg.tools.write_tool is None
     assert cfg.tools.tool_names() == ["bash", "submit"]
 
 
 def test_legacy_bash_config_inherits_bash_and_submit():
     cfg = build_config(["default_bash"])
-    assert cfg.tools.bash_tool["function"]["name"] == "bash"
-    assert cfg.tools.submit_tool["function"]["name"] == "submit"
+    names = [schema["function"]["name"] for schema in get_enabled_tool_schemas(cfg)]
+    assert names == ["bash", "submit"]
 
 
 def test_legacy_bash_config_prompt_mentions_two_tools():

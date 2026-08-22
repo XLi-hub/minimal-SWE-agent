@@ -58,7 +58,7 @@ minimal --task "修一下 /tmp/buggy.py 的 bug"
 
 ## 配置
 
-所有可调项（模型、prompt、工具 schema、价格、环境、步数/时长/成本上限…）都外置在
+所有运行配置（模型、prompt、启用工具、价格、环境、步数/时长/成本上限…）都外置在
 [config/default.yaml](src/mini_agent/config/default.yaml)，由四层来源合并，后写优先：
 
 ```
@@ -87,14 +87,14 @@ src/mini_agent/
 ├── cli.py                    # CLI 参数解析、配置合并和 Agent 组装
 ├── __main__.py               # python -m mini_agent 入口
 ├── agent.py                  # Agent 循环（异常驱动）— 查询 LM → 执行工具 → 循环
-├── tools.py                  # 工具分发（bash/read/edit/write/submit）+ 消息格式化 + 输出截断
+├── tools.py                  # 工具注册表（schema + handler）+ 权限分发 + 输出处理
 ├── cost.py                   # 成本计算（token → USD）
 ├── context.py                # 上下文压缩（token 估算 + LLM 增量摘要）
 ├── model.py                  # DeepSeek API 封装（OpenAI 兼容协议）
 ├── config/                   # 配置包（YAML + pydantic + 模板渲染）
 │   ├── __init__.py            #   recursive_merge / build_config / render_template
 │   ├── models.py              #   pydantic v2 模型（Config + 5 个子配置）
-│   └── default.yaml           #   权威默认值（prompt / 工具 schema / 价格 / 环境）
+│   └── default.yaml           #   权威运行配置（prompt / 启用工具 / 价格 / 环境）
 └── environments/             # 执行环境（可插拔）
     ├── __init__.py            #   Environment ABC + get_environment() 工厂
     ├── local.py               #   LocalEnvironment — 本机 shell
@@ -108,7 +108,7 @@ tests/
 ├── test_cost.py                # 成本计算 compute_cost（7 个测试，全部 mock）
 ├── test_context.py             # 上下文压缩纯函数（17 个测试，全部 mock）
 ├── test_model.py               # API 调用（8 个测试，全部 mock）
-├── test_tools.py               # 工具分发 read/edit/write + apply_edit + 输出截断（14 个测试）
+├── test_tools.py               # 工具注册/权限分发 + 文件操作 + 输出处理（18 个测试）
 ├── test_environment.py         # 本地环境（15 个测试）
 ├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
 ├── test_docker.py              # Docker 环境（14 个测试，含跳过逻辑）

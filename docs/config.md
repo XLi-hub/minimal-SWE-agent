@@ -4,7 +4,7 @@
 
 改造后，全部搬进 [config/default.yaml](../src/mini_agent/config/default.yaml)，运行时由三样东西共同决定最终配置：
 
-- **YAML** 存默认值和 prompt/工具 schema
+- **YAML** 存默认值、prompt 和启用的工具名单
 - **环境变量** 覆盖单个字段（`MINI_AGENT_*`）
 - **CLI 参数** 临时覆盖（`--config` / `-c`）
 
@@ -44,7 +44,7 @@ minimal -c agent.max_steps=50 -c agent.cost_limit=5
 MINI_AGENT_AGENT__MAX_STEPS=500 minimal
 ```
 
-`agent.max_steps=50` 和 `MINI_AGENT_AGENT__MAX_STEPS=500` 都指向 `agent.max_steps` 这一个字段，只是来源不同、优先级不同。合并结果永远取**优先级最高那层**的值，而没有被覆盖的字段（比如 `tools.bash_tool`）保持默认不变——因为嵌套 dict 是递归合并，不是整层替换。
+`agent.max_steps=50` 和 `MINI_AGENT_AGENT__MAX_STEPS=500` 都指向 `agent.max_steps` 这一个字段，只是来源不同、优先级不同。合并结果永远取**优先级最高那层**的值，而没有被覆盖的字段（比如 `tools.default_timeout`）保持默认不变——因为嵌套 dict 是递归合并，不是整层替换。
 
 ---
 
@@ -149,7 +149,7 @@ Config.model_validate(recursive_merge(*layers))
 
 模型分五块，和 YAML 顶层键一一对应（[config/models.py](../src/mini_agent/config/models.py)）：`ModelConfig` / `AgentConfig` / `ToolsConfig` / `CostConfig` / `EnvironmentConfig`。两个设计细节：
 
-- **prompt 和工具 schema 必填**（无 pydantic 默认值）——它们只能来自 YAML，防止漏配。
+- **prompt 和工具启用名单必填**（无 pydantic 默认值）——它们只能来自 YAML，防止漏配；工具 schema 与 handler 在 `tools.py` 注册表中成对定义。
 - **标量字段带默认值**（和 YAML 一致）——这样测试里裸写 `Model()` / `Agent()` 仍能构造，不用每次传完整 config。
 
 ---
@@ -195,14 +195,20 @@ api_key = os.environ[self.config.api_key_env]   # "DEEPSEEK_API_KEY" → 取 .en
 | 配置 | 工具集 | 用途 |
 |---|---|---|
 | [default.yaml](../src/mini_agent/config/default.yaml) | `bash` + `submit` + `read` + `edit` + `write` | **默认**——文件工具（读/改/写）默认启用 |
-| [default_bash.yaml](../src/mini_agent/config/default_bash.yaml) | `bash` + `submit` | 旧路线——一切通过 bash（`cat`/`sed`/heredoc），`read`/`edit`/`write` 被 `null` 禁用 |
+| [default_bash.yaml](../src/mini_agent/config/default_bash.yaml) | `bash` + `submit` | 旧路线——一切通过 bash（`cat`/`sed`/heredoc），`enabled` 名单只保留两个工具 |
 
 ```bash
 minimal                        # 默认：5 工具
 minimal --config default_bash  # 旧路线：仅 bash + submit
 ```
 
-`default_bash.yaml` 只声明两个增量：把 `tools.read_tool`/`edit_tool`/`write_tool` 置 `null`（禁用），并把 `agent.system_prompt` 换回两工具版；`bash_tool`/`submit_tool`/`model`/`cost`/`environment` 都从 `default.yaml` 继承。这正是「后写优先 + 嵌套合并」的体现——第二个 YAML 只写和默认不同的部分。
+`default_bash.yaml` 只声明两个增量：把 `tools.enabled` 整个列表替换为 `[bash, submit]`，并把 `agent.system_prompt` 换回两工具版；工具 schema/handler 仍来自 `tools.py` 注册表，`model`/`cost`/`environment` 都从 `default.yaml` 继承。列表是整体替换，嵌套 dict 的其他字段仍按「后写优先 + 递归合并」继承。
+
+工具选择采用白名单语义：只有 `tools.enabled` 中、且已经出现在 `TOOL_REGISTRY` 的名字才会发给模型并允许执行。比如直接切成两工具也可以写：
+
+```bash
+minimal -c 'tools.enabled=["bash","submit"]'
+```
 
 ## 7. 对照代码
 

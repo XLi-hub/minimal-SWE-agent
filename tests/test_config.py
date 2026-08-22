@@ -1,55 +1,58 @@
 """Tests for the default configuration (``default.yaml`` + pydantic models)."""
 
 from mini_agent.config import get_default_config, render_template
+from mini_agent.tools import TOOL_REGISTRY
 
 cfg = get_default_config()  # 权威默认值，来自 default.yaml
+BASH_TOOL = TOOL_REGISTRY["bash"].schema
+SUBMIT_TOOL = TOOL_REGISTRY["submit"].schema
 
 
 # --- tool schema ---
 
 def test_bash_tool_has_correct_type():
-    assert cfg.tools.bash_tool["type"] == "function"
+    assert BASH_TOOL["type"] == "function"
 
 
 def test_bash_tool_has_name():
-    assert cfg.tools.bash_tool["function"]["name"] == "bash"
+    assert BASH_TOOL["function"]["name"] == "bash"
 
 
 def test_bash_tool_has_description():
-    assert len(cfg.tools.bash_tool["function"]["description"]) > 0
+    assert len(BASH_TOOL["function"]["description"]) > 0
 
 
 def test_bash_tool_requires_only_command():
-    assert cfg.tools.bash_tool["function"]["parameters"]["required"] == ["command"]
+    assert BASH_TOOL["function"]["parameters"]["required"] == ["command"]
 
 
 def test_bash_tool_command_is_string():
-    props = cfg.tools.bash_tool["function"]["parameters"]["properties"]
+    props = BASH_TOOL["function"]["parameters"]["properties"]
     assert props["command"]["type"] == "string"
 
 
 def test_bash_tool_lines_is_integer():
-    props = cfg.tools.bash_tool["function"]["parameters"]["properties"]
+    props = BASH_TOOL["function"]["parameters"]["properties"]
     assert "lines" in props
     assert props["lines"]["type"] == "integer"
 
 
 def test_bash_tool_lines_is_not_required():
     """lines 是可选参数。"""
-    required = cfg.tools.bash_tool["function"]["parameters"]["required"]
+    required = BASH_TOOL["function"]["parameters"]["required"]
     assert "lines" not in required
 
 
 def test_bash_tool_timeout_is_integer():
     """timeout 参数类型应为 integer。"""
-    props = cfg.tools.bash_tool["function"]["parameters"]["properties"]
+    props = BASH_TOOL["function"]["parameters"]["properties"]
     assert "timeout" in props
     assert props["timeout"]["type"] == "integer"
 
 
 def test_bash_tool_timeout_is_not_required():
     """timeout 是可选参数。"""
-    required = cfg.tools.bash_tool["function"]["parameters"]["required"]
+    required = BASH_TOOL["function"]["parameters"]["required"]
     assert "timeout" not in required
 
 
@@ -123,21 +126,21 @@ def test_instance_template_starts_with_task():
 
 
 def test_submit_tool_has_correct_type():
-    assert cfg.tools.submit_tool["type"] == "function"
+    assert SUBMIT_TOOL["type"] == "function"
 
 
 def test_submit_tool_has_name():
-    assert cfg.tools.submit_tool["function"]["name"] == "submit"
+    assert SUBMIT_TOOL["function"]["name"] == "submit"
 
 
 def test_submit_tool_has_output_param():
-    props = cfg.tools.submit_tool["function"]["parameters"]["properties"]
+    props = SUBMIT_TOOL["function"]["parameters"]["properties"]
     assert "output" in props
     assert props["output"]["type"] == "string"
 
 
 def test_submit_tool_requires_output():
-    assert cfg.tools.submit_tool["function"]["parameters"]["required"] == ["output"]
+    assert SUBMIT_TOOL["function"]["parameters"]["required"] == ["output"]
 
 
 # --- summary prompt (Jinja2 template) ---

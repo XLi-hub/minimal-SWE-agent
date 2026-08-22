@@ -7,7 +7,11 @@ from pathlib import Path
 from mini_agent.config import Config, UNSET, get_default_config, render_template
 from mini_agent.context import compress, should_compress
 from mini_agent.cost import compute_cost
-from mini_agent.tools import execute_tool_call, format_assistant_message
+from mini_agent.tools import (
+    execute_tool_call,
+    format_assistant_message,
+    get_enabled_tool_schemas,
+)
 from mini_agent.exceptions import AgentExit, CostLimit, MaxSteps, MaxTime, NoToolCalls
 
 
@@ -99,7 +103,7 @@ class Agent:
             cost_limit = agent_cfg.cost_limit
 
         # Per-run state read by the decomposed step/query/execute_actions methods.
-        self._tools = self.config.tools.enabled_tools()
+        self._tools = get_enabled_tool_schemas(self.config)
         self._max_steps = max_steps
         self._deadline = time.monotonic() + max_time if max_time is not None else None
         self._steps = 0

@@ -40,7 +40,7 @@ finally:
 - `query()` — 查模型 + 累加成本 + 追加 assistant 消息（无工具调用时抛 `NoToolCalls`）
 - `execute_actions()` — 逐条执行工具调用（`submit` 会抛 `Submitted` 中断）
 - `_check_limits()` / `_maybe_compress()` — 上限检查 / 上下文压缩
-- 工具分发与输出处理（`truncate_output` / `decode_timeout_output`）在 `tools.py` 里做独立函数
+- 工具 schema/handler 注册、权限分发与输出处理（`truncate_output` / `decode_timeout_output`）集中在 `tools.py`
 
 但怎么把这个循环拆成可维护、可测试的模块——这是架构要解决的问题。
 
@@ -90,8 +90,7 @@ Agent 内部方法分工：
 | `serialize()` | 整场会话（messages + exit_status + submission + 成本）整理成结构化 dict |
 | `save(path)` | `serialize()` 结果 JSON 序列化，落盘为 `.traj.json` |
 
-工具分发与输出处理是 `tools.py` 里的独立函数（`execute_tool_call`、`format_assistant_message`、
-`truncate_output`、`decode_timeout_output`），不再是 Agent 方法。
+工具 schema 与 handler 成对注册在 `tools.py` 的 `TOOL_REGISTRY`。`get_enabled_tool_schemas` 根据配置生成模型可见列表，`execute_tool_call` 用同一名单检查执行权限；消息格式化和输出处理（`format_assistant_message`、`truncate_output`、`decode_timeout_output`）也留在该模块。
 
 ## 依赖注入
 

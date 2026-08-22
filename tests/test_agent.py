@@ -127,8 +127,8 @@ def test_recovers_from_execution_error():
     assert result["exit_status"] == "no_tool_calls"
 
 
-def test_ignores_non_bash_tool_calls():
-    """非 bash/submit 的工具调用应被忽略（不抛异常）。"""
+def test_unknown_tool_call_returns_error_and_continues():
+    """未知工具应收到 tool error，agent 随后仍可继续下一轮。"""
     model = MagicMock()
     model.query.side_effect = [
         _make_response(
@@ -144,6 +144,8 @@ def test_ignores_non_bash_tool_calls():
     agent = Agent(model, env)
     result = agent.run("test")
     assert result["exit_status"] == "no_tool_calls"
+    tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+    assert "unknown tool" in tool_messages[0]["content"]
 
 
 def test_multiple_tool_calls_in_one_response():

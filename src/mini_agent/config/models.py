@@ -1,14 +1,12 @@
 """Typed configuration models (pydantic v2).
 
-These mirror ``default.yaml`` one-to-one.  Prompt templates and tool schemas
-have **no default** — they must come from YAML — while scalar fields carry a
-pydantic default that matches the YAML value (so a bare ``Model()`` /
-``Agent()`` in tests still works).
+These mirror ``default.yaml`` one-to-one. Prompt templates and the enabled
+tool-name list have **no default** — they must come from YAML — while scalar
+fields carry a pydantic default that matches the YAML value (so a bare
+``Model()`` / ``Agent()`` in tests still works).
 """
 
-from typing import Any
-
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class ModelConfig(BaseModel):
@@ -37,32 +35,31 @@ class AgentConfig(BaseModel):
 
 
 class ToolsConfig(BaseModel):
-    """Tool schemas are passed through to the OpenAI API verbatim.
+    """Enabled tool names plus shared execution defaults.
 
-    ``bash_tool`` / ``submit_tool`` are always present. ``read_tool`` /
-    ``edit_tool`` / ``write_tool`` are optional and enabled by default in
-    ``default.yaml``; ``default_bash.yaml`` sets them to ``null`` to restore
-    the legacy bash+submit-only route.
+    Tool schemas and handlers live together in ``mini_agent.tools``' explicit
+    registry.  Configuration only selects a subset, so model visibility and
+    execution permission always come from the same ``enabled`` list.
     """
 
-    bash_tool: dict[str, Any]       # 必填 —— 来自 default.yaml
-    submit_tool: dict[str, Any]     # 必填 —— 来自 default.yaml
-    read_tool: dict[str, Any] | None = None
-    edit_tool: dict[str, Any] | None = None
-    write_tool: dict[str, Any] | None = None
+    enabled: list[str]             # 必填 —— 来自 default.yaml
     default_max_lines: int = 100
     default_timeout: int = 30
 
-    def enabled_tools(self) -> list[dict[str, Any]]:
-        """The tool schemas actually sent to the model, in a stable order."""
-        tools = [self.bash_tool, self.submit_tool]
-        for extra in (self.read_tool, self.edit_tool, self.write_tool):
-            if extra is not None:
-                tools.append(extra)
-        return tools
+    @field_validator("enabled")
+    @classmethod
+    def enabled_names_are_unique(cls, names: list[str]) -> list[str]:
+        if not names:
+            raise ValueError("at least one tool must be enabled")
+        if any(not name for name in names):
+            raise ValueError("enabled tool names must be non-empty")
+        if len(names) != len(set(names)):
+            raise ValueError("enabled tool names must be unique")
+        return names
 
     def tool_names(self) -> list[str]:
-        return [t["function"]["name"] for t in self.enabled_tools()]
+        """Return enabled names in the configured, stable order."""
+        return list(self.enabled)
 
 
 class CostConfig(BaseModel):

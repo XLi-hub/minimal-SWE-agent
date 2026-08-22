@@ -137,3 +137,8 @@ def test_get_default_config_is_cached():
 def test_build_config_rejects_wrong_type():
     with pytest.raises(ValidationError):
         build_config(["agent.max_steps=notanumber"])
+
+
+def test_build_config_rejects_duplicate_enabled_tools():
+    with pytest.raises(ValidationError, match="must be unique"):
+        build_config(['tools.enabled=["bash","bash"]'])

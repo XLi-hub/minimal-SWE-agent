@@ -153,7 +153,7 @@ response = client.chat.completions.create(
 | 提取命令 | 正则 `re.findall` | `response.choices[0].message.tool_calls` |
 | 可靠性 | 模型可能不按格式写 | 100% 准确（模型被训练来遵守 schema） |
 
-**在本项目中**：工具 schema 定义在 [config/default.yaml](../src/mini_agent/config/default.yaml) 的 `tools` 段（`bash_tool` / `submit_tool` / `read_tool` / `edit_tool` / `write_tool`），[agent.py](../src/mini_agent/agent.py) 处理调用。
+**在本项目中**：每个工具的 schema 和 handler 成对定义在 [tools.py](../src/mini_agent/tools.py) 的 `TOOL_REGISTRY`；[config/default.yaml](../src/mini_agent/config/default.yaml) 的 `tools.enabled` 只选择启用哪些工具。[agent.py](../src/mini_agent/agent.py) 把启用工具的 schema 发给模型，分发器也用同一名单检查执行权限。
 
 ---
 
@@ -297,7 +297,7 @@ Config(max_steps="not a number")  # ❌ ValidationError
 
 **mini-swe-agent 为什么用 pydantic**：有几十个配置项（模型名、API key、超时、成本上限、镜像名、环境变量…），YAML 配置文件的字段全靠 pydantic 校验——用户写错了当场知道，而不是跑到深层代码时才炸。
 
-**本项目现在也用**：配置外置到 YAML 后，配置项从 3 个涨到 ~25 个（模型、prompt、工具 schema、压缩参数、价格、环境…），argparse + kwargs 扛不住了——于是换成和参考项目同款的 **pydantic v2**。`build_config()` 合并完各来源后，最后一步 `Config.model_validate(...)` 一次性校验所有字段。详见 [config.md](config.md#4-pydantic-v2-校验)。
+**本项目现在也用**：配置外置到 YAML 后，配置项从 3 个涨到二十多个（模型、prompt、启用工具、压缩参数、价格、环境…），argparse + kwargs 扛不住了——于是换成和参考项目同款的 **pydantic v2**。`build_config()` 合并完各来源后，最后一步 `Config.model_validate(...)` 一次性校验所有字段。详见 [config.md](config.md#4-pydantic-v2-校验)。
 
 ---
 

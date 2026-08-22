@@ -1,8 +1,8 @@
 # default_bash.yaml — 原「仅 bash + submit」路线（旧默认，现已 opt-in）。
 # Load with:  python main.py --config default_bash
-# 默认 default.yaml 已经带上 read/edit/write 五个工具；想要回到只有 bash+submit
-# 的旧路线，用这个配置。做法：把三个文件工具显式置 null（禁用），并把 system_prompt
-# 换回两工具版；bash_tool / submit_tool / model / cost / environment 等仍从 default.yaml 继承。
+# 默认 default.yaml 已启用 read/edit/write 五个工具；想要回到只有 bash+submit
+# 的旧路线，用这个配置。做法：替换 enabled 名单，并把 system_prompt 换回两工具版；
+# 工具 schema/handler 来自注册表，model/cost/environment 等仍从 default.yaml 继承。
 
 agent:
   system_prompt: |
@@ -24,6 +24,6 @@ agent:
     Command output is truncated to 100 lines by default. If you need more context, pass a higher `lines` value or use head/tail/sed to narrow down. For long-running commands like pip install or git clone, pass a higher `timeout` value (default 30s).
 
 tools:
-  read_tool: null
-  edit_tool: null
-  write_tool: null
+  enabled:
+    - bash
+    - submit

@@ -5,12 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mini_agent.config import get_default_config
+from mini_agent.config import build_config, get_default_config
 from mini_agent.tools import (
     EditError,
+    TOOL_REGISTRY,
     apply_edit,
     execute_tool_call,
     format_read_output,
+    get_enabled_tool_schemas,
 )
 
 
@@ -165,3 +167,38 @@ def test_unknown_tool_lists_all_available_tools():
     content = messages[0]["content"]
     for name in ("bash", "submit", "read", "edit", "write"):
         assert name in content
+
+
+def test_registry_pairs_every_name_with_matching_schema():
+    for name, definition in TOOL_REGISTRY.items():
+        assert definition.name == name
+        assert definition.schema["function"]["name"] == name
+        assert callable(definition.handler)
+
+
+def test_enabled_schemas_follow_configured_order():
+    cfg = build_config(["default_bash"])
+    schemas = get_enabled_tool_schemas(cfg)
+    assert [schema["function"]["name"] for schema in schemas] == ["bash", "submit"]
+
+
+def test_registered_but_disabled_tool_is_not_executed():
+    cfg = build_config(["default_bash"])
+    env = FakeEnv(files={"secret.txt": "nope"})
+    messages: list = []
+
+    execute_tool_call(
+        _tc("c1", "read", {"path": "secret.txt"}),
+        messages,
+        env,
+        config=cfg,
+    )
+
+    assert env.read_calls == []
+    assert "disabled" in messages[0]["content"]
+
+
+def test_unregistered_configured_tool_is_rejected():
+    cfg = build_config(['tools.enabled=["bash","missing"]'])
+    with pytest.raises(ValueError, match="not registered"):
+        get_enabled_tool_schemas(cfg)
