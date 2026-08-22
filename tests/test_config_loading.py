@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from mini_agent.config import (
     UNSET,
     build_config,
+    get_config_path,
     get_default_config,
     recursive_merge,
     render_template,
@@ -88,6 +89,15 @@ def test_env_var_overrides_ignores_non_prefixed_secrets(monkeypatch):
 
 def test_build_config_defaults():
     assert build_config().agent.max_steps == 250
+
+
+def test_benchmark_config_is_discoverable_and_valid():
+    path = get_config_path("swebench")
+    assert path.parent.name == "benchmarks"
+    config = build_config(["swebench"])
+    assert config.environment.type == "docker"
+    assert config.environment.cwd == "/testbed"
+    assert config.environment.interpreter == ["bash", "-c"]
 
 
 def test_build_config_spec_overrides_default():

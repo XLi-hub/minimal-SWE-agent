@@ -2,8 +2,10 @@
 
 import json
 import time
+import traceback
 from pathlib import Path
 
+from mini_agent import __version__
 from mini_agent.config import Config, UNSET, get_default_config, render_template
 from mini_agent.context import compress, should_compress
 from mini_agent.cost import compute_cost
@@ -19,7 +21,7 @@ class Agent:
     """AI Agent：循环查询 → 工具调用 → 执行，直到完成用户任务。
 
     model 需提供 .query(messages, tools=None) → OpenAI response.
-    environment 需提供 .execute(command, timeout=30) → str.
+    environment 需提供 .execute(command, timeout=30) → ExecutionResult.
 
     ``config`` 为可选的 :class:`Config`；缺省时用 ``default.yaml``。其余
     关键字参数用于按次覆盖个别配置项（``UNSET`` 哨兵表示「未指定，读配置」）。
@@ -55,6 +57,8 @@ class Agent:
         self.cost_limit: float | None = None
         self.exit_status = ""
         self.submission = ""
+        self.error: dict | None = None
+        self._consecutive_no_tool_calls = 0
 
     def run(self, task: str, max_steps=UNSET,
             max_time=UNSET,
@@ -117,6 +121,8 @@ class Agent:
         self.cost_limit = cost_limit
         self.exit_status = "error"
         self.submission = ""
+        self.error = None
+        self._consecutive_no_tool_calls = 0
 
         result: dict = {"exit_status": "error", "submission": "", "messages": self.messages}
 
@@ -133,6 +139,14 @@ class Agent:
                     break
                 except Exception as e:
                     self.messages.append({"role": "user", "content": f"Error: {e}"})
+                    self.error = {
+                        "type": type(e).__name__,
+                        "message": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
+                    result["exit_status"] = "error"
+                    result["error"] = self.error
+                    break
         finally:
             # Sync the run outcome onto the agent so a later serialize()
             # call reflects it, then save the trajectory if requested.
@@ -146,7 +160,9 @@ class Agent:
         """One iteration: enforce limits, compress if needed, query, execute tools."""
         self._check_limits()
         self._maybe_compress()
-        self.execute_actions(self.query())
+        message = self.query()
+        if message is not None:
+            self.execute_actions(message)
 
     def _check_limits(self) -> None:
         """Raise the matching :class:`AgentExit` when a run limit has been hit.
@@ -164,8 +180,8 @@ class Agent:
     def query(self):
         """Query the model once, append the assistant message, return the raw message.
 
-        Raises :class:`NoToolCalls` (after appending a plain assistant message)
-        when the model returns no tool calls.
+        Returns ``None`` while a configured no-tool-call correction is pending.
+        Raises :class:`NoToolCalls` after those retries are exhausted.
         """
         self._steps += 1
         self.n_calls += 1
@@ -178,8 +194,20 @@ class Agent:
         if not msg.tool_calls:
             self.messages.append({"role": "assistant", "content": msg.content})
             print("LM output:", msg.content)
+            self._consecutive_no_tool_calls += 1
+            if self._consecutive_no_tool_calls <= self.config.agent.no_tool_call_retries:
+                self.messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous response did not call a tool. Continue the task "
+                        "and finish with a valid tool call; use submit only when the "
+                        "requested work is complete."
+                    ),
+                })
+                return None
             raise NoToolCalls()
 
+        self._consecutive_no_tool_calls = 0
         print("LM output:", msg.content)
         self.messages.append(format_assistant_message(msg))
         return msg
@@ -232,13 +260,26 @@ class Agent:
                     "api_calls": self.n_calls,
                 },
                 "config": {
+                    "agent": self.config.agent.model_dump(mode="json"),
                     "agent_type": (
                         f"{self.__class__.__module__}."
                         f"{self.__class__.__name__}"
                     ),
+                    "model": self.config.model.model_dump(mode="json"),
+                    "model_type": (
+                        f"{self.model.__class__.__module__}."
+                        f"{self.model.__class__.__name__}"
+                    ),
+                    "environment": self.config.environment.model_dump(mode="json"),
+                    "environment_type": (
+                        f"{self.environment.__class__.__module__}."
+                        f"{self.environment.__class__.__name__}"
+                    ),
                 },
+                "mini_version": __version__,
                 "exit_status": self.exit_status,
                 "submission": self.submission,
+                "error": self.error,
             },
             "messages": self.messages,
             "trajectory_format": "mini-agent-0.1",

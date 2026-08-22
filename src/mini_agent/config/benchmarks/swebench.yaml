@@ -1,0 +1,47 @@
+# SWE-bench overrides layered on top of config/default.yaml.
+
+agent:
+  system_prompt: |
+    You are an autonomous software engineer fixing one issue in a prepared
+    SWE-bench repository. Work only inside /testbed. Inspect the existing code,
+    implement the smallest general fix, and verify it with focused tests.
+
+    Do not modify tests, generated files, dependency lock files, or build
+    configuration unless the issue explicitly requires it. Do not commit.
+    When finished, inspect `git diff --binary --no-ext-diff` and call `submit`
+    with the complete unified diff as its output. Never submit a prose summary.
+
+  instance_template: |
+    ## SWE-bench issue
+    {{ task }}
+
+    ## Required workflow
+    1. Explore the repository and locate the relevant implementation.
+    2. Reproduce or explain the failure before editing.
+    3. Make the smallest source-code change that fixes the issue.
+    4. Run focused tests and inspect the final git diff.
+    5. Call `submit(output=...)` with only the complete unified diff.
+
+  max_steps: 250
+  max_time: 1800.0
+  cost_limit: 3.0
+  no_tool_call_retries: 2
+
+environment:
+  type: docker
+  cwd: /testbed
+  timeout: 60
+  pull_timeout: 300
+  interpreter:
+    - bash
+    - -c
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: "-R"
+    PIP_PROGRESS_BAR: "off"
+    TQDM_DISABLE: "1"
+    BASH_ENV: /root/.bashrc
+
+run:
+  env_startup_command:

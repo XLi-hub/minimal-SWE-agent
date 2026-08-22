@@ -78,6 +78,9 @@ agent:
   max_steps: 250
   max_time: 1800.0
   cost_limit: 3.0
+  # Plain-text responses normally end a run; benchmark configs may allow a
+  # small number of correction prompts for truncated/malformed responses.
+  no_tool_call_retries: 0
 
 tools:
   # 工具 schema + handler 在 mini_agent.tools.TOOL_REGISTRY 中成对注册；

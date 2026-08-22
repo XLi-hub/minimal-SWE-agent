@@ -503,14 +503,10 @@ def test_keyboard_interrupt_preserves_messages_so_far():
 # --- model error recovery ---
 
 
-def test_model_query_exception_is_appended_as_user_message():
-    """model.query 抛普通异常时（如网络错误），agent 应把错误
-    作为 user 消息追加并继续循环，而不是崩溃。"""
+def test_model_query_exception_exits_with_diagnostics():
+    """Uncaught model/config errors stop immediately and preserve diagnostics."""
     model = MagicMock()
-    model.query.side_effect = [
-        RuntimeError("network timeout"),
-        _make_response(content="OK, recovered."),
-    ]
+    model.query.side_effect = RuntimeError("invalid API credentials")
     env = MagicMock()
 
     agent = Agent(model, env)
@@ -518,12 +514,38 @@ def test_model_query_exception_is_appended_as_user_message():
 
     # 错误被追加为 user 消息
     user_msgs = [m for m in result["messages"] if m["role"] == "user"]
-    error_msg = [m for m in user_msgs if "network timeout" in str(m["content"])]
+    error_msg = [m for m in user_msgs if "invalid API credentials" in str(m["content"])]
     assert len(error_msg) == 1
+    assert result["exit_status"] == "error"
+    assert result["error"]["type"] == "RuntimeError"
+    assert "invalid API credentials" in result["error"]["message"]
+    assert model.query.call_count == 1
 
-    # 循环继续，最终正常退出
-    assert result["exit_status"] == "no_tool_calls"
-    assert model.query.call_count == 2
+
+def test_no_tool_call_can_be_retried_by_config():
+    config = DEFAULTS.model_copy(
+        update={
+            "agent": DEFAULTS.agent.model_copy(update={"no_tool_call_retries": 1})
+        }
+    )
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(content="I forgot the tool."),
+        _make_response(
+            content="Done.",
+            tool_calls=[_make_tool_call("s1", "submit", {"output": "ok"})],
+        ),
+    ]
+
+    result = Agent(model, MagicMock(), config=config).run("test")
+
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "ok"
+    assert any(
+        "did not call a tool" in str(message["content"])
+        for message in result["messages"]
+        if message["role"] == "user"
+    )
 
 
 # --- multi-tool-call with submit ---
@@ -978,6 +1000,9 @@ class TestSerialize:
         assert data["info"]["submission"] == "final answer"
         assert data["info"]["model_stats"]["api_calls"] == 1
         assert data["info"]["config"]["agent_type"].endswith("Agent")
+        assert data["info"]["config"]["model"]["model_name"] == "gpt-4o-mini"
+        assert data["info"]["config"]["environment"]["type"] == "local"
+        assert data["info"]["mini_version"] == "0.1.0"
         # messages must be the same list the agent used during the run
         assert data["messages"] == agent.messages
         assert data["messages"][0]["role"] == "system"

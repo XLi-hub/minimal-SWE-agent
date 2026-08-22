@@ -40,6 +40,7 @@ class AgentConfig(BaseModel):
     max_steps: int = 250
     max_time: float = 1800.0
     cost_limit: float = 3.0
+    no_tool_call_retries: int = 0
 
 
 class ToolsConfig(BaseModel):

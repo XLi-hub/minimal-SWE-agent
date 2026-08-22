@@ -54,6 +54,11 @@ class Model:
             **kwargs,
         )
 
+    def close(self) -> None:
+        """Release provider HTTP connections after an isolated benchmark run."""
+
+        self._client.close()
+
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key
 _model: Model | None = None

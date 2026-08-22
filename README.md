@@ -246,6 +246,30 @@ _MAPPING = {
 }
 ```
 
+## SWE-bench
+
+评测依赖是可选的。安装后可以先跑一个实例，再逐步扩大并发：
+
+```bash
+pip install -e ".[bench]"
+
+minimal-swebench \
+  --subset verified --split test \
+  --instance 0 \
+  --model gpt-4o-mini \
+  --output runs/smoke
+
+minimal-swebench \
+  --subset verified --split test \
+  --slice 0:20 --workers 4 \
+  --model gpt-4o-mini \
+  --output runs/verified-20
+```
+
+runner 会按实例选择官方 Docker image，保存原子更新的 `preds.json`、harness 使用的
+`preds.jsonl`、状态概览和逐实例 trajectory，并支持 `--redo-existing` / `--retry-failed`。
+完整说明见 [SWE-bench 文档](docs/swebench.md)。
+
 ## 运行测试
 
 ```bash

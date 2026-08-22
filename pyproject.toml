@@ -22,18 +22,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+bench = [
+    "datasets>=2.16",
+]
 dev = [
     "pytest>=9.0",
 ]
 
 [project.scripts]
 minimal = "mini_agent.cli:main"
+minimal-swebench = "mini_agent.benchmarks.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"mini_agent.config" = ["*.yaml"]
+"mini_agent.config" = ["**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

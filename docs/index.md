@@ -14,6 +14,7 @@
 | [concepts.md](concepts.md) | 遇到不认识的术语时查阅 |
 | [tool-calling.md](tool-calling.md) | 想理解从文本解析到 function calling 的演变 |
 | [environment.md](environment.md) | 想理解 Docker 环境和注册表模式 |
+| [swebench.md](swebench.md) | 想运行 SWE-bench 单例、批量任务和断点续跑 |
 | [context-compression.md](context-compression.md) | 想理解上下文压缩和 LLM 摘要怎么触发 |
 | [testing.md](testing.md) | 想理解测试策略和分层的原因 |
 | [faq.md](faq.md) | 有具体问题时查阅 |

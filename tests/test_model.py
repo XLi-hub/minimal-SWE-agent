@@ -78,6 +78,14 @@ def test_query_forwards_configured_model_kwargs(mock_openai):
     assert kwargs["max_tokens"] == 50
 
 
+def test_close_releases_openai_client(mock_openai):
+    model = Model()
+
+    model.close()
+
+    mock_openai.close.assert_called_once_with()
+
+
 def test_query_omits_tools_when_not_provided(mock_openai):
     """不传 tools 时不应出现 tools 参数。"""
     model = Model()

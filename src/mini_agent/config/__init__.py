@@ -79,6 +79,7 @@ def get_config_path(config_spec: str | Path) -> Path:
     candidates = [
         Path(config_spec),
         builtin_config_dir / config_spec,
+        builtin_config_dir / "benchmarks" / config_spec,
     ]
     for candidate in candidates:
         if candidate.exists():
