@@ -161,16 +161,16 @@ API key 是唯一**绝对不能**进 YAML 的东西——YAML 会被提交到 gi
 ```yaml
 # config/default.yaml —— 只记环境变量「名」，不记 secret 本身
 model:
-  api_key_env: DEEPSEEK_API_KEY
+  api_key_env: OPENAI_API_KEY
 ```
 
 真正的 key 留在 `.env`（已 gitignore），[model.py](../src/mini_agent/model.py) 运行时才 `os.environ[self.config.api_key_env]` 去取：
 
 ```python
-api_key = os.environ[self.config.api_key_env]   # "DEEPSEEK_API_KEY" → 取 .env 里的值
+api_key = os.environ[self.config.api_key_env]   # "OPENAI_API_KEY" → 取 .env 里的值
 ```
 
-环境变量扫描（`_env_var_overrides`）只认 `MINI_AGENT_` 前缀，`DEEPSEEK_API_KEY` 不带前缀、永远不会被扫进配置。切 OpenAI 只需要把 `api_key_env` 改成 `OPENAI_API_KEY`、`base_url` 去掉——一个字段的事（见 [faq.md](faq.md#为什么选-deepseek-而不是-openai/claude)）。
+环境变量扫描（`_env_var_overrides`）只认 `MINI_AGENT_` 前缀，`OPENAI_API_KEY` 不带前缀、永远不会被扫进配置。切到其他 OpenAI-compatible 供应商时，改 `api_key_env`、`base_url`、`model_name` 即可。
 
 ---
 

@@ -3,12 +3,12 @@
 Agent 循环每步都会往 ``messages`` 里追加 assistant/tool 消息，历史会无限增长。
 这里提供两个能力：
 
-1. **token 估算**：用 ``len(text) // 4`` 估算 token 数（DeepSeek 的 tokenizer
-   不在 tiktoken 里，近似值对"是否逼近上限"的阈值判断足够）。
+1. **token 估算**：用 ``len(text) // 4`` 做供应商无关的粗略估算；
+   对"是否逼近上限"的阈值判断足够。
 2. **压缩**：当历史逼近上限时，把中间的旧对话折叠成一条结构化摘要，只保留
    system prompt、原始任务、以及最近 N 轮 verbatim。
 
-关键约束：OpenAI/DeepSeek 要求每条 ``assistant`` 消息里的 ``tool_call_id`` 必须
+关键约束：OpenAI-compatible 协议要求每条 ``assistant`` 消息里的 ``tool_call_id`` 必须
 被紧随其后的 ``tool`` 消息一一回应，否则 HTTP 400。因此压缩按
 「``assistant(tool_calls)`` + 其全部 ``tool`` 结果」作为一个**原子单元**整体
 保留或丢弃，绝不能从中间切。

@@ -13,9 +13,9 @@ class ModelConfig(BaseModel):
     """Model provider settings.  ``api_key_env`` names the environment
     variable that holds the secret — never the secret itself."""
 
-    model_name: str = "deepseek-chat"
-    base_url: str = "https://api.deepseek.com"
-    api_key_env: str = "DEEPSEEK_API_KEY"
+    model_name: str = "gpt-4o-mini"
+    base_url: str | None = None
+    api_key_env: str = "OPENAI_API_KEY"
 
 
 class AgentConfig(BaseModel):
@@ -65,9 +65,9 @@ class ToolsConfig(BaseModel):
 class CostConfig(BaseModel):
     """USD price per 1M tokens."""
 
-    price_input_per_1m: float = 0.14
-    price_input_cache_hit_per_1m: float = 0.0028
-    price_output_per_1m: float = 0.28
+    price_input_per_1m: float = 0.0
+    price_input_cache_hit_per_1m: float = 0.0
+    price_output_per_1m: float = 0.0
 
 
 class EnvironmentConfig(BaseModel):

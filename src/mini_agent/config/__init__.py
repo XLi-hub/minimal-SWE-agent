@@ -123,7 +123,7 @@ def _env_var_overrides(prefix: str = "MINI_AGENT_") -> dict:
 
     ``MINI_AGENT_AGENT__MAX_STEPS=500`` → ``{"agent": {"max_steps": 500}}``.
     ``__`` is the nesting separator.  Values are JSON-decoded when possible.
-    Secrets like ``DEEPSEEK_API_KEY`` have no prefix, so they are ignored.
+    Secrets like ``OPENAI_API_KEY`` have no prefix, so they are ignored.
     """
     result: dict[str, Any] = {}
     for name, value in os.environ.items():

@@ -27,7 +27,7 @@ Agent 循环 (最多 250 步):
 pip install -e ".[dev]"
 
 # 配置 API Key（创建 .env 文件）
-echo 'DEEPSEEK_API_KEY=你的key' > .env
+echo 'OPENAI_API_KEY=你的key' > .env
 
 # 日常使用（本地环境；安装后推荐）
 minimal
@@ -77,7 +77,7 @@ MINI_AGENT_AGENT__MAX_STEPS=500 minimal
 ```
 
 API key **绝不**进 YAML（YAML 会被 git 提交/打包）——它留在 `.env`（已 gitignore），
-YAML 里只记环境变量「名」`model.api_key_env`（默认 `DEEPSEEK_API_KEY`）。合并、优先级、
+YAML 里只记环境变量「名」`model.api_key_env`（默认 `OPENAI_API_KEY`）。合并、优先级、
 模板渲染、校验的完整讲解见 [docs/config.md](docs/config.md)。
 
 ## 项目结构
@@ -90,7 +90,7 @@ src/mini_agent/
 ├── tools.py                  # 工具注册表（schema + handler）+ 权限分发 + 输出处理
 ├── cost.py                   # 成本计算（token → USD）
 ├── context.py                # 上下文压缩（token 估算 + LLM 增量摘要）
-├── model.py                  # DeepSeek API 封装（OpenAI 兼容协议）
+├── model.py                  # OpenAI-compatible API 封装
 ├── config/                   # 配置包（YAML + pydantic + 模板渲染）
 │   ├── __init__.py            #   recursive_merge / build_config / render_template
 │   ├── models.py              #   pydantic v2 模型（Config + 5 个子配置）
@@ -124,7 +124,7 @@ minimal / python -m mini_agent  ──►  mini_agent.cli  ──►  Agent(mode
             Model          Environment (ABC)
            .query()        .execute()  .cleanup()
                  │          │          │
-            DeepSeek     Local        Docker
+      OpenAI-compatible Local        Docker
 ```
 
 三个组件通过**依赖注入**组装，各自只依赖接口：
@@ -132,7 +132,7 @@ minimal / python -m mini_agent  ──►  mini_agent.cli  ──►  Agent(mode
 - `Model.query(messages, tools) → OpenAI response`
 - `Environment.execute(command, timeout) → str`
 
-换 OpenAI、换 Docker、写 mock 测试——改构造函数即可，Agent 代码不动。
+换模型供应商、换 Docker、写 mock 测试——改配置/构造函数即可，Agent 代码不动。
 
 ## 工具
 
@@ -159,9 +159,9 @@ result = agent.run("fix the bug")
 Agent 自动从每次模型调用的 `response.usage`（`prompt_tokens` / `completion_tokens` /
 `prompt_tokens_details.cached_tokens`）按 USD 单价累计成本，缓存命中比未命中便宜得多：
 
-- 单价定义在 [config/default.yaml](src/mini_agent/config/default.yaml) 的 `cost` 段（`price_input_per_1m` 等，可按需改）。
+- 单价定义在 [config/default.yaml](src/mini_agent/config/default.yaml) 的 `cost` 段（`price_input_per_1m` 等，默认 0；接入具体供应商后按需配置）。
 - 累计成本写入轨迹的 `info.model_stats.instance_cost`（USD）。
-- 用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本超过就停止，`exit_status` 为 `"cost_limit"`。
+- 配好供应商单价后，用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本超过就停止，`exit_status` 为 `"cost_limit"`。
 
 ```python
 agent.run("fix the bug", output="run.traj.json", cost_limit=1.5)
@@ -171,14 +171,14 @@ agent.run("fix the bug", output="run.traj.json", cost_limit=1.5)
 ## 上下文压缩
 
 Agent 循环每步都会往 `messages` 追加模型思考和工具输出，历史会无限增长——250 步的
-bash 输出轻松超过 `deepseek-chat` 的 64K 上下文。当历史逼近上限时，Agent 会用一次
+bash 输出轻松超过常见模型上下文窗口。当历史逼近上限时，Agent 会用一次
 **无工具的 LLM 调用**把中间的旧对话折叠成一条结构化摘要，只保留 system prompt、
 原始任务、以及最近 N 轮 verbatim：
 
 - 触发条件：`count_tokens >= 0.8 × (context_window − reserve)`（默认窗口 64000、阈值 0.8、预留 2000 token 给下一轮回复）。
 - 保留策略：永不压缩 system prompt 和原始任务；最近 `keep_last_n_turns`（默认 4）轮原样保留，只压中间。
 - 摘要方式：折叠式增量——已有摘要 + 新对话 → 新摘要，结构化标题（任务/文件改动/关键决策/错误与测试结果/当前状态/下一步）。
-- 原子性：`assistant(tool_calls)` 和紧随其后的 `tool` 结果作为一个整体保留或丢弃，绝不拆开（否则 OpenAI/DeepSeek 会 HTTP 400）。
+- 原子性：`assistant(tool_calls)` 和紧随其后的 `tool` 结果作为一个整体保留或丢弃，绝不拆开（否则 OpenAI-compatible API 通常会 HTTP 400）。
 - 失败兜底：摘要调用失败时静默跳过本轮，继续用完整历史，不影响主循环。
 - 成本计入：摘要本身也是一次 API 调用，其 token 用量计入 `instance_cost` 和 `api_calls`，与主循环查询一视同仁。
 
@@ -217,7 +217,7 @@ _MAPPING = {
 # 日常 — 跳过 E2E（Docker 集成测试自动检测 daemon，无 Docker 时自动跳过）
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio -m "not e2e"
 
-# E2E 测试 — 真调 DeepSeek API（2 个，花钱，偶尔跑一次）
+# E2E 测试 — 真调 OpenAI-compatible API（2 个，花钱，偶尔跑一次）
 python -m pytest tests/ -v -m e2e
 
 # 全量 — 包括 E2E（221 个测试）
@@ -227,7 +227,7 @@ python -m pytest tests/ -v -p no:anyio
 python -m pytest tests/ -v -p no:anyio -m "not e2e" -k "not test_docker_echo and not test_docker_pwd and not test_docker_env and not test_docker_command"
 ```
 
-Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `DEEPSEEK_API_KEY` 时自动跳过。
+Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `OPENAI_API_KEY` 时自动跳过。
 
 **测试分层**：179 单元 + 40 集成（含 Docker）+ 2 E2E = 221 总计。
 

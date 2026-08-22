@@ -1,4 +1,4 @@
-"""End-to-end tests — real Model + real Environment, calls DeepSeek API.
+"""End-to-end tests — real Model + real Environment, calls an OpenAI-compatible API.
 
 These tests cost money and are slow.  They are skipped by default.
 Run them explicitly when you want to verify the full agent loop::
@@ -24,14 +24,14 @@ from mini_agent.environments.local import LocalEnvironment
 # ---------------------------------------------------------------------------
 
 def _has_api_key() -> bool:
-    """Check whether a DeepSeek API key is configured."""
+    """Check whether an OpenAI-compatible API key is configured."""
     from dotenv import load_dotenv
     load_dotenv()
-    return bool(os.environ.get("DEEPSEEK_API_KEY"))
+    return bool(os.environ.get("OPENAI_API_KEY"))
 
 
 e2e = pytest.mark.e2e
-skip_no_key = pytest.mark.skipif(not _has_api_key(), reason="No DEEPSEEK_API_KEY in .env")
+skip_no_key = pytest.mark.skipif(not _has_api_key(), reason="No OPENAI_API_KEY in .env")
 
 
 # ---------------------------------------------------------------------------

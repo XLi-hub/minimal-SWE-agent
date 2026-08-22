@@ -39,6 +39,6 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-    "e2e: end-to-end tests that call the real DeepSeek API (costs money, needs API key)",
+    "e2e: end-to-end tests that call a real OpenAI-compatible API (costs money, needs API key)",
     "docker: tests that require a running Docker daemon",
 ]

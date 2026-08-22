@@ -3,7 +3,7 @@ import subprocess
 from unittest.mock import MagicMock
 
 from mini_agent.agent import Agent
-from mini_agent.config import get_default_config
+from mini_agent.config import CostConfig, get_default_config
 from mini_agent.tools import (
     decode_timeout_output,
     format_assistant_message,
@@ -11,6 +11,15 @@ from mini_agent.tools import (
 )
 
 DEFAULTS = get_default_config()
+PRICED_DEFAULTS = DEFAULTS.model_copy(
+    update={
+        "cost": CostConfig(
+            price_input_per_1m=0.14,
+            price_input_cache_hit_per_1m=0.0028,
+            price_output_per_1m=0.28,
+        )
+    }
+)
 SUMMARY_MARKER = DEFAULTS.agent.summary_marker
 
 
@@ -1098,7 +1107,7 @@ class TestCostTracking:
         env = MagicMock()
         env.execute.return_value = "out"
 
-        agent = Agent(model, env)
+        agent = Agent(model, env, config=PRICED_DEFAULTS)
         result = agent.run("task")
 
         assert result["exit_status"] == "submitted"
@@ -1117,7 +1126,7 @@ class TestCostTracking:
         env = MagicMock()
         env.execute.return_value = "ok"
 
-        agent = Agent(model, env)
+        agent = Agent(model, env, config=PRICED_DEFAULTS)
         result = agent.run("task", max_steps=10, cost_limit=0.01)
 
         assert result["exit_status"] == "cost_limit"
@@ -1282,7 +1291,14 @@ def test_compression_accounts_for_summary_call():
     env = MagicMock()
     env.execute.return_value = "out"
 
-    agent = Agent(model, env, context_window=100, reserve_tokens=10, keep_last_n_turns=1)
+    agent = Agent(
+        model,
+        env,
+        config=PRICED_DEFAULTS,
+        context_window=100,
+        reserve_tokens=10,
+        keep_last_n_turns=1,
+    )
     agent.run("task")
 
     assert calls["summary"] == 1

@@ -29,7 +29,7 @@ def mock_openai():
     """
     with patch("httpx.Client") as mock_http, \
          patch("mini_agent.model.OpenAI") as mock_cls, \
-         patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}):
+         patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
 
         mock_http_client = MagicMock()
         mock_http.return_value = mock_http_client
@@ -88,13 +88,35 @@ def test_query_returns_full_response_object(mock_openai):
     assert result is mock_response
 
 
-def test_query_uses_deepseek_chat_model(mock_openai):
-    """验证模型名始终为 deepseek-chat。"""
+def test_query_uses_default_openai_compatible_model(mock_openai):
+    """验证默认模型来自 OpenAI-compatible 配置。"""
     model = Model()
     model.query([{"role": "user", "content": "ping"}])
 
     kwargs = mock_openai.chat.completions.create.call_args.kwargs
-    assert kwargs["model"] == "deepseek-chat"
+    assert kwargs["model"] == "gpt-4o-mini"
+
+
+def test_client_omits_base_url_by_default(mock_openai):
+    """默认 OpenAI 端点交给 SDK 处理，不传空 base_url。"""
+    from mini_agent.model import OpenAI as mock_cls
+
+    Model()
+
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["api_key"] == "test-key"
+    assert "base_url" not in kwargs
+
+
+def test_client_forwards_custom_base_url(mock_openai):
+    """OpenAI-compatible 供应商通过 base_url 接入。"""
+    from mini_agent.config import ModelConfig
+    from mini_agent.model import OpenAI as mock_cls
+
+    Model(ModelConfig(base_url="https://example.test/v1"))
+
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["base_url"] == "https://example.test/v1"
 
 
 def test_query_uses_custom_model_name(mock_openai):

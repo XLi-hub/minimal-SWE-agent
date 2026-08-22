@@ -182,14 +182,16 @@ def test_default_cost_limit_is_positive():
     assert cfg.agent.cost_limit > 0
 
 
-def test_input_prices_are_positive():
-    assert cfg.cost.price_input_per_1m > 0
-    assert cfg.cost.price_input_cache_hit_per_1m > 0
+def test_default_prices_are_zero_until_provider_configured():
+    assert cfg.cost.price_input_per_1m == 0
+    assert cfg.cost.price_input_cache_hit_per_1m == 0
 
 
-def test_output_price_is_positive():
-    assert cfg.cost.price_output_per_1m > 0
+def test_default_output_price_is_zero_until_provider_configured():
+    assert cfg.cost.price_output_per_1m == 0
 
 
-def test_cache_hit_is_cheaper_than_miss():
-    assert cfg.cost.price_input_cache_hit_per_1m < cfg.cost.price_input_per_1m
+def test_cost_prices_are_non_negative():
+    assert cfg.cost.price_input_per_1m >= 0
+    assert cfg.cost.price_input_cache_hit_per_1m >= 0
+    assert cfg.cost.price_output_per_1m >= 0

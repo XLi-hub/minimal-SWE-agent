@@ -5,9 +5,9 @@
 # 注意：API key 不放在这里 —— 它留在 .env（已 gitignore），这里只记环境变量「名」。
 
 model:
-  model_name: deepseek-chat
-  base_url: https://api.deepseek.com
-  api_key_env: DEEPSEEK_API_KEY
+  model_name: gpt-4o-mini
+  base_url:
+  api_key_env: OPENAI_API_KEY
 
 agent:
   system_prompt: |
@@ -92,10 +92,11 @@ tools:
   default_timeout: 30
 
 cost:
-  # deepseek-chat (deepseek-v4-flash) USD 单价/百万 token（2026/07 固定价，可按需改）。
-  price_input_per_1m: 0.14
-  price_input_cache_hit_per_1m: 0.0028
-  price_output_per_1m: 0.28
+  # Default prices are intentionally zero because OpenAI-compatible providers
+  # use different billing. Set these per provider/model to enable cost limits.
+  price_input_per_1m: 0.0
+  price_input_cache_hit_per_1m: 0.0
+  price_output_per_1m: 0.0
 
 environment:
   type: local

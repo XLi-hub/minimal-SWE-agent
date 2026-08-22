@@ -78,7 +78,7 @@ def test_env_var_overrides_nests_double_underscore(monkeypatch):
 
 
 def test_env_var_overrides_ignores_non_prefixed_secrets(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
     assert _env_var_overrides() == {}
 
 

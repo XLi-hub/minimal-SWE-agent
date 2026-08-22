@@ -10,7 +10,7 @@ load_dotenv()  # 从项目根目录 .env 加载环境变量
 
 
 class Model:
-    """DeepSeek 语言模型适配器。
+    """OpenAI-compatible chat completions adapter.
 
     ``config`` 为可选的 :class:`ModelConfig`；缺省时用 ``default.yaml``
     里的默认值（模型名 / base_url / api_key 环境变量名）。
@@ -30,11 +30,13 @@ class Model:
         http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
         http_client = httpx.Client(proxy=http_proxy) if http_proxy else None
 
-        self._client = OpenAI(
-            api_key=os.environ[self.config.api_key_env],
-            base_url=self.config.base_url,
-            http_client=http_client,
-        )
+        client_kwargs = {
+            "api_key": os.environ[self.config.api_key_env],
+            "http_client": http_client,
+        }
+        if self.config.base_url:
+            client_kwargs["base_url"] = self.config.base_url
+        self._client = OpenAI(**client_kwargs)
 
     def query(self, messages: list[dict], tools: list[dict] | None = None):
         """Send messages to the LM and return the full response object.

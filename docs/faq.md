@@ -91,7 +91,7 @@ bash(command="pip install torch", timeout=120)
 2. 乘以 config 里的 USD 单价（`cost.price_input_per_1m`、`cost.price_input_cache_hit_per_1m`、`cost.price_output_per_1m`，定义在 [default.yaml](../src/mini_agent/config/default.yaml)）。
 3. 累计值写进轨迹的 `info.model_stats.instance_cost`。
 
-DeepSeek 2026/08/17 起改成了峰谷计价，这里的单价是固定默认值（注释里标了来源），可按需改。`cost_limit` 传 `0` 或 `None` 就关闭限制（CLI 用 `--cost-limit 0`）。
+默认配置不假设具体供应商，单价为 0；接入真实 OpenAI-compatible 模型后，建议按供应商价格填写这三个字段。`cost_limit` 传 `0` 或 `None` 就关闭限制（CLI 用 `--cost-limit 0`）。
 
 ## 轨迹 .traj.json 里有什么？
 
@@ -132,23 +132,19 @@ E2E (2个)     → 我（开发者）：提交代码前跑一次，验证模型�
 
 ---
 
-## 为什么选 DeepSeek 而不是 OpenAI/Claude？
+## 怎么切换 OpenAI-compatible 供应商？
 
-1. **便宜**：DeepSeek 的定价比 OpenAI 低一个数量级，初学者不用心疼
-2. **API 兼容**：DeepSeek 的 API 格式和 OpenAI 一模一样，换个 `base_url` 就能切成 OpenAI
-3. **能力够用**：对于理解代码、运行命令、生成 patch 这类任务，DeepSeek 足够了
-
-切成 OpenAI 只需要改一个地方——`model` 段：
+默认走 OpenAI SDK 的默认端点，只需要 `.env` 里有 `OPENAI_API_KEY`。切到 DeepSeek、OpenRouter、本地 vLLM 等兼容 Chat Completions 的服务时，只改 `model` 段即可：
 
 ```yaml
 # config/default.yaml
 model:
-  model_name: gpt-4o
-  base_url: ""                  # 去掉 base_url，走 OpenAI 默认端点
-  api_key_env: OPENAI_API_KEY   # .env 里换成 OPENAI_API_KEY=你的key
+  model_name: deepseek-chat
+  base_url: https://api.deepseek.com
+  api_key_env: DEEPSEEK_API_KEY
 ```
 
-tools 参数不用改——OpenAI 原生支持。更多覆盖方式（`-c`、环境变量、`--config`）见 [config.md](config.md)。
+tools 参数不用改——它们走 OpenAI function calling 结构。更多覆盖方式（`-c`、环境变量、`--config`）见 [config.md](config.md)。
 
 切成 Claude 需要换成 `anthropic` SDK，但 API 概念（messages、tools、tool_calls）完全一样。
 

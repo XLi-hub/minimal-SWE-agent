@@ -1,9 +1,9 @@
 """Cost calculation from a model response's ``usage`` block.
 
-DeepSeek's ``deepseek-chat`` exposes token counts on the OpenAI-compatible
-response (``usage.prompt_tokens``, ``usage.completion_tokens``, and — on
-cache hits — ``usage.prompt_tokens_details.cached_tokens``).  We turn those
-into a USD figure using the per-1M-token prices defined in ``config``.
+OpenAI-compatible chat completion responses expose token counts on
+``usage.prompt_tokens``, ``usage.completion_tokens``, and — on cache hits —
+``usage.prompt_tokens_details.cached_tokens``.  We turn those into a USD
+figure using the per-1M-token prices defined in ``config``.
 """
 
 from mini_agent.config import Config, get_default_config
