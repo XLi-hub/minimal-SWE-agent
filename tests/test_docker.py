@@ -112,6 +112,56 @@ def test_execute_passes_env_variables():
         env.cleanup()
 
 
+def test_execute_passes_forwarded_env_and_custom_interpreter(monkeypatch):
+    """Selected host vars are forwarded and interpreter is configurable."""
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+        mock_popen.return_value.communicate.return_value = ("", None)
+        mock_popen.return_value.returncode = 0
+        monkeypatch.setenv("FORWARDED_TEST_VALUE", "from-host")
+
+        env = DockerEnvironment(
+            image="python:3.11-slim",
+            forward_env=["FORWARDED_TEST_VALUE"],
+            interpreter=["sh", "-c"],
+            executable="podman",
+            run_args=["--rm", "--network=none"],
+            pull_timeout=7,
+        )
+        env.execute("echo hi")
+
+        start_cmd = mock_run.call_args_list[0].args[0]
+        exec_cmd = mock_popen.call_args.args[0]
+        assert start_cmd[0] == "podman"
+        assert "--network=none" in start_cmd
+        assert mock_run.call_args_list[0].kwargs["timeout"] == 7
+        assert "FORWARDED_TEST_VALUE=from-host" in exec_cmd
+        assert exec_cmd[-3:] == ["sh", "-c", "echo hi"]
+        env.cleanup()
+
+
+def test_execute_returns_structured_result():
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("failed\n", None)
+        mock_proc.returncode = 42
+        mock_popen.return_value = mock_proc
+
+        env = DockerEnvironment(image="python:3.11-slim")
+        result = env.execute("false")
+        assert result == {
+            "output": "failed\n",
+            "returncode": 42,
+            "exception_info": "",
+        }
+        env.cleanup()
+
+
 def test_execute_uses_custom_timeout():
     """Per-call timeout should be passed to communicate()."""
     with patch("subprocess.run") as mock_run, \

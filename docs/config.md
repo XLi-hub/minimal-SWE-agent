@@ -147,7 +147,7 @@ Config.model_validate(recursive_merge(*layers))
 
 `build_config()` 最后一步就是 `Config.model_validate(...)`——任何一层写错，用户当场收到报错，而不是跑到 `agent.run()` 深处才炸。
 
-模型分五块，和 YAML 顶层键一一对应（[config/models.py](../src/mini_agent/config/models.py)）：`ModelConfig` / `AgentConfig` / `ToolsConfig` / `CostConfig` / `EnvironmentConfig`。两个设计细节：
+模型分六块，和 YAML 顶层键一一对应（[config/models.py](../src/mini_agent/config/models.py)）：`ModelConfig` / `AgentConfig` / `ToolsConfig` / `CostConfig` / `EnvironmentConfig` / `RunConfig`。其中 `RunConfig` 保存 benchmark 启动命令等跨组件选项。两个设计细节：
 
 - **prompt 和工具启用名单必填**（无 pydantic 默认值）——它们只能来自 YAML，防止漏配；工具 schema 与 handler 在 `tools.py` 注册表中成对定义。
 - **标量字段带默认值**（和 YAML 一致）——这样测试里裸写 `Model()` / `Agent()` 仍能构造，不用每次传完整 config。

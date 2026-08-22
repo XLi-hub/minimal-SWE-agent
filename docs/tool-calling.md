@@ -62,44 +62,28 @@ Agent 不再需要 `parse_action()` 函数——`msg.tool_calls` 直接就是结
 3. **v4 改进**：截断标记从被动提示变为主动引导——除了行数信息，还附带 `[WARNING]` 告诉模型可以调高 `lines` 或用 `head`/`tail`/`sed` 精确读
 4. 模型可以为慢命令（`pip install` 等）指定更高的 `timeout` 值
 
-### 超时处理：不杀进程
+### 超时处理：终止进程组并保留输出
 
-v2 版本用 `subprocess.run(timeout=...)`，超时直接 SIGKILL。问题：
+批量 benchmark 里如果超时命令继续运行，会逐渐积累测试、编译或安装进程，并与后续
+实例争抢 CPU 和内存。因此 LocalEnvironment 用独立进程组启动命令；超时后终止整个
+进程组，再回收已经产生的输出。
 
-- `pip install` 被杀 → 包安装了一半 → 系统状态被破坏
-- 模型只看到 "timed out"，看不到已经跑出来的输出，无法判断是网慢还是卡死
+环境把结果统一返回为结构化数据：
 
-**v4 改进**：改用 `Popen + communicate(timeout=...)`：
-
-```
-subprocess.run(timeout=30)  → 超时 → SIGKILL → 进程死，输出丢
-Popen + communicate(30)     → 超时 → 进程继续 → 部分输出保留
-```
-
-超时后模型收到的消息包含三部分：
-1. 已产生的部分输出（让模型判断进度）
-2. `[STILL RUNNING]` 标识（明确告知进程还活着）
-3. 操作指引：加 timeout 等完成 / 先 kill 再重来 / 不要直接重跑（会冲突）
-
-```python
-# 模型看到的消息示例
-"""
-Downloading torch-2.0.0... 45% 100MB/220MB
-[STILL RUNNING: Command has been executing for 30s and is not finished yet.
-The process is still alive. To wait for it, re-run with a higher 'timeout'
-(e.g. timeout=60). To abort and restart, kill the old process first
-(use 'ps aux | grep' to find its PID, then 'kill'). Do NOT re-run without
-killing — two instances of the same command will conflict.]
-"""
+```json
+{"output": "partial output", "returncode": -1,
+ "exception_info": "Command timed out after 30 seconds: ..."}
 ```
 
-**为什么不杀是合理的**：bash 是万能工具——模型可以 `ps` 查 PID、`kill` 杀进程、加 timeout 等完成。agent 不需要替模型做这些决策。
+正常的非零退出同样不会抛异常，而是保留真实 `returncode`。这样模型能区分“成功但无
+输出”“测试失败”和“执行器自身超时”。如果命令确实需要长时间运行，应在第一次调用时
+传更高的 `timeout`；需要自主轮询的任务可以显式放到后台并把日志写入文件。
 
 ### 超长时间任务与后台执行
 
 `pip install` 最多几分钟，但训练模型、大规模构建可能需要几小时。目前有两种处理方式：
 
-**方式一：用 `&` 后台执行 + `tail` 轮询**（bash 工具描述里已写入指引）
+**方式一：用 `&` 后台执行 + `tail` 轮询**
 
 ```bash
 nohup python train.py &> /tmp/train.log & echo PID: $!

@@ -32,6 +32,7 @@ from mini_agent.config.models import (  # noqa: F401
     CostConfig,
     EnvironmentConfig,
     ModelConfig,
+    RunConfig,
     ToolsConfig,
 )
 
@@ -192,6 +193,7 @@ __all__ = [
     "CostConfig",
     "EnvironmentConfig",
     "ModelConfig",
+    "RunConfig",
     "ToolsConfig",
     "UNSET",
     "build_config",

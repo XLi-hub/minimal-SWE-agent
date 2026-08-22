@@ -73,7 +73,7 @@ minimal --max-steps 500   # 给复杂任务更多步
 bash(command="pip install torch", timeout=120)
 ```
 
-**v4 重要变化**：超时**不杀进程**。改用 `Popen + communicate(timeout=...)`，超时后进程继续跑，模型收到部分输出 + `[STILL RUNNING]` 提示。模型可以加 timeout 等完成，也可以 `kill` 掉重来。详见 [tool-calling.md](tool-calling.md#超时处理不杀进程)。
+为避免批量任务留下孤儿进程，超时会终止完整进程组，同时保留已产生的部分输出，并向模型返回 `returncode=-1` 和具体 `exception_info`。确实需要更久的命令应在第一次调用时传更大的 timeout。详见 [tool-calling.md](tool-calling.md#超时处理终止进程组并保留输出)。
 
 **`max_time=1800`**（30 分钟）：防止模型在 timeout 上不断翻倍（30→60→120→...）把时间耗光。`max_steps` 管步数，`max_time` 管总时长，双重兜底。传 `--max-time 0` 或 `max_time=None` 可关闭限制。
 

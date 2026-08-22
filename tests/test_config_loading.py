@@ -142,3 +142,33 @@ def test_build_config_rejects_wrong_type():
 def test_build_config_rejects_duplicate_enabled_tools():
     with pytest.raises(ValidationError, match="must be unique"):
         build_config(['tools.enabled=["bash","bash"]'])
+
+
+def test_build_config_rejects_unknown_fields():
+    with pytest.raises(ValidationError):
+        build_config(["environment.not_a_real_option=true"])
+
+
+def test_environment_config_accepts_docker_execution_options():
+    config = build_config([
+        'environment.forward_env=["OPENAI_API_KEY"]',
+        'environment.executable="podman"',
+        'environment.run_args=["--rm","--network=none"]',
+        'environment.pull_timeout=9',
+        'environment.interpreter=["bash","-c"]',
+    ])
+    assert config.environment.forward_env == ["OPENAI_API_KEY"]
+    assert config.environment.executable == "podman"
+    assert config.environment.run_args == ["--rm", "--network=none"]
+    assert config.environment.pull_timeout == 9
+    assert config.environment.interpreter == ["bash", "-c"]
+
+
+def test_top_level_run_extension_is_preserved():
+    config = build_config(['run.env_startup_command="echo ready"'])
+    assert config.run.env_startup_command == "echo ready"
+
+
+def test_top_level_run_rejects_unknown_fields():
+    with pytest.raises(ValidationError):
+        build_config(['run.instances=["a"]'])

@@ -11,6 +11,7 @@ from mini_agent.tools import (
     TOOL_REGISTRY,
     apply_edit,
     execute_tool_call,
+    format_execution_observation,
     format_read_output,
     get_enabled_tool_schemas,
 )
@@ -155,6 +156,36 @@ def test_write_empty_content_succeeds():
     )
     assert env.write_calls == [("empty.txt", "")]
     assert "Wrote empty.txt" in messages[0]["content"]
+
+
+def test_bash_observation_preserves_execution_metadata():
+    observation = format_execution_observation(
+        {
+            "output": "line 1\nline 2\n",
+            "returncode": 7,
+            "exception_info": "",
+        },
+        max_lines=100,
+    )
+    assert json.loads(observation) == {
+        "output": "line 1\nline 2\n",
+        "returncode": 7,
+        "exception_info": "",
+    }
+
+
+def test_bash_observation_truncates_structured_output():
+    observation = format_execution_observation(
+        {
+            "output": "\n".join(f"line {i}" for i in range(20)),
+            "returncode": 0,
+            "exception_info": "",
+        },
+        max_lines=4,
+    )
+    parsed = json.loads(observation)
+    assert "lines truncated" in parsed["output"]
+    assert parsed["returncode"] == 0
 
 
 def test_unknown_tool_lists_all_available_tools():

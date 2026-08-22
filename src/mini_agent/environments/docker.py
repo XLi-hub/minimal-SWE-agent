@@ -1,10 +1,13 @@
 """Docker container execution — runs commands inside an isolated container."""
 
+import os
+import signal
 import subprocess
 import uuid
+from typing import Any
 
 from mini_agent.config import EnvironmentConfig, get_default_config
-from mini_agent.environments import Environment
+from mini_agent.environments import Environment, ExecutionResult
 
 
 class DockerEnvironment(Environment):
@@ -21,6 +24,17 @@ class DockerEnvironment(Environment):
         Working directory inside the container.
     env:
         Extra environment variables to set in the container.
+    forward_env:
+        Host environment variable names to forward when executing commands.
+    executable:
+        Container executable (normally ``docker``; useful for podman or tests).
+    run_args:
+        Extra arguments placed on the ``docker run`` command line.
+    pull_timeout:
+        Maximum seconds allowed for startup/image pulling.
+    interpreter:
+        Command and arguments used to interpret the command string inside the
+        container (default ``["bash", "-lc"]``).
     timeout:
         Per-command timeout in seconds (default 30).
     container_timeout:
@@ -36,6 +50,11 @@ class DockerEnvironment(Environment):
         env: dict[str, str] | None = None,
         timeout: int | None = None,
         container_timeout: str | None = None,
+        forward_env: list[str] | None = None,
+        executable: str | None = None,
+        run_args: list[str] | None = None,
+        pull_timeout: int | None = None,
+        interpreter: list[str] | None = None,
     ):
         # 显式参数优先，否则回落到 default.yaml 里的 environment 配置。
         cfg = config or get_default_config().environment
@@ -46,6 +65,15 @@ class DockerEnvironment(Environment):
         self._container_timeout = (
             container_timeout if container_timeout is not None else cfg.container_timeout
         )
+        self._forward_env = (
+            list(forward_env) if forward_env is not None else list(cfg.forward_env)
+        )
+        self._executable = executable if executable is not None else cfg.executable
+        self._run_args = list(run_args) if run_args is not None else list(cfg.run_args)
+        self._pull_timeout = pull_timeout if pull_timeout is not None else cfg.pull_timeout
+        self._interpreter = (
+            list(interpreter) if interpreter is not None else list(cfg.interpreter)
+        )
         self._container_id: str | None = None
         self._start_container()
 
@@ -53,46 +81,69 @@ class DockerEnvironment(Environment):
     # public interface
     # ------------------------------------------------------------------
 
-    def execute(self, command: str, timeout: int | None = None) -> str:
-        """Run *command* inside the container and return stdout+stderr.
-
-        If the command does not finish within *timeout* seconds the
-        partial output collected so far is returned together with a
-        timeout marker.  The underlying process is **not** killed —
-        long-running commands like ``pip install`` are allowed to
-        continue.
-        """
+    def execute(self, command: str, timeout: int | None = None) -> ExecutionResult:
+        """Run *command* inside the container and return a result mapping."""
         if self._container_id is None:
             raise RuntimeError("Container has not been started")
 
-        cmd = [
-            "docker", "exec", "-w", self._cwd,
-        ]
+        cmd = [self._executable, "exec", "-w", self._cwd]
+        # Forward selected host variables first; explicit container values
+        # below intentionally win on conflicts.
+        for key in self._forward_env:
+            if (value := os.getenv(key)) is not None:
+                cmd.extend(["-e", f"{key}={value}"])
         for key, value in self._env.items():
             cmd.extend(["-e", f"{key}={value}"])
-        cmd.extend([self._container_id, "bash", "-lc", command])
+        cmd.extend([self._container_id, *self._interpreter, command])
 
-        proc = subprocess.Popen(
-            cmd,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
+        process: subprocess.Popen | None = None
         try:
-            stdout, _ = proc.communicate(
+            process = subprocess.Popen(
+                cmd,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=os.name == "posix",
+            )
+            stdout, _ = process.communicate(
                 timeout=timeout if timeout is not None else self._timeout,
             )
-            return stdout
-        except subprocess.TimeoutExpired:
-            # Process is still alive — don't kill it.
-            raise
+            return ExecutionResult(
+                output=_decode_output(stdout),
+                returncode=_returncode(process),
+            )
+        except subprocess.TimeoutExpired as exc:
+            partial = _decode_output(getattr(exc, "stdout", None))
+            if process is not None:
+                _terminate_process_group(process)
+                try:
+                    tail, _ = process.communicate()
+                except Exception:
+                    tail = ""
+                # communicate() generally returns the complete buffered
+                # stream after killing the client process; avoid duplicating
+                # the bytes already present on TimeoutExpired.stdout.
+                if tail:
+                    partial = _decode_output(tail)
+            return ExecutionResult(
+                output=partial,
+                returncode=-1,
+                exception_info=f"Command timed out after {exc.timeout} seconds: {command}",
+            )
+        except Exception as exc:
+            output = _decode_output(getattr(exc, "output", None))
+            return ExecutionResult(
+                output=output,
+                returncode=-1,
+                exception_info=f"An error occurred while executing the command: {exc}",
+            )
 
     def read_file(self, path: str) -> str:
         if self._container_id is None:
             raise RuntimeError("Container has not been started")
-        cmd = ["docker", "exec", "-w", self._cwd, self._container_id,
+        cmd = [self._executable, "exec", "-w", self._cwd, self._container_id,
                "cat", "--", path]
         proc = subprocess.Popen(
             cmd,
@@ -114,7 +165,7 @@ class DockerEnvironment(Environment):
             raise RuntimeError("Container has not been started")
         # content on stdin (never quoted); path as positional "$1" (never
         # interpolated).  `cat > "$1"` preserves an existing file's mode.
-        cmd = ["docker", "exec", "-i", "-w", self._cwd, self._container_id,
+        cmd = [self._executable, "exec", "-i", "-w", self._cwd, self._container_id,
                "sh", "-c", 'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", path]
         proc = subprocess.Popen(
             cmd,
@@ -133,12 +184,33 @@ class DockerEnvironment(Environment):
         """Stop and remove the Docker container."""
         if self._container_id is None:
             return
-        subprocess.run(
-            f"(timeout 60 docker stop {self._container_id} || "
-            f"docker rm -f {self._container_id}) >/dev/null 2>&1 &",
-            shell=True,
-        )
+        container_id = self._container_id
         self._container_id = None
+        try:
+            stopped = subprocess.run(
+                [self._executable, "stop", container_id],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            if stopped.returncode == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        # ``docker stop`` may fail when the container has already exited. The
+        # force-remove fallback is deliberately synchronous so benchmark
+        # workers do not race with the next instance's container.
+        try:
+            subprocess.run(
+                [self._executable, "rm", "-f", container_id],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     # ------------------------------------------------------------------
     # internal
@@ -148,9 +220,10 @@ class DockerEnvironment(Environment):
         """Launch the container in detached mode with a long sleep."""
         container_name = f"mini-agent-{uuid.uuid4().hex[:8]}"
         cmd = [
-            "docker", "run", "-d", "--rm",
+            self._executable, "run", "-d",
             "--name", container_name,
             "-w", self._cwd,
+            *self._run_args,
             self._image,
             "sleep", self._container_timeout,
         ]
@@ -158,11 +231,43 @@ class DockerEnvironment(Environment):
             cmd,
             capture_output=True,
             text=True,
-            timeout=120,  # generous: image pull may be slow
+            timeout=self._pull_timeout,
             check=True,
         )
         self._container_id = result.stdout.strip()
 
     def __del__(self) -> None:
         """Best-effort cleanup on garbage collection."""
-        self.cleanup()
+        try:
+            self.cleanup()
+        except Exception:
+            # Destructors must never surface errors during interpreter shutdown.
+            pass
+
+
+def _returncode(process: Any) -> int:
+    value = getattr(process, "returncode", -1)
+    return value if isinstance(value, int) else 0
+
+
+def _decode_output(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _terminate_process_group(process: subprocess.Popen) -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError:
+        pass
+    except (OSError, TypeError, ValueError):
+        try:
+            process.kill()
+        except (ProcessLookupError, OSError, TypeError, ValueError):
+            pass

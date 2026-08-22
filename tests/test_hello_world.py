@@ -71,6 +71,12 @@ def test_hello_world_uses_python_library_end_to_end(capsys, monkeypatch, tmp_pat
         for message in second_turn_messages
         if message["role"] == "tool"
     ]
-    assert tool_outputs == ["Hello, world!\n"]
+    assert len(tool_outputs) == 1
+    observation = json.loads(tool_outputs[0])
+    assert observation == {
+        "output": "Hello, world!\n",
+        "returncode": 0,
+        "exception_info": "",
+    }
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr().out.rstrip().endswith("Hello, world!")

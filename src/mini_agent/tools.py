@@ -6,6 +6,7 @@ orchestration, while tool-specific logic lives in its own module.
 
 import json
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -59,7 +60,8 @@ BASH_SCHEMA = {
     "function": {
         "name": "bash",
         "description": (
-            "Execute a bash command in the terminal and return its output. Use "
+            "Execute a bash command in the terminal and return its output, "
+            "return code, and any execution exception. Use "
             "the optional 'lines' parameter to limit how many lines are returned "
             "(default 100). The output is truncated when it exceeds this limit — "
             "if you need more context, re-run with a higher 'lines' value or use "
@@ -218,7 +220,7 @@ def _handle_bash(args: dict[str, Any], context: ToolContext) -> ToolResult:
 
     try:
         raw = context.environment.execute(command, timeout=timeout)
-        output = truncate_output(raw, max_lines)
+        output = format_execution_observation(raw, max_lines)
     except subprocess.TimeoutExpired as exc:
         partial = decode_timeout_output(exc)
         output = (
@@ -363,7 +365,8 @@ def execute_tool_call(tc, messages: list[dict], environment,
     messages:
         The message history (mutated in place with tool results).
     environment:
-        An execution environment with ``.execute(command, timeout) -> str``.
+        An execution environment with ``.execute(command, timeout)`` returning
+        either a structured execution mapping or a legacy string.
     config:
         Optional :class:`Config`. Its ``tools.enabled`` list controls both
         model visibility and execution permission.
@@ -452,6 +455,28 @@ def decode_timeout_output(exc: subprocess.TimeoutExpired) -> str:
     if isinstance(raw, bytes):
         return raw.decode("utf-8", errors="replace")
     return raw
+
+
+def format_execution_observation(result: Any, max_lines: int) -> str:
+    """Format an environment result for the model, preserving execution metadata.
+
+    New environments return ``output``, ``returncode``, and ``exception_info``
+    so the model can distinguish a failing command from a successful command
+    whose output merely happens to be empty.  Older/custom environments may
+    still return a plain string; those retain the historical observation
+    format for compatibility.
+    """
+    if not isinstance(result, Mapping):
+        return truncate_output(str(result), max_lines)
+
+    observation = {
+        "output": truncate_output(str(result.get("output", "")), max_lines),
+        "returncode": result.get("returncode", -1),
+        "exception_info": str(result.get("exception_info", "") or ""),
+    }
+    # Compact JSON is both readable in a transcript and unambiguous for model
+    # providers that treat tool content as plain text.
+    return json.dumps(observation, ensure_ascii=False)
 
 
 def truncate_output(output: str, max_lines: int) -> str:

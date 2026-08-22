@@ -6,6 +6,9 @@ from mini_agent.environments.local import LocalEnvironment
 def test_echo():
     output = LocalEnvironment().execute("echo hello world")
     assert "hello world" in output
+    assert output["output"] == "hello world\n"
+    assert output["returncode"] == 0
+    assert output["exception_info"] == ""
 
 
 def test_pwd():
@@ -21,6 +24,8 @@ def test_ls():
 def test_captures_stderr():
     output = LocalEnvironment().execute("bash -c 'echo error msg >&2; exit 1'")
     assert "error msg" in output
+    assert output["returncode"] == 1
+    assert output["exception_info"] == ""
 
 
 def test_nonexistent_command():
@@ -51,14 +56,9 @@ def test_local_environment_basic_execution():
 
 def test_local_environment_timeout():
     env = LocalEnvironment()
-    try:
-        env.execute("sleep 10", timeout=1)
-    except Exception:
-        pass  # TimeoutExpired is expected
-    else:
-        # If no exception, the command returned something —
-        # just verify no crash.
-        pass
+    result = env.execute("sleep 10", timeout=0.1)
+    assert result["returncode"] == -1
+    assert "timed out" in result["exception_info"]
 
 
 # --- read_file / write_file ---

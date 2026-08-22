@@ -6,20 +6,28 @@ fields carry a pydantic default that matches the YAML value (so a bare
 ``Model()`` / ``Agent()`` in tests still works).
 """
 
-from pydantic import BaseModel, field_validator
+import os
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ModelConfig(BaseModel):
     """Model provider settings.  ``api_key_env`` names the environment
     variable that holds the secret — never the secret itself."""
 
+    model_config = ConfigDict(extra="forbid")
+
     model_name: str = "gpt-4o-mini"
     base_url: str | None = None
     api_key_env: str = "OPENAI_API_KEY"
+    model_kwargs: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentConfig(BaseModel):
     """Agent-loop behaviour: prompts, context compression, and run limits."""
+
+    model_config = ConfigDict(extra="forbid")
 
     system_prompt: str          # 必填 —— 来自 YAML
     instance_template: str      # 必填 —— 来自 YAML
@@ -41,6 +49,8 @@ class ToolsConfig(BaseModel):
     registry.  Configuration only selects a subset, so model visibility and
     execution permission always come from the same ``enabled`` list.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     enabled: list[str]             # 必填 —— 来自 default.yaml
     default_max_lines: int = 100
@@ -65,6 +75,8 @@ class ToolsConfig(BaseModel):
 class CostConfig(BaseModel):
     """USD price per 1M tokens."""
 
+    model_config = ConfigDict(extra="forbid")
+
     price_input_per_1m: float = 0.0
     price_input_cache_hit_per_1m: float = 0.0
     price_output_per_1m: float = 0.0
@@ -73,19 +85,37 @@ class CostConfig(BaseModel):
 class EnvironmentConfig(BaseModel):
     """Execution environment settings."""
 
+    model_config = ConfigDict(extra="forbid")
+
     type: str = "local"             # 工厂用其选环境类
-    env: dict[str, str] = {}
+    env: dict[str, str] = Field(default_factory=dict)
     image: str = "python:3.11-slim"
     cwd: str = "/"
     timeout: int = 30
     container_timeout: str = "2h"
+    forward_env: list[str] = Field(default_factory=list)
+    executable: str = Field(default_factory=lambda: os.getenv("MSWEA_DOCKER_EXECUTABLE", "docker"))
+    run_args: list[str] = Field(default_factory=lambda: ["--rm"])
+    pull_timeout: int = 120
+    interpreter: list[str] = Field(default_factory=lambda: ["bash", "-lc"])
+
+
+class RunConfig(BaseModel):
+    """Cross-component options used by benchmark runners."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    env_startup_command: str | None = None
 
 
 class Config(BaseModel):
     """The full configuration, one section per component."""
+
+    model_config = ConfigDict(extra="forbid")
 
     model: ModelConfig = ModelConfig()
     agent: AgentConfig
     tools: ToolsConfig
     cost: CostConfig = CostConfig()
     environment: EnvironmentConfig = EnvironmentConfig()
+    run: RunConfig = RunConfig()

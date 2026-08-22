@@ -86,7 +86,9 @@ def get_environment(name: str, **kwargs) -> Environment:
 1. 写一个类，继承 `Environment`，实现 `execute`
 2. 在 `_MAPPING` 里加一行
 
-Agent 完全不用动——它只依赖 `execute(command) -> str`。
+Agent 完全不用动——它只依赖 `execute(command) -> ExecutionResult`。结果包含合并后的
+`output`、命令 `returncode` 和执行器异常 `exception_info`；非零退出码是正常结果，不会
+被误当成 Python 异常。
 
 ## CLI 分流
 
@@ -95,7 +97,7 @@ minimal                            # local
 minimal --env docker --image ...   # docker
 ```
 
-`mini_agent.cli` 解析 `--env` 参数，把它映射成配置里的 `environment.type`，再传给 `get_environment()`。环境相关的默认值（`type`、`image`、`cwd`、`timeout`）都在 [config/default.yaml](../src/mini_agent/config/default.yaml) 的 `environment` 段。和参考项目 mini-swe-agent 的思路一样——配置决定用哪个实现，Agent 代码不变。`main.py` 仍是兼容入口。
+`mini_agent.cli` 解析 `--env` 参数，把它映射成配置里的 `environment.type`，再传给 `get_environment()`。环境相关的默认值都在 [config/default.yaml](../src/mini_agent/config/default.yaml) 的 `environment` 段；Docker 还可以配置 `executable`、`run_args`、`interpreter`、`forward_env` 和 `pull_timeout`。和参考项目 mini-swe-agent 的思路一样——配置决定用哪个实现，Agent 代码不变。`main.py` 仍是兼容入口。
 
 ## 参考项目的做法
 

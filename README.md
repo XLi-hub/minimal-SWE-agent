@@ -128,7 +128,7 @@ src/mini_agent/
 ├── model.py                  # OpenAI-compatible API 封装
 ├── config/                   # 配置包（YAML + pydantic + 模板渲染）
 │   ├── __init__.py            #   recursive_merge / build_config / render_template
-│   ├── models.py              #   pydantic v2 模型（Config + 5 个子配置）
+│   ├── models.py              #   pydantic v2 模型（Config + 6 个子配置）
 │   └── default.yaml           #   权威运行配置（prompt / 启用工具 / 价格 / 环境）
 └── environments/             # 执行环境（可插拔）
     ├── __init__.py            #   Environment ABC + get_environment() 工厂
@@ -165,7 +165,7 @@ minimal / python -m mini_agent  ──►  mini_agent.cli  ──►  Agent(mode
 三个组件通过**依赖注入**组装，各自只依赖接口：
 
 - `Model.query(messages, tools) → OpenAI response`
-- `Environment.execute(command, timeout) → str`
+- `Environment.execute(command, timeout) → {output, returncode, exception_info}`
 
 换模型供应商、换 Docker、写 mock 测试——改配置/构造函数即可，Agent 代码不动。
 

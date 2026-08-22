@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mini_agent.config import ModelConfig
 from mini_agent.model import Model, query_lm
 
 
@@ -65,6 +66,16 @@ def test_query_forwards_tools_when_provided(mock_openai):
     kwargs = mock_openai.chat.completions.create.call_args.kwargs
     assert "tools" in kwargs
     assert kwargs["tools"] == tools
+
+
+def test_query_forwards_configured_model_kwargs(mock_openai):
+    model = Model(ModelConfig(model_kwargs={"temperature": 0.2, "max_tokens": 50}))
+
+    model.query([{"role": "user", "content": "Hello"}])
+
+    kwargs = mock_openai.chat.completions.create.call_args.kwargs
+    assert kwargs["temperature"] == 0.2
+    assert kwargs["max_tokens"] == 50
 
 
 def test_query_omits_tools_when_not_provided(mock_openai):

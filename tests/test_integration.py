@@ -5,6 +5,7 @@ This catches encoding issues, empty output handling, and real command
 interactions that mock return_values can't surface.
 """
 
+import json
 from unittest.mock import MagicMock
 
 from mini_agent.agent import Agent
@@ -348,9 +349,13 @@ def test_empty_output_command():
 
     assert result["exit_status"] == "submitted"
     tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
-    # Empty output should be fine — just an empty string
-    bash_output = tool_msgs[0]["content"]
-    assert bash_output == "", f"Expected empty output for 'true': {bash_output!r}"
+    # Empty output should still carry an unambiguous successful return code.
+    observation = json.loads(tool_msgs[0]["content"])
+    assert observation == {
+        "output": "",
+        "returncode": 0,
+        "exception_info": "",
+    }
 
 
 def test_stderr_stdout_mixed():
@@ -423,8 +428,11 @@ def test_command_with_special_characters():
 
     assert result["exit_status"] == "submitted"
     tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
-    output = tool_msgs[0]["content"]
+    observation = json.loads(tool_msgs[0]["content"])
+    output = observation["output"]
     # Backslashes and quotes should survive the trip unchanged
     assert "path\\to\\file" in output, f"Backslashes lost: {output!r}"
     assert '"quoted"' in output, f"Quotes lost: {output!r}"
     assert "ünicode" in output, f"Unicode lost: {output!r}"
+    assert observation["returncode"] == 0
+    assert observation["exception_info"] == ""

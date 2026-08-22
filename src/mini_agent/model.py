@@ -45,7 +45,7 @@ class Model:
         a text reply.  The caller is responsible for executing the tools and
         sending back tool-result messages.
         """
-        kwargs: dict = {}
+        kwargs: dict = dict(self.config.model_kwargs)
         if tools:
             kwargs["tools"] = tools
         return self._client.chat.completions.create(

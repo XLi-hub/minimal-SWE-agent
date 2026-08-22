@@ -8,6 +8,7 @@ model:
   model_name: gpt-4o-mini
   base_url:
   api_key_env: OPENAI_API_KEY
+  model_kwargs: {}
 
 agent:
   system_prompt: |
@@ -110,3 +111,12 @@ environment:
   cwd: "/"
   timeout: 30
   container_timeout: 2h
+  # Docker-specific execution options (ignored by LocalEnvironment).
+  forward_env: []
+  executable: docker
+  run_args:
+    - --rm
+  pull_timeout: 120
+  interpreter:
+    - bash
+    - -lc
