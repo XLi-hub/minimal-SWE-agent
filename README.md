@@ -56,6 +56,41 @@ echo 'def add(a, b): return a - b  # bug: should be +' > /tmp/buggy.py
 minimal --task "修一下 /tmp/buggy.py 的 bug"
 ```
 
+## 作为 Python 库使用
+
+不经过 CLI 也可以直接组装 `Model`、`LocalEnvironment` 和 `Agent`。下面是
+[hello_world.py](examples/hello_world.py) 的核心用法：
+
+```python
+from mini_agent.agent import Agent
+from mini_agent.environments.local import LocalEnvironment
+from mini_agent.model import Model
+
+agent = Agent(Model(), LocalEnvironment())
+result = agent.run(
+    """
+    Use the bash tool to run this command without creating any files:
+    python -c 'print("Hello, world!")'
+    After confirming its exact output, call submit with `Hello, world!`.
+    """.strip(),
+    max_steps=5,
+)
+
+if result["exit_status"] != "submitted":
+    raise RuntimeError(result["exit_status"])
+
+print(result["submission"])
+```
+
+安装项目并配置 `OPENAI_API_KEY` 后运行：
+
+```bash
+python examples/hello_world.py
+```
+
+这个例子刻意显式展示三个可替换组件的依赖注入；它执行的命令只打印文本，不会创建
+业务文件。`max_steps=5` 可防止模型没有按预期提交时无限循环。
+
 ## 配置
 
 所有运行配置（模型、prompt、启用工具、价格、环境、步数/时长/成本上限…）都外置在
