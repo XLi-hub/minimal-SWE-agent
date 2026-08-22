@@ -90,6 +90,38 @@ runner 会验证提交看起来像 unified diff。如果模型错误地提交了
 首次正式批量运行前，建议先确认模型价格配置不是默认的 0，否则 `agent.cost_limit` 只记录
 上限而无法按真实美元成本触发。
 
+## 用官方 harness 评分
+
+评分依赖单独安装，不会混入普通生成环境：
+
+```bash
+pip install -e ".[eval]"
+
+minimal-swebench-eval runs/verified-20/preds.jsonl \
+  --dataset verified \
+  --split test \
+  --workers 4 \
+  --run-id verified-20 \
+  --report-dir runs/verified-20/reports
+```
+
+该命令以参数列表启动官方 `python -m swebench.harness.run_evaluation`，不经过 shell，
+并把 dataset、predictions、worker 数、单实例 timeout 和 report directory 显式传入。
+harness 完成后会定位 `<model>.<run-id>.json`，打印 resolved/total/rate，并原样返回官方
+进程退出码。评分会启动 Docker、执行真实测试，可能消耗大量磁盘和时间，因此不会被默认
+测试或生成命令隐式触发。
+
+只评少量实例时可以重复传 `-i`：
+
+```bash
+minimal-swebench-eval runs/smoke/preds.jsonl \
+  --dataset verified --run-id smoke \
+  -i django__django-11099 -i sympy__sympy-20590
+```
+
+如果不想在本地运行 Docker harness，也可以直接把同一份 `preds.jsonl` 交给 SWE-bench
+官方云端工具；认证和外部提交保持为显式用户操作，本项目不会自动上传预测结果。
+
 ## 测试边界
 
 默认测试使用可注入的假 dataset/model/environment，不下载数据、不启动 Docker、不调用 API。

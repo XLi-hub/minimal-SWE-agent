@@ -268,6 +268,15 @@ minimal-swebench \
 
 runner 会按实例选择官方 Docker image，保存原子更新的 `preds.json`、harness 使用的
 `preds.jsonl`、状态概览和逐实例 trajectory，并支持 `--redo-existing` / `--retry-failed`。
+生成结束后可选安装 `.[eval]`，用官方 harness 评分：
+
+```bash
+pip install -e ".[eval]"
+minimal-swebench-eval runs/verified-20/preds.jsonl \
+  --dataset verified --split test --workers 4 \
+  --run-id verified-20 --report-dir runs/verified-20/reports
+```
+
 完整说明见 [SWE-bench 文档](docs/swebench.md)。
 
 ## 运行测试

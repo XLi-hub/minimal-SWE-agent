@@ -25,6 +25,9 @@ dependencies = [
 bench = [
     "datasets>=2.16",
 ]
+eval = [
+    "swebench",
+]
 dev = [
     "pytest>=9.0",
 ]
@@ -32,6 +35,7 @@ dev = [
 [project.scripts]
 minimal = "mini_agent.cli:main"
 minimal-swebench = "mini_agent.benchmarks.cli:main"
+minimal-swebench-eval = "mini_agent.benchmarks.evaluation:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
