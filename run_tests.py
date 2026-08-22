@@ -9,5 +9,7 @@ if __name__ == "__main__":
     for p in ros_paths:
         sys.path.remove(p)
     os.environ.pop("PYTHONPATH", None)
+    # 默认只跑不产生费用的测试；E2E 需要显式单独运行。
+    os.environ["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
 
-    sys.exit(pytest.main(["-v", "tests/"]))
+    sys.exit(pytest.main(["-v", "tests/", "-m", "not e2e"]))
