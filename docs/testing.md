@@ -126,6 +126,20 @@ bash("seq 1 300")   # 300 行 → 触发截断
 
 ## 阶段 3：E2E 测试（全真）
 
+E2E 默认使用项目的模型配置。若要在 VS Code Test Explorer 或命令行中
+测试其他 OpenAI-compatible 供应商，可在项目根目录的 `.env` 中设置：
+
+```dotenv
+E2E_MODEL_NAME=provider-model
+E2E_BASE_URL=https://provider.example/v1
+E2E_API_KEY_ENV=PROVIDER_API_KEY
+PROVIDER_API_KEY=your-key
+```
+
+`.env` 会被 VS Code Python 扩展和 E2E 测试加载；`E2E_API_KEY_ENV` 只保存
+密钥变量名，真实密钥仍放在它指向的环境变量中。这些 `E2E_*` 变量只影响
+E2E，不会覆盖日常 CLI 或普通测试的配置。
+
 ```python
 @pytest.mark.e2e
 def test_simple_echo_task():
