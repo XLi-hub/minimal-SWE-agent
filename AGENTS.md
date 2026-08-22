@@ -10,6 +10,20 @@ conda run -n minimal-SWE-agent ...
 
 Do not install dependencies into the base conda environment.
 
+## Subagents
+
+- Use subagents when delegation would materially improve speed, focus, or
+  review quality.
+- For bounded implementation, testing, and documentation tasks, prefer
+  `luna_worker` with a compact, self-contained task and only the context it
+  needs.
+- Use the default `worker` for complex architecture, difficult debugging, or
+  high-risk review work that benefits from the parent model's capabilities.
+- Give each subagent clear ownership and acceptance criteria. Subagents share
+  the working tree, so they must preserve and accommodate other agents' edits.
+- The root agent must review subagent changes and run the required tests before
+  reporting completion.
+
 ## Tests
 
 Run non-E2E tests with:
