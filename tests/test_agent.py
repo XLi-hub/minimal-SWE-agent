@@ -2,6 +2,8 @@ import json
 import subprocess
 from unittest.mock import MagicMock
 
+import pytest
+
 from mini_agent.agent import Agent
 from mini_agent.config import CostConfig, get_default_config
 from mini_agent.tools import (
@@ -280,6 +282,72 @@ def test_submit_with_patch():
     assert result["submission"] == patch
 
 
+@pytest.mark.parametrize("submit_index", [0, 1, 2])
+def test_submit_batch_acknowledges_every_tool_call_and_skips_remaining(submit_index):
+    """Every call in a submit batch gets a response, in any position."""
+    submit = _make_tool_call("submit", "submit", {"output": "done"})
+    before = _make_tool_call("before", "bash", {"command": "before"})
+    unknown = _make_tool_call("unknown", "not_registered", {})
+    malformed = _make_tool_call("malformed", "bash", {"command": "after"})
+    malformed.function.arguments = "{not-json"
+    after = _make_tool_call("after", "bash", {"command": "after"})
+
+    batches = [
+        [submit, after, unknown, malformed],
+        [before, submit, unknown, malformed],
+        [unknown, malformed, submit],
+    ]
+    tool_calls = batches[submit_index]
+
+    model = MagicMock()
+    model.query.return_value = _make_response(
+        content="Done.",
+        tool_calls=tool_calls,
+    )
+    env = MagicMock()
+    env.execute.return_value = "ok"
+
+    result = Agent(model, env).run("submit")
+
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "done"
+    assert model.query.call_count == 1
+    tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+    assert [m["tool_call_id"] for m in tool_messages] == [tc.id for tc in tool_calls]
+
+    # Only a valid bash call before submit is allowed to execute.
+    expected_commands = ["before"] if submit_index == 1 else []
+    assert [call.args[0] for call in env.execute.call_args_list] == expected_commands
+    for index, (message, tc) in enumerate(zip(tool_messages, tool_calls)):
+        if index > submit_index:
+            assert message["content"].startswith("Skipped tool '")
+
+
+def test_invalid_submit_arguments_get_a_tool_error_and_do_not_exit():
+    """A malformed/missing submit payload must not bypass later calls."""
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Try.",
+            tool_calls=[
+                _make_tool_call("bad-submit", "submit", {}),
+                _make_tool_call("bash", "bash", {"command": "echo ok"}),
+            ],
+        ),
+        _make_response(content="No more work."),
+    ]
+    env = MagicMock()
+    env.execute.return_value = "ok"
+
+    result = Agent(model, env).run("test invalid submit")
+
+    assert result["exit_status"] == "no_tool_calls"
+    assert env.execute.call_args_list[0].args[0] == "echo ok"
+    tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+    assert [m["tool_call_id"] for m in tool_messages] == ["bad-submit", "bash"]
+    assert "requires an 'output'" in tool_messages[0]["content"]
+
+
 # --- truncation ---
 
 
@@ -327,6 +395,11 @@ class TestTruncateOutput:
         assert result_lines[0] == "a"
         assert result_lines[-1] == "e"
         assert "WARNING" in result
+
+    @pytest.mark.parametrize("max_chars", range(0, 9))
+    def test_character_budget_is_never_exceeded_for_tiny_limits(self, max_chars):
+        result = truncate_output("头" * 100 + "尾", max_lines=100, max_chars=max_chars)
+        assert len(result) <= max_chars
 
 
 class TestAgentTruncation:
@@ -965,6 +1038,26 @@ class TestMaxTime:
 
         assert result["exit_status"] == "submitted"
 
+    def test_query_time_is_rechecked_before_tool_dispatch(self, monkeypatch):
+        """A response arriving after the deadline must not run its tools."""
+        clock = iter([0.0, 0.5, 2.0])
+        monkeypatch.setattr("mini_agent.agent.time.monotonic", lambda: next(clock))
+
+        model = MagicMock()
+        model.query.return_value = _make_response(
+            content="Run it.",
+            tool_calls=[_make_tool_call("c1", "bash", {"command": "mutate"})],
+        )
+        env = MagicMock()
+
+        result = Agent(model, env).run("task", max_steps=2, max_time=1)
+
+        assert result["exit_status"] == "max_time"
+        env.execute.assert_not_called()
+        tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+        assert tool_messages[0]["tool_call_id"] == "c1"
+        assert "max_time" in tool_messages[0]["content"]
+
 
 # ---------------------------------------------------------------------------
 # trajectory saving — serialize / save
@@ -1155,9 +1248,29 @@ class TestCostTracking:
         result = agent.run("task", max_steps=10, cost_limit=0.01)
 
         assert result["exit_status"] == "cost_limit"
-        # 第一次查询就超过上限，第二次循环前即停止，不再发起新调用。
+        # 第一次查询就超过上限，工具派发前立即停止，也不再发起新调用。
         assert model.query.call_count == 1
         assert agent.cost > 0.01
+
+    def test_query_cost_is_rechecked_before_tool_dispatch(self):
+        """A costly response cannot trigger a side-effecting tool."""
+        model = MagicMock()
+        model.query.return_value = _make_response(
+            content="Run it.",
+            tool_calls=[_make_tool_call("c1", "bash", {"command": "mutate"})],
+            usage=_make_usage(1_000_000, 1_000_000),
+        )
+        env = MagicMock()
+
+        result = Agent(model, env, config=PRICED_DEFAULTS).run(
+            "task", max_steps=2, cost_limit=0.01
+        )
+
+        assert result["exit_status"] == "cost_limit"
+        env.execute.assert_not_called()
+        tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+        assert tool_messages[0]["tool_call_id"] == "c1"
+        assert "cost_limit" in tool_messages[0]["content"]
 
     def test_cost_limit_zero_disables(self):
         """cost_limit=0 表示不限制。"""

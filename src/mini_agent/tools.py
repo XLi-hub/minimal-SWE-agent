@@ -14,6 +14,14 @@ from mini_agent.config import Config, get_default_config
 from mini_agent.exceptions import Submitted
 
 
+# Output is bounded independently of the configured line budget.  A line
+# can contain an arbitrarily large amount of text (for example, a minified
+# JSON file), so a line-only limit is not sufficient to protect the model
+# context.  Keep this as a code-level safety limit for backwards-compatible
+# configurations that do not yet expose a character setting.
+DEFAULT_MAX_CHARS = 20_000
+
+
 # ---------------------------------------------------------------------------
 # registry types and tool schemas
 # ---------------------------------------------------------------------------
@@ -63,7 +71,9 @@ BASH_SCHEMA = {
             "Execute a bash command in the terminal and return its output, "
             "return code, and any execution exception. Use "
             "the optional 'lines' parameter to limit how many lines are returned "
-            "(default 100). The output is truncated when it exceeds this limit — "
+            "(default 100). A separate configured character budget also protects "
+            "against extremely long single lines. Output exceeding either budget "
+            "is truncated — "
             "if you need more context, re-run with a higher 'lines' value or use "
             "head/tail/sed to narrow down. Use the optional 'timeout' parameter "
             "(seconds, default 30) for commands that need more time — e.g. pip "
@@ -125,7 +135,8 @@ READ_SCHEMA = {
         "name": "read",
         "description": (
             "Read a file's contents and return them with line numbers. Use this "
-            "to inspect code before editing."
+            "to inspect code before editing. Very large content is truncated to "
+            "the configured character budget."
         ),
         "parameters": {
             "type": "object",
@@ -203,7 +214,11 @@ WRITE_SCHEMA = {
 
 
 def _handle_submit(args: dict[str, Any], context: ToolContext) -> ToolResult:
-    submission = args.get("output", "")
+    if "output" not in args:
+        return ToolResult("Error: 'submit' requires an 'output' argument.")
+    submission = args["output"]
+    if not isinstance(submission, str):
+        return ToolResult("Error: 'submit' 'output' must be a string.")
     print("Submit:", submission)
     return ToolResult("Submitted.", submission=submission)
 
@@ -215,16 +230,21 @@ def _handle_bash(args: dict[str, Any], context: ToolContext) -> ToolResult:
 
     defaults = context.config.tools
     max_lines = args.get("lines", defaults.default_max_lines)
+    max_chars = getattr(defaults, "default_max_chars", DEFAULT_MAX_CHARS)
     timeout = args.get("timeout", defaults.default_timeout)
     print("Action:", command)
 
+    needs_final_truncation = False
     try:
         raw = context.environment.execute(command, timeout=timeout)
-        output = format_execution_observation(raw, max_lines)
+        output = format_execution_observation(
+            raw, max_lines, max_chars=max_chars
+        )
     except subprocess.TimeoutExpired as exc:
+        needs_final_truncation = True
         partial = decode_timeout_output(exc)
         output = (
-            f"{truncate_output(partial, max_lines)}\n"
+            f"{truncate_output(partial, max_lines, max_chars=max_chars)}\n"
             f"[STILL RUNNING: Command has been executing for "
             f"{timeout}s and is not finished yet. The process "
             f"is still alive. To wait for it, re-run with a "
@@ -235,8 +255,13 @@ def _handle_bash(args: dict[str, Any], context: ToolContext) -> ToolResult:
             f"of the same command will conflict.]"
         )
     except Exception as exc:
+        needs_final_truncation = True
         output = f"Error: {exc}"
 
+    # Timeout guidance and exception text are appended outside the structured
+    # formatter above, so enforce the same final budget on every branch.
+    if needs_final_truncation:
+        output = truncate_output(output, max_lines, max_chars=max_chars)
     print("Output:", output)
     return ToolResult(output)
 
@@ -247,6 +272,9 @@ def _handle_read(args: dict[str, Any], context: ToolContext) -> ToolResult:
         return ToolResult("Error: 'read' requires a 'path' argument.")
 
     print("Read:", path)
+    max_chars = getattr(
+        context.config.tools, "default_max_chars", DEFAULT_MAX_CHARS
+    )
     try:
         content = context.environment.read_file(path)
     except FileNotFoundError:
@@ -256,7 +284,10 @@ def _handle_read(args: dict[str, Any], context: ToolContext) -> ToolResult:
     except Exception as exc:
         output = f"Error: {exc}"
     else:
-        output = format_read_output(content)
+        output = format_read_output(content, max_chars=max_chars)
+    # Error strings (including a model-supplied path) must obey the same bound
+    # as successful file reads.
+    output = _truncate_by_chars(output, max_chars)
     print("Output:", output)
     return ToolResult(output)
 
@@ -377,7 +408,10 @@ def execute_tool_call(tc, messages: list[dict], environment,
         When the tool is ``submit`` (the run completed with an answer).
     """
     cfg = config or get_default_config()
-    name = tc.function.name
+    function = getattr(tc, "function", None)
+    name = getattr(function, "name", "<unknown>")
+    if not isinstance(name, str) or not name:
+        name = "<unknown>"
     definition = TOOL_REGISTRY.get(name)
 
     if definition is None:
@@ -392,10 +426,10 @@ def execute_tool_call(tc, messages: list[dict], environment,
         )
     else:
         try:
-            args = json.loads(tc.function.arguments)
+            args = json.loads(getattr(function, "arguments", None))
             if not isinstance(args, dict):
                 raise ValueError("arguments must decode to a JSON object")
-        except (json.JSONDecodeError, ValueError) as exc:
+        except (TypeError, json.JSONDecodeError, ValueError) as exc:
             result = ToolResult(f"Error: invalid arguments for '{name}': {exc}")
         else:
             try:
@@ -403,15 +437,41 @@ def execute_tool_call(tc, messages: list[dict], environment,
             except Exception as exc:
                 result = ToolResult(f"Error: {exc}")
 
-    messages.append({
-        "role": "tool",
-        "tool_call_id": tc.id,
-        "content": result.content,
-    })
+    append_tool_result(tc, messages, result.content)
 
     if result.submission is not None:
         raise Submitted(result.submission)
     return None
+
+
+def append_tool_result(tc, messages: list[dict], content: str) -> None:
+    """Append a protocol-compliant response for one assistant tool call.
+
+    Keeping this small operation centralized makes it possible for the agent
+    loop to acknowledge calls it intentionally skips after ``submit`` (or
+    after a run limit is reached) without dispatching their handlers.
+    """
+    tool_call_id = getattr(tc, "id", "")
+    messages.append({
+        "role": "tool",
+        "tool_call_id": tool_call_id,
+        "content": content,
+    })
+
+
+def append_skipped_tool_result(
+    tc, messages: list[dict], *, reason: str = "submit was already requested"
+) -> None:
+    """Record a deterministic result for a tool call that was not executed."""
+    function = getattr(tc, "function", None)
+    name = getattr(function, "name", "<unknown>")
+    if not isinstance(name, str) or not name:
+        name = "<unknown>"
+    append_tool_result(
+        tc,
+        messages,
+        f"Skipped tool '{name}': {reason}; no tool action was executed.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +517,11 @@ def decode_timeout_output(exc: subprocess.TimeoutExpired) -> str:
     return raw
 
 
-def format_execution_observation(result: Any, max_lines: int) -> str:
+def format_execution_observation(
+    result: Any,
+    max_lines: int,
+    max_chars: int | None = DEFAULT_MAX_CHARS,
+) -> str:
     """Format an environment result for the model, preserving execution metadata.
 
     New environments return ``output``, ``returncode``, and ``exception_info``
@@ -467,31 +531,90 @@ def format_execution_observation(result: Any, max_lines: int) -> str:
     format for compatibility.
     """
     if not isinstance(result, Mapping):
-        return truncate_output(str(result), max_lines)
+        return truncate_output(str(result), max_lines, max_chars=max_chars)
 
+    raw_output = str(result.get("output", ""))
+    exception_info = str(result.get("exception_info", "") or "")
+    output = truncate_output(raw_output, max_lines, max_chars=max_chars)
+    # Exception details are useful but should not be able to consume the
+    # entire observation when an environment returns a very large traceback.
+    exception_info = truncate_output(
+        exception_info,
+        max_lines=2,
+        max_chars=None if max_chars is None else max_chars // 4,
+    )
     observation = {
-        "output": truncate_output(str(result.get("output", "")), max_lines),
+        "output": output,
         "returncode": result.get("returncode", -1),
-        "exception_info": str(result.get("exception_info", "") or ""),
+        "exception_info": exception_info,
     }
     # Compact JSON is both readable in a transcript and unambiguous for model
     # providers that treat tool content as plain text.
-    return json.dumps(observation, ensure_ascii=False)
+    rendered = json.dumps(observation, ensure_ascii=False)
+
+    # ``max_chars`` is a limit on the serialized observation, not only on the
+    # nested command output.  JSON escaping (notably newlines) can expand the
+    # nested strings, so tighten them further when needed while retaining the
+    # metadata fields.  Normal-sized observations take the fast path above.
+    if max_chars is not None and len(rendered) > max_chars:
+        for _ in range(8):
+            overflow = len(rendered) - max_chars
+            if overflow <= 0:
+                break
+            if len(observation["output"]) >= len(observation["exception_info"]):
+                current = observation["output"]
+                target = max(0, len(current) - max(1, overflow))
+                observation["output"] = truncate_output(
+                    current, max_lines, max_chars=target
+                )
+            else:
+                current = observation["exception_info"]
+                target = max(0, len(current) - max(1, overflow))
+                observation["exception_info"] = truncate_output(
+                    current, max_lines=2, max_chars=target
+                )
+            updated = json.dumps(observation, ensure_ascii=False)
+            if len(updated) >= len(rendered) and target == len(current):
+                break
+            rendered = updated
+
+        if len(rendered) > max_chars:
+            # This only matters for an unusually tiny caller-provided budget;
+            # keep the result valid JSON and preserve the execution metadata.
+            minimal = {
+                "output": "",
+                "returncode": observation["returncode"],
+                "exception_info": "",
+            }
+            rendered = json.dumps(minimal, ensure_ascii=False)
+            if len(rendered) > max_chars:
+                rendered = "{}" if max_chars >= 2 else ""
+    return rendered
 
 
-def truncate_output(output: str, max_lines: int) -> str:
-    """Truncate *output* to at most *max_lines* lines.
+def truncate_output(
+    output: str,
+    max_lines: int,
+    max_chars: int | None = DEFAULT_MAX_CHARS,
+) -> str:
+    """Truncate *output* to at most *max_lines* lines and *max_chars* chars.
 
     When truncation happens the first ``max_lines // 2`` and last
     ``max_lines // 2`` lines are kept with an elision marker in between,
-    so the model sees both the beginning and the end of the output.
+    so the model sees both the beginning and the end of the output.  The
+    character limit is applied after line truncation, and also handles a
+    single line that is itself larger than the budget.
     """
     if max_lines < 2:
         max_lines = 2  # minimum: 1 head + 1 tail
+    if max_chars is not None:
+        max_chars = max(0, max_chars)
+        if max_chars == 0:
+            return ""
 
     lines = output.splitlines()
     if len(lines) <= max_lines:
-        return output
+        return _truncate_by_chars(output, max_chars)
 
     half = max(1, max_lines // 2)
     head = lines[:half]
@@ -504,7 +627,33 @@ def truncate_output(output: str, max_lines: int) -> str:
         f"'lines' value (e.g. lines={len(lines)}), or use head/tail/sed to "
         f"narrow down the output.]"
     )
-    return "\n".join(head + [warning] + tail)
+    return _truncate_by_chars("\n".join(head + [warning] + tail), max_chars)
+
+
+def _truncate_by_chars(output: str, max_chars: int | None) -> str:
+    """Keep both ends of a string while enforcing an exact char budget."""
+    if max_chars is None or len(output) <= max_chars:
+        return output
+    if max_chars <= 0:
+        return ""
+
+    warning = (
+        f"[... {len(output) - max_chars} characters truncated ...]\n"
+        "[WARNING: Output was truncated. To see more, narrow the command "
+        "or request a smaller range.]"
+    )
+    # Two separators are needed around the warning.  If a caller asks for a
+    # tiny budget, returning a prefix of the warning is the only way to honor
+    # the exact bound; normal tool budgets are large enough for both ends.
+    keep = max_chars - len(warning) - 2
+    if keep <= 0:
+        return warning[:max_chars]
+    head_len = (keep + 1) // 2
+    tail_len = keep // 2
+    parts = [output[:head_len], warning]
+    if tail_len:
+        parts.append(output[-tail_len:])
+    return "\n".join(parts)
 
 
 class EditError(ValueError):
@@ -533,10 +682,14 @@ def apply_edit(content: str, old_string: str, new_string: str) -> str:
     return content.replace(old_string, new_string, 1)
 
 
-def format_read_output(content: str) -> str:
-    """Prefix each line with a 1-based line number for the ``read`` tool."""
+def format_read_output(
+    content: str,
+    max_chars: int | None = DEFAULT_MAX_CHARS,
+) -> str:
+    """Prefix lines with numbers and enforce a hard character budget."""
     if content == "":
-        return "(empty file)"
-    return "\n".join(
+        return _truncate_by_chars("(empty file)", max_chars)
+    formatted = "\n".join(
         f"{i:>6}\t{line}" for i, line in enumerate(content.splitlines(), 1)
     )
+    return _truncate_by_chars(formatted, max_chars)

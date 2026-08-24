@@ -164,6 +164,10 @@ def test_default_max_lines_is_positive():
     assert cfg.tools.default_max_lines > 0
 
 
+def test_default_max_chars_is_positive():
+    assert cfg.tools.default_max_chars > 0
+
+
 def test_default_max_steps_is_positive():
     assert cfg.agent.max_steps > 0
 

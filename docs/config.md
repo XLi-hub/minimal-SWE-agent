@@ -147,6 +147,42 @@ Config.model_validate(recursive_merge(*layers))
 
 `build_config()` 最后一步就是 `Config.model_validate(...)`——任何一层写错，用户当场收到报错，而不是跑到 `agent.run()` 深处才炸。
 
+除了类型和未知字段，模型还会校验会导致运行时失败或失控的取值。约束在所有
+配置来源合并后统一执行，因此 YAML、`-c key=value` 和 `MINI_AGENT_*` 环境变量
+具有完全相同的 fail-fast 语义：
+
+| 配置项 | 约束 |
+|---|---|
+| `agent.max_steps` | 必须为正整数 |
+| `agent.max_time` | 必须为正数，`null` 明确表示关闭时间限制（`0` 不再表示关闭） |
+| `agent.cost_limit` | 必须为非负数或 `null`；`0` 和 `null` 都表示关闭成本限制 |
+| `agent.context_window` / `reserve_tokens` | 窗口为正、预留 token 非负，且 `context_window > reserve_tokens` |
+| `agent.compress_threshold` | `(0, 1]` 之间；`1` 表示达到可用窗口再压缩 |
+| `agent.keep_last_n_turns` / `no_tool_call_retries` | 非负整数 |
+| `tools.default_max_lines` / `default_max_chars` / `default_timeout` | 正整数 |
+| `cost.*_per_1m` | 非负有限数值 |
+| `environment.timeout` / `pull_timeout` | 正整数；`interpreter` 至少包含一条非空命令 |
+| `model.model_name` / `api_key_env` | 非空字符串 |
+
+例如，下面的覆盖会在启动时直接报 `ValidationError`：
+
+```bash
+minimal -c agent.max_time=0
+minimal -c agent.reserve_tokens=64000
+minimal -c 'model.model_kwargs={"messages": []}'
+```
+
+要关闭限制，使用明确的值：
+
+```bash
+minimal -c agent.max_time=null -c agent.cost_limit=0
+```
+
+`model_kwargs` 仅用于 OpenAI Chat Completions 的其他请求参数（例如
+`temperature`、`max_tokens`）。`model`、`messages` 和 `tools` 由
+`Model.query()` 根据调用上下文注入，不能在 `model_kwargs` 中覆盖；这样可以避免
+重复关键字异常，也避免配置偷偷改变当前启用的工具白名单。
+
 模型分六块，和 YAML 顶层键一一对应（[config/models.py](../src/mini_agent/config/models.py)）：`ModelConfig` / `AgentConfig` / `ToolsConfig` / `CostConfig` / `EnvironmentConfig` / `RunConfig`。其中 `RunConfig` 保存 benchmark 启动命令等跨组件选项。两个设计细节：
 
 - **prompt 和工具启用名单必填**（无 pydantic 默认值）——它们只能来自 YAML，防止漏配；工具 schema 与 handler 在 `tools.py` 注册表中成对定义。

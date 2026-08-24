@@ -10,11 +10,19 @@ from mini_agent.config import Config, UNSET, get_default_config, render_template
 from mini_agent.context import compress, should_compress
 from mini_agent.cost import compute_cost
 from mini_agent.tools import (
+    append_skipped_tool_result,
     execute_tool_call,
     format_assistant_message,
     get_enabled_tool_schemas,
 )
-from mini_agent.exceptions import AgentExit, CostLimit, MaxSteps, MaxTime, NoToolCalls
+from mini_agent.exceptions import (
+    AgentExit,
+    CostLimit,
+    MaxSteps,
+    MaxTime,
+    NoToolCalls,
+    Submitted,
+)
 
 
 class Agent:
@@ -162,6 +170,23 @@ class Agent:
         self._maybe_compress()
         message = self.query()
         if message is not None:
+            # The model response itself may push us over a wall-clock or cost
+            # budget.  Check again before dispatching any side-effecting tool,
+            # but do not re-check max_steps here: this query already consumed
+            # the current step and the loop boundary owns that limit.
+            try:
+                self._check_tool_limits()
+            except AgentExit as exc:
+                # Keep the trajectory valid for providers that require one
+                # tool response per assistant tool_call, even though no
+                # handler can safely run after a terminal budget is hit.
+                for tc in message.tool_calls:
+                    append_skipped_tool_result(
+                        tc,
+                        self.messages,
+                        reason=f"run limit '{exc.exit_status}' was reached before execution",
+                    )
+                raise
             self.execute_actions(message)
 
     def _check_limits(self) -> None:
@@ -172,6 +197,20 @@ class Agent:
         """
         if self._steps >= self._max_steps:
             raise MaxSteps()
+        if self._deadline is not None and time.monotonic() > self._deadline:
+            raise MaxTime()
+        if self.cost_limit is not None and self.cost_limit > 0 and self.cost >= self.cost_limit:
+            raise CostLimit()
+
+    def _check_tool_limits(self) -> None:
+        """Check limits that must hold immediately before tool dispatch.
+
+        ``query()`` updates ``cost`` after the request returns, and a model
+        request can itself consume the remaining wall-clock budget.  Tool
+        calls must not run after that point because they may mutate the
+        workspace.  ``max_steps`` is intentionally excluded; it is checked
+        only at the start of the next loop iteration.
+        """
         if self._deadline is not None and time.monotonic() > self._deadline:
             raise MaxTime()
         if self.cost_limit is not None and self.cost_limit > 0 and self.cost >= self.cost_limit:
@@ -215,11 +254,24 @@ class Agent:
     def execute_actions(self, msg) -> None:
         """Execute every tool call in *msg*, appending tool results to messages.
 
-        ``execute_tool_call`` raises :class:`Submitted` on ``submit``, which
-        aborts the remaining tool calls and propagates up to :meth:`run`.
+        ``execute_tool_call`` raises :class:`Submitted` on ``submit``.  The
+        rest of the assistant batch still receives deterministic tool results
+        so every advertised ``tool_call_id`` is acknowledged, while the
+        skipped handlers are never dispatched.
         """
+        submission: Submitted | None = None
         for tc in msg.tool_calls:
-            execute_tool_call(tc, self.messages, self.environment, config=self.config)
+            if submission is not None:
+                append_skipped_tool_result(tc, self.messages)
+                continue
+            try:
+                execute_tool_call(tc, self.messages, self.environment, config=self.config)
+            except Submitted as exc:
+                submission = exc
+
+        if submission is not None:
+            # Raise only after the full assistant batch has been acknowledged.
+            raise Submitted(submission.submission)
 
     def _maybe_compress(self) -> None:
         """Summarize the middle of the history when it nears the context window.

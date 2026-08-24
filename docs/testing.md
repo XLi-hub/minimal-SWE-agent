@@ -2,6 +2,41 @@
 
 这篇记录本项目的测试是怎么从"跑一下 main.py 看看"演进到三层分层的。
 
+## 日常命令
+
+本地项目环境使用仓库约定的 conda 环境运行非 E2E 测试：
+
+```bash
+conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  python -m pytest tests/ -q -p no:anyio -m "not e2e"
+```
+
+仓库的 pytest 默认参数已经包含 `-m 'not e2e'`，因此裸运行 `pytest` 也
+不会因为本机存在 API key 而意外产生费用。Docker daemon 测试另外标记为
+`docker`，没有 daemon 时会自动跳过；只跑普通 CI 测试可以使用：
+
+```bash
+python -m pytest tests/ -q -m "not e2e and not docker"
+```
+
+CLI 进程退出码也反映 Agent 的结果：`submitted` 为 `0`；`error`、
+`no_tool_calls`、`max_steps`、`max_time`、`cost_limit` 和 `interrupted`
+均为非零（其中中断使用惯例值 `130`）。这样脚本或 CI 可以可靠地区分
+真正提交和提前停止。
+
+查看当前安装版本：
+
+```bash
+minimal --version
+```
+
+E2E 只能通过显式 marker 选择，且仍需要配置 provider key：
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v \
+  -m e2e -p no:anyio
+```
+
 ---
 
 ## 阶段 0：手动测试（没写任何测试）
@@ -124,7 +159,7 @@ bash("seq 1 300")   # 300 行 → 触发截断
 
 ---
 
-## 阶段 3：E2E 测试（全真）
+## 阶段 3：E2E 测试（全真，显式 opt-in）
 
 E2E 默认使用项目的模型配置。若要在 VS Code Test Explorer 或命令行中
 测试其他 OpenAI-compatible 供应商，可在项目根目录的 `.env` 中设置：
@@ -152,24 +187,24 @@ def test_simple_echo_task():
 
 剩下的（Agent 循环是否正确、execute 是否转发了 timeout、truncation 是否正确……）前三层已经全覆盖了。
 
-**为什么只有 2 个 E2E**：每个 E2E 要调 API（花钱 + 等网络）。单元测试和集成测试已经把逻辑验证完了，E2E 不需要覆盖各种边界情况——那是前两层的职责。
+**为什么只有 2 个 E2E**：每个 E2E 要调 API（花钱 + 等网络）。单元测试和集成测试已经把逻辑验证完了，E2E 不需要覆盖各种边界情况——那是前两层的职责。pytest 默认使用 `-m 'not e2e'`，即使环境中有 API key 也不会执行；只有明确传入 `-m e2e` 才会 opt in。
 
 ---
 
 ## 汇总
 
 ```
-       ╱‾‾‾‾‾╲         E2E:   2 个   真 API + 真 shell    30s    "模型理解工具吗?"
+       ╱‾‾‾‾‾╲         E2E:   最少   真 API + 真 shell    慢/付费  "模型理解工具吗?"
       ╱       ╲
-     ╱ 集成    ╲       集成:  40 个   假 API + 真 shell     秒     "shell 输出正确解析吗?"
+     ╱ 集成    ╲       集成:  适量   假 API + 真 shell     秒级    "shell 输出正确解析吗?"
     ╱           ╲
-   ╱  单元测试   ╲     单元:  179 个  假 API + 假 shell     ms     "每个函数行为对吗?"
+   ╱  单元测试   ╲     单元:  最多   假 API + 假 shell     毫秒级  "每个函数行为对吗?"
   ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
 ```
 
 三条原则：
 
-1. **越底层越多**：从 179 → 40 → 2，不是反过来的
+1. **越底层越多**：大量单元、适量集成、极少 E2E，不是反过来的
 2. **每层测不同的事**：单元测逻辑、集成测编码、E2E 测 API schema——没有重叠
 3. **每层的 mock 点不同**：单元全 mock、集成半 mock、E2E 不 mock
 

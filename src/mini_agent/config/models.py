@@ -7,9 +7,24 @@ fields carry a pydantic default that matches the YAML value (so a bare
 """
 
 import os
-from typing import Any
+from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    field_validator,
+    model_validator,
+)
+
+
+# ``Model.query`` supplies these parameters from its call-site.  Allowing a
+# config value to provide them would either raise a duplicate-keyword error
+# (``model``/``messages``) or silently change which tools are exposed
+# (``tools``), so they are intentionally not configurable through
+# ``model_kwargs``.
+_QUERY_RESERVED_KWARGS: Final = frozenset({"model", "messages", "tools"})
 
 
 class ModelConfig(BaseModel):
@@ -23,6 +38,30 @@ class ModelConfig(BaseModel):
     api_key_env: str = "OPENAI_API_KEY"
     model_kwargs: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("model_name", "api_key_env")
+    @classmethod
+    def names_are_non_empty(cls, value: str, info) -> str:
+        """Reject blank identifiers before a client is created.
+
+        A whitespace-only model name or environment variable name otherwise
+        survives YAML parsing and fails much later with an opaque provider or
+        ``KeyError`` exception.
+        """
+        if not value.strip():
+            raise ValueError(f"{info.field_name} must be non-empty")
+        return value
+
+    @field_validator("model_kwargs")
+    @classmethod
+    def query_arguments_are_not_overridden(
+        cls, value: dict[str, Any]
+    ) -> dict[str, Any]:
+        blocked = sorted(_QUERY_RESERVED_KWARGS.intersection(value))
+        if blocked:
+            names = ", ".join(blocked)
+            raise ValueError(f"model_kwargs cannot override query arguments: {names}")
+        return value
+
 
 class AgentConfig(BaseModel):
     """Agent-loop behaviour: prompts, context compression, and run limits."""
@@ -33,14 +72,26 @@ class AgentConfig(BaseModel):
     instance_template: str      # 必填 —— 来自 YAML
     summary_prompt: str         # 必填 —— 来自 YAML
     summary_marker: str = "[CONTEXT SUMMARY]"
-    context_window: int = 64000
-    compress_threshold: float = 0.8
-    reserve_tokens: int = 2000
-    keep_last_n_turns: int = 4
-    max_steps: int = 250
-    max_time: float = 1800.0
-    cost_limit: float = 3.0
-    no_tool_call_retries: int = 0
+    context_window: int = Field(default=64000, gt=0)
+    # A zero threshold would trigger compression on every turn.  ``1`` is a
+    # useful upper bound because it means compress only at the usable limit.
+    compress_threshold: FiniteFloat = Field(default=0.8, gt=0, le=1)
+    reserve_tokens: int = Field(default=2000, ge=0)
+    keep_last_n_turns: int = Field(default=4, ge=0)
+    max_steps: int = Field(default=250, gt=0)
+    # ``None`` explicitly disables the wall-clock limit; zero is rejected so
+    # an accidental zero cannot make every run stop before its first query.
+    max_time: FiniteFloat | None = Field(default=1800.0, gt=0)
+    # Both ``None`` and zero retain the existing meaning of disabling the
+    # budget.  Negative values are never meaningful.
+    cost_limit: FiniteFloat | None = Field(default=3.0, ge=0)
+    no_tool_call_retries: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def reserve_fits_context_window(self) -> "AgentConfig":
+        if self.reserve_tokens >= self.context_window:
+            raise ValueError("reserve_tokens must be less than context_window")
+        return self
 
 
 class ToolsConfig(BaseModel):
@@ -54,15 +105,16 @@ class ToolsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: list[str]             # 必填 —— 来自 default.yaml
-    default_max_lines: int = 100
-    default_timeout: int = 30
+    default_max_lines: int = Field(default=100, gt=0)
+    default_max_chars: int = Field(default=20000, gt=0)
+    default_timeout: int = Field(default=30, gt=0)
 
     @field_validator("enabled")
     @classmethod
     def enabled_names_are_unique(cls, names: list[str]) -> list[str]:
         if not names:
             raise ValueError("at least one tool must be enabled")
-        if any(not name for name in names):
+        if any(not name.strip() for name in names):
             raise ValueError("enabled tool names must be non-empty")
         if len(names) != len(set(names)):
             raise ValueError("enabled tool names must be unique")
@@ -78,9 +130,9 @@ class CostConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    price_input_per_1m: float = 0.0
-    price_input_cache_hit_per_1m: float = 0.0
-    price_output_per_1m: float = 0.0
+    price_input_per_1m: FiniteFloat = Field(default=0.0, ge=0)
+    price_input_cache_hit_per_1m: FiniteFloat = Field(default=0.0, ge=0)
+    price_output_per_1m: FiniteFloat = Field(default=0.0, ge=0)
 
 
 class EnvironmentConfig(BaseModel):
@@ -92,13 +144,20 @@ class EnvironmentConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     image: str = "python:3.11-slim"
     cwd: str = "/"
-    timeout: int = 30
+    timeout: int = Field(default=30, gt=0)
     container_timeout: str = "2h"
     forward_env: list[str] = Field(default_factory=list)
     executable: str = Field(default_factory=lambda: os.getenv("MSWEA_DOCKER_EXECUTABLE", "docker"))
     run_args: list[str] = Field(default_factory=lambda: ["--rm"])
-    pull_timeout: int = 120
+    pull_timeout: int = Field(default=120, gt=0)
     interpreter: list[str] = Field(default_factory=lambda: ["bash", "-lc"])
+
+    @field_validator("interpreter")
+    @classmethod
+    def interpreter_is_non_empty(cls, value: list[str]) -> list[str]:
+        if not value or any(not item.strip() for item in value):
+            raise ValueError("interpreter must contain at least one non-empty command")
+        return value
 
 
 class RunConfig(BaseModel):
@@ -114,9 +173,9 @@ class Config(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    model: ModelConfig = ModelConfig()
+    model: ModelConfig = Field(default_factory=ModelConfig)
     agent: AgentConfig
     tools: ToolsConfig
-    cost: CostConfig = CostConfig()
-    environment: EnvironmentConfig = EnvironmentConfig()
-    run: RunConfig = RunConfig()
+    cost: CostConfig = Field(default_factory=CostConfig)
+    environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
+    run: RunConfig = Field(default_factory=RunConfig)

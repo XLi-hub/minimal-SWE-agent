@@ -1,13 +1,18 @@
 """End-to-end tests — real Model + real Environment, calls an OpenAI-compatible API.
 
-These tests cost money and are slow.  They are skipped by default.
-Run them explicitly when you want to verify the full agent loop::
+These tests cost money and are slow.  They are skipped by default, including
+when an API key happens to be present in the environment.  Run them explicitly
+when you want to verify the full agent loop::
 
     PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/test_e2e.py -v -m e2e -p no:anyio
 
-Or use the ``--run-e2e`` marker filter:
+Or select them from the complete suite with the marker:
 
-    python -m pytest tests/ -v -m e2e
+    PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -m e2e -p no:anyio
+
+The repository's pytest configuration adds ``-m 'not e2e'`` by default, so a
+plain ``pytest`` command never makes a paid API call.  The explicit ``-m e2e``
+above is the opt-in.
 """
 
 import os

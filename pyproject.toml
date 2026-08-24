@@ -46,6 +46,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# A plain ``pytest`` must be safe even when a developer has a provider key in
+# the environment.  Passing ``-m e2e`` explicitly overrides this default.
+addopts = "-m 'not e2e'"
 markers = [
     "e2e: end-to-end tests that call a real OpenAI-compatible API (costs money, needs API key)",
     "docker: tests that require a running Docker daemon",

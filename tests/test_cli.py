@@ -6,6 +6,8 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mini_agent import cli
 from mini_agent.config import UNSET
 
@@ -62,8 +64,8 @@ def test_main_builds_components_and_runs_task():
         model=object(),
         environment=SimpleNamespace(type="docker"),
     )
-    env = object()
-    model = object()
+    env = MagicMock()
+    model = MagicMock()
     agent = MagicMock()
     agent.run.return_value = {
         "exit_status": "submitted",
@@ -98,6 +100,8 @@ def test_main_builds_components_and_runs_task():
     model_factory.assert_called_once_with(config.model)
     agent_factory.assert_called_once_with(model, env, config=config)
     agent.run.assert_called_once_with("fix it", output="run.json")
+    model.close.assert_called_once_with()
+    env.cleanup.assert_called_once_with()
 
 
 def test_main_reads_task_interactively_when_omitted():
@@ -115,9 +119,126 @@ def test_main_reads_task_interactively_when_omitted():
         patch.object(cli, "Agent", return_value=agent),
         patch("builtins.input", return_value="interactive task"),
     ):
-        assert cli.main([]) == 0
+        assert cli.main([]) == cli.EXIT_CODES["no_tool_calls"]
 
     agent.run.assert_called_once_with("interactive task", output=None)
+
+
+def test_explicit_empty_task_does_not_prompt():
+    config = SimpleNamespace(
+        model=object(),
+        environment=SimpleNamespace(type="local"),
+    )
+    agent = MagicMock()
+    agent.run.return_value = {"exit_status": "submitted", "submission": ""}
+    prompt = MagicMock(side_effect=AssertionError("empty task prompted"))
+
+    with (
+        patch.object(cli, "build_config", return_value=config),
+        patch.object(cli, "get_environment"),
+        patch.object(cli, "Model"),
+        patch.object(cli, "Agent", return_value=agent),
+        patch("builtins.input", prompt),
+    ):
+        assert cli.main(["--task", ""]) == 0
+
+    agent.run.assert_called_once_with("", output=None)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("submitted", 0),
+        ("no_tool_calls", 2),
+        ("max_steps", 3),
+        ("max_time", 4),
+        ("cost_limit", 5),
+        ("error", 1),
+        ("interrupted", 130),
+    ],
+)
+def test_main_maps_agent_status_to_process_exit_code(status, expected):
+    config = SimpleNamespace(
+        model=object(),
+        environment=SimpleNamespace(type="local"),
+    )
+    env = MagicMock()
+    model = MagicMock()
+    agent = MagicMock()
+    agent.run.return_value = {"exit_status": status, "submission": ""}
+
+    with (
+        patch.object(cli, "build_config", return_value=config),
+        patch.object(cli, "get_environment", return_value=env),
+        patch.object(cli, "Model", return_value=model),
+        patch.object(cli, "Agent", return_value=agent),
+    ):
+        assert cli.main(["--task", "task"]) == expected
+
+    model.close.assert_called_once_with()
+    env.cleanup.assert_called_once_with()
+
+
+def test_main_cleanup_does_not_mask_run_exception():
+    config = SimpleNamespace(
+        model=object(),
+        environment=SimpleNamespace(type="local"),
+    )
+    env = MagicMock()
+    env.cleanup.side_effect = RuntimeError("environment cleanup failed")
+    model = MagicMock()
+    model.close.side_effect = RuntimeError("model close failed")
+    agent = MagicMock()
+    agent.run.side_effect = ValueError("run failed")
+
+    with (
+        patch.object(cli, "build_config", return_value=config),
+        patch.object(cli, "get_environment", return_value=env),
+        patch.object(cli, "Model", return_value=model),
+        patch.object(cli, "Agent", return_value=agent),
+        pytest.raises(ValueError, match="run failed"),
+    ):
+        cli.main(["--task", "task"])
+
+    model.close.assert_called_once_with()
+    env.cleanup.assert_called_once_with()
+
+
+def test_main_releases_environment_when_model_construction_fails():
+    config = SimpleNamespace(
+        model=object(),
+        environment=SimpleNamespace(type="local"),
+    )
+    env = MagicMock()
+    model_error = RuntimeError("model construction failed")
+
+    with (
+        patch.object(cli, "build_config", return_value=config),
+        patch.object(cli, "get_environment", return_value=env),
+        patch.object(cli, "Model", side_effect=model_error),
+        pytest.raises(RuntimeError, match="model construction failed"),
+    ):
+        cli.main(["--task", "task"])
+
+    env.cleanup.assert_called_once_with()
+
+
+def test_module_entrypoint_exposes_version():
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        ["src", env.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "mini_agent", "--version"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip().endswith(" 0.1.0")
 
 
 def test_module_entrypoint_exposes_help():

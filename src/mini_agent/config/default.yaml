@@ -37,7 +37,7 @@ agent:
 
     ## Output limits
 
-    Command output is truncated to 100 lines by default. If you need more context, pass a higher `lines` value or use head/tail/sed to narrow down. For long-running commands like pip install or git clone, pass a higher `timeout` value (default 30s).
+    Command output is bounded by both line and character budgets (defaults: 100 lines and 20,000 characters). If you need more context, use head/tail/sed to narrow the command before raising `lines`. For long-running commands like pip install or git clone, pass a higher `timeout` value (default 30s).
 
   instance_template: |
     ## Task
@@ -93,6 +93,7 @@ tools:
     - write
 
   default_max_lines: 100
+  default_max_chars: 20000
   default_timeout: 30
 
 cost:

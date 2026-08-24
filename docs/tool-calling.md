@@ -58,7 +58,7 @@ Agent 不再需要 `parse_action()` 函数——`msg.tool_calls` 直接就是结
 长命令输出（如 `cat 大文件`）会撑爆上下文窗口。方案：
 
 1. `BASH_TOOL` 新增可选参数 `lines`（默认 100）和 `timeout`（默认 30 秒）
-2. Agent 执行后调用 `truncate_output()`——保留头尾各一半 + "[... X lines truncated ...]"
+2. Agent 执行后调用 `truncate_output()`——同时应用行数和字符数预算，保留输出头尾并插入截断说明；因此单行 minified JSON / base64 也不会绕过保护
 3. **v4 改进**：截断标记从被动提示变为主动引导——除了行数信息，还附带 `[WARNING]` 告诉模型可以调高 `lines` 或用 `head`/`tail`/`sed` 精确读
 4. 模型可以为慢命令（`pip install` 等）指定更高的 `timeout` 值
 

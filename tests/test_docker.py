@@ -27,6 +27,7 @@ def _is_docker_available():
 docker_required = pytest.mark.skipif(
     not _is_docker_available(), reason="Docker not available"
 )
+docker_integration = pytest.mark.docker
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +313,7 @@ def test_read_write_file_raise_when_not_started():
 # ---------------------------------------------------------------------------
 
 
+@docker_integration
 @docker_required
 def test_docker_echo():
     """Real container: echo."""
@@ -323,6 +325,7 @@ def test_docker_echo():
         env.cleanup()
 
 
+@docker_integration
 @docker_required
 def test_docker_pwd_is_cwd():
     """Real container: pwd should match configured cwd."""
@@ -334,6 +337,7 @@ def test_docker_pwd_is_cwd():
         env.cleanup()
 
 
+@docker_integration
 @docker_required
 def test_docker_env_variables():
     """Real container: environment variables are set."""
@@ -347,6 +351,7 @@ def test_docker_env_variables():
         env.cleanup()
 
 
+@docker_integration
 @docker_required
 def test_docker_command_failure():
     """Real container: non-zero exit still returns output."""

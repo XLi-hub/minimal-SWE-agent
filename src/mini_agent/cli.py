@@ -42,16 +42,38 @@
 """
 
 import argparse
+import sys
 from typing import Sequence
 
+from mini_agent import __version__
 from mini_agent.agent import Agent
 from mini_agent.config import UNSET, build_config
 from mini_agent.environments import get_environment
 from mini_agent.model import Model
 
 
+# Keep the exit contract of the command-line interface explicit.  ``Agent``
+# returns a descriptive string because it is also used as a library; callers
+# of a CLI need a process status instead.
+EXIT_CODES = {
+    "submitted": 0,
+    "error": 1,
+    "no_tool_calls": 2,
+    "max_steps": 3,
+    "max_time": 4,
+    "cost_limit": 5,
+    # 128 + SIGINT is the conventional Unix status for Ctrl+C.
+    "interrupted": 130,
+}
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="mini-agent")
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     p.add_argument(
         "-c", "--config", action="append", default=[],
         metavar="SPEC",
@@ -110,6 +132,27 @@ def _u(value):
     return UNSET if value is None else value
 
 
+def _release(resource, method: str, label: str) -> None:
+    """Release one CLI-owned resource without hiding the run failure.
+
+    Resource construction is intentionally allowed to fail before a resource
+    is bound, so callers initialize their variables to ``None``.  A cleanup
+    failure is reported as a warning and ignored: especially in a ``finally``
+    block, raising it would replace the useful exception from the actual run.
+    ``getattr`` keeps the CLI tests and third-party adapters compatible with
+    lightweight objects that do not own resources.
+    """
+    if resource is None:
+        return
+    closer = getattr(resource, method, None)
+    if not callable(closer):
+        return
+    try:
+        closer()
+    except Exception as exc:  # pragma: no cover - warning path is tested via main
+        print(f"Warning: failed to release {label}: {exc}", file=sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
 
@@ -132,17 +175,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         },
     )
 
-    # 工厂创建环境（type 决定 local / docker）
-    env = get_environment(config.environment.type, config=config.environment)
+    # Initialize before entering the try block so a constructor that fails
+    # halfway through cannot leave ``finally`` referencing an unbound name.
+    env = None
+    model = None
+    try:
+        # 工厂创建环境（type 决定 local / docker）
+        env = get_environment(config.environment.type, config=config.environment)
 
-    task = args.task if args.task else input("Task: ")
-    agent = Agent(Model(config.model), env, config=config)
-    result = agent.run(task, output=args.output)
+        # ``None`` means the flag was omitted; an explicitly empty task is a
+        # valid non-interactive task and must not unexpectedly prompt stdin.
+        task = args.task if args.task is not None else input("Task: ")
+        model = Model(config.model)
+        agent = Agent(model, env, config=config)
+        result = agent.run(task, output=args.output)
 
-    print(f"\nExit status: {result['exit_status']}")
-    if result["submission"]:
-        print(f"Submission:\n{result['submission']}")
-    return 0
+        status = result.get("exit_status") or "error"
+        print(f"\nExit status: {status}")
+        if result.get("submission"):
+            print(f"Submission:\n{result['submission']}")
+        return EXIT_CODES.get(status, EXIT_CODES["error"])
+    finally:
+        # Close the model before tearing down its execution environment.  Both
+        # calls are best-effort and run on success, Agent failures, and
+        # constructor/input exceptions alike.
+        _release(model, "close", "model")
+        _release(env, "cleanup", "environment")
 
 
 if __name__ == "__main__":

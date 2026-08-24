@@ -17,13 +17,13 @@ try:
             break
         except KeyboardInterrupt:               # Ctrl+C
             exit_status = "interrupted"; break
-        except Exception as e:                  # 模型/工具报错 → 回传模型，继续下一轮
+        except Exception as e:                  # 未处理错误 → 记录诊断并以 error 退出
             messages.append({"role": "user", "content": f"Error: {e}"})
 finally:
     if output: save(output)                     # 无论怎么退出都落盘 .traj.json
 ```
 
-`step()` 内部三步：`_check_limits()` → `_maybe_compress()` → `execute_actions(query())`。
+`step()` 的关键路径是：轮次前检查预算 → 必要时压缩 → 查询模型 → 再检查本次查询是否已经耗尽时间/成本 → 执行工具。第二次检查不重复判断 `max_steps`，因为当前查询已经合法进入这一轮；它只阻止越时或越费后继续执行有副作用的工具。
 
 | 退出条件 | 抛出的异常 |
 |---|---|
@@ -38,9 +38,9 @@ finally:
 - `run()` — 只做循环控制 + 异常捕获（`AgentExit`/`KeyboardInterrupt`/`Exception`）
 - `step()` — 一轮编排：查上限 → 压缩 → 查询 → 执行
 - `query()` — 查模型 + 累加成本 + 追加 assistant 消息（无工具调用时抛 `NoToolCalls`）
-- `execute_actions()` — 逐条执行工具调用（`submit` 会抛 `Submitted` 中断）
+- `execute_actions()` — 逐条执行工具调用；遇到 `submit` 后跳过剩余 handler，但仍为批次中每个 tool call 记录 observation，再统一退出
 - `_check_limits()` / `_maybe_compress()` — 上限检查 / 上下文压缩
-- 工具 schema/handler 注册、权限分发与输出处理（`truncate_output` / `decode_timeout_output`）集中在 `tools.py`
+- 工具 schema/handler 注册、权限分发与输出处理（`truncate_output` / `decode_timeout_output`）集中在 `tools.py`；输出同时受行数和字符数预算约束
 
 但怎么把这个循环拆成可维护、可测试的模块——这是架构要解决的问题。
 
@@ -82,15 +82,17 @@ Agent 内部方法分工：
 | 方法 | 职责 |
 |---|---|
 | `run()` | 循环控制 + 异常捕获：`while True: step()`，捕获 `AgentExit` / `KeyboardInterrupt` / 通用 `Exception` |
-| `step()` | 一轮编排：`_check_limits()` → `_maybe_compress()` → `execute_actions(query())` |
+| `step()` | 一轮编排：查询前检查全部预算，查询后再检查时间/成本，最后才执行工具 |
 | `query()` | 查模型一次 + 累加成本 + 追加 assistant 消息（无工具调用则抛 `NoToolCalls`） |
-| `execute_actions(msg)` | 逐条执行工具调用（`submit` 抛 `Submitted` 中断本轮与后续工具） |
+| `execute_actions(msg)` | 逐条执行工具；`submit` 后不再执行 handler，但补齐其余 tool responses 后才抛 `Submitted` |
 | `_check_limits()` | 检查步数/时长/成本上限，超限抛 `MaxSteps` / `MaxTime` / `CostLimit` |
 | `_maybe_compress()` | 历史逼近上下文上限时压缩（就地切片赋值，保持 `messages` 别名） |
 | `serialize()` | 整场会话（messages + exit_status + submission + 成本）整理成结构化 dict |
 | `save(path)` | `serialize()` 结果 JSON 序列化，落盘为 `.traj.json` |
 
 工具 schema 与 handler 成对注册在 `tools.py` 的 `TOOL_REGISTRY`。`get_enabled_tool_schemas` 根据配置生成模型可见列表，`execute_tool_call` 用同一名单检查执行权限；消息格式化和输出处理（`format_assistant_message`、`truncate_output`、`decode_timeout_output`）也留在该模块。
+
+这里维护一个重要协议不变量：assistant 声明的每个 `tool_call_id` 都必须按原顺序得到一条 `role=tool` 响应。模型可能在同一批次里同时返回 `submit` 和其他调用；执行器会保留 submit 的结果，跳过其后的副作用操作，并为这些调用写入确定性的 `Skipped` observation。这样保存的 trajectory 可以继续被 OpenAI-compatible API 校验、回放和分析。
 
 ## 依赖注入
 
@@ -169,8 +171,9 @@ compute_cost(response)  # ≈ 0.14 * 0.5 + 0.0028 * 0.5 = 0.0714 USD
 ```
 
 `cost_limit`（默认 3.0，`0`/`None` 关闭）是第三种"兜底"——像 `max_steps`/`max_time` 一样，
-在累计成本超过阈值后停止，`exit_status` 记为 `"cost_limit"`。三者一起保证单次运行的
-步数、时长、花费都有上限。
+在累计成本达到阈值后停止，`exit_status` 记为 `"cost_limit"`。成本是在模型响应返回后才能
+精确计算的，所以 Agent 会在派发工具前立即复查；即使这次查询刚好越过预算，也不会继续
+执行文件写入或 shell 命令。
 
 `compute_cost` 独立成 `cost.py`（只依赖 config 包）而不是塞进 `model.py`，是为了不破坏
 `agent.py` 的延迟 import model 约定——`model.py` 在模块级 import openai + 执行

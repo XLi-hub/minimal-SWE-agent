@@ -1,12 +1,14 @@
 """Tests for the read/edit/write tool logic and dispatch."""
 
 import json
+import subprocess
 from unittest.mock import MagicMock
 
 import pytest
 
 from mini_agent.config import build_config, get_default_config
 from mini_agent.tools import (
+    DEFAULT_MAX_CHARS,
     EditError,
     TOOL_REGISTRY,
     apply_edit,
@@ -14,6 +16,7 @@ from mini_agent.tools import (
     format_execution_observation,
     format_read_output,
     get_enabled_tool_schemas,
+    truncate_output,
 )
 
 
@@ -89,6 +92,25 @@ def test_format_read_output_numbers_lines():
 
 def test_format_read_output_empty():
     assert format_read_output("") == "(empty file)"
+
+
+def test_format_read_output_has_character_budget_for_one_long_line():
+    content = "开头" + "中" * (DEFAULT_MAX_CHARS * 2) + "结尾"
+    output = format_read_output(content, max_chars=256)
+
+    assert len(output) <= 256
+    assert output.startswith("     1\t开头")
+    assert "characters truncated" in output
+    assert output.endswith("结尾")
+
+
+def test_truncate_output_preserves_unicode_head_and_tail():
+    output = truncate_output("😀" * 500 + "终点", max_lines=100, max_chars=256)
+
+    assert len(output) <= 256
+    assert output.startswith("😀")
+    assert output.endswith("终点")
+    assert "characters truncated" in output
 
 
 # --- dispatch ---
@@ -186,6 +208,59 @@ def test_bash_observation_truncates_structured_output():
     parsed = json.loads(observation)
     assert "lines truncated" in parsed["output"]
     assert parsed["returncode"] == 0
+
+
+def test_bash_observation_character_budget_covers_single_line():
+    observation = format_execution_observation(
+        {
+            "output": "首" * 100_000 + "尾",
+            "returncode": 0,
+            "exception_info": "",
+        },
+        max_lines=100,
+        max_chars=256,
+    )
+
+    assert len(observation) <= 256
+    parsed = json.loads(observation)
+    assert "characters truncated" in parsed["output"]
+    assert parsed["output"].startswith("首")
+    assert parsed["output"].endswith("尾")
+
+
+def test_handlers_use_configured_character_budget():
+    cfg = build_config(["tools.default_max_chars=128"])
+    env = FakeEnv(files={"long.txt": "首" * 10_000 + "尾"})
+    messages: list = []
+
+    execute_tool_call(_tc("read-1", "read", {"path": "long.txt"}), messages, env, cfg)
+
+    assert len(messages[0]["content"]) <= 128
+    assert "characters truncated" in messages[0]["content"]
+
+
+def test_bash_timeout_observation_respects_final_character_budget():
+    cfg = build_config(["tools.default_max_chars=256"])
+    env = FakeEnv()
+    timeout = subprocess.TimeoutExpired("slow", 3)
+    timeout.stdout = "partial output\n" + "x" * 10_000
+    env.execute = MagicMock(side_effect=timeout)
+    messages: list = []
+
+    execute_tool_call(_tc("timeout-1", "bash", {"command": "slow"}), messages, env, cfg)
+
+    assert len(messages[0]["content"]) <= 256
+
+
+def test_bash_exception_observation_respects_final_character_budget():
+    cfg = build_config(["tools.default_max_chars=128"])
+    env = FakeEnv()
+    env.execute = MagicMock(side_effect=RuntimeError("x" * 10_000))
+    messages: list = []
+
+    execute_tool_call(_tc("error-1", "bash", {"command": "boom"}), messages, env, cfg)
+
+    assert len(messages[0]["content"]) <= 128
 
 
 def test_unknown_tool_lists_all_available_tools():

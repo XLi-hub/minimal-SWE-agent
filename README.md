@@ -1,12 +1,20 @@
 # minimal-SWE-agent
 
-> 不理解 AI agent 为什么能自动修 bug？[核心循环](src/mini_agent/agent.py) 只有 ~100 行 Python，不依赖任何框架——你看到的每一行代码都在做一件事。
+> 不理解 AI agent 为什么能自动修 bug？从[核心循环](src/mini_agent/agent.py)开始读：不依赖 Agent 框架，模型调用、工具协议、执行环境和退出条件都能沿着代码直接追踪。
 
 ## 这是什么
 
 一个最小化的 AI agent：LM（大模型）作为"大脑"，shell 作为"手脚"，Agent 循环连接两者。模型自主决定执行什么命令、读取什么文件、何时提交结果。
 
 **和参考项目 [mini-swe-agent](https://github.com/swe-agent/mini-swe-agent) 的区别**：mini 是生产工具（配置系统、多模型商、多环境后端、TUI），目标是跑 SWE-bench 高分。本项目是学习工具——保留相同的核心架构（Agent/Model/Environment 三件套），但把每个模块都写到最简，让读者能一眼看到底。
+
+这个项目刻意不把“最小”理解成“只能跑通 demo”。核心代码同时展示了几类真实工程问题的处理：
+
+- **协议正确性**：assistant 的每个 tool call 都必须有对应 observation，批次提前提交也不会留下无法回放的半截轨迹。
+- **资源治理**：步数、时间、成本和工具输出都有预算；超长单行输出也不能挤爆模型上下文。
+- **可替换架构**：Model / Environment / Config 通过依赖注入组装，本地、Docker、mock 和 OpenAI-compatible provider 互不耦合。
+- **失败可诊断**：每次运行都可保存 trajectory，包含退出状态、消息、模型调用数、成本和错误信息。
+- **安全的交付流程**：默认测试不选择真实模型 E2E，不会因为开发机恰好存在 API key 就误产生费用；CI 再把真实 Docker 层独立排除。
 
 ```
 用户: "修一下 utils.py 的 bug"
@@ -136,19 +144,15 @@ src/mini_agent/
     └── docker.py              #   DockerEnvironment — 容器内执行
 
 tests/
-├── test_agent.py               # Agent 循环（异常驱动）+ 截断 + submit + 异常 + 轨迹 + 成本 + 压缩（62 个测试）
-├── test_config.py              # 工具 schema + system prompt + 默认值 + 定价（35 个测试）
-├── test_config_loading.py      # 配置合并/优先级/渲染/校验（20 个测试）
-├── test_config_read_edit.py    # 两套内置工具配置：5 工具默认 + 2 工具旧路线（6 个测试）
-├── test_cost.py                # 成本计算 compute_cost（7 个测试，全部 mock）
-├── test_context.py             # 上下文压缩纯函数（17 个测试，全部 mock）
-├── test_model.py               # API 调用（8 个测试，全部 mock）
-├── test_tools.py               # 工具注册/权限分发 + 文件操作 + 输出处理（18 个测试）
-├── test_environment.py         # 本地环境（15 个测试）
-├── test_environments_init.py   # 工厂函数 + ABC + 注册表（10 个测试）
-├── test_docker.py              # Docker 环境（14 个测试，含跳过逻辑）
-├── test_integration.py         # Agent+真Shell（11 个测试，mock Model）
-└── test_e2e.py                 # 端到端测试（2 个测试，默认跳过，需 API key）
+├── test_agent.py               # Agent 循环、协议不变量、轨迹、成本与压缩
+├── test_tools.py               # 工具注册、权限分发、文件操作与输出预算
+├── test_config*.py             # 配置合并、优先级、模板和语义校验
+├── test_model.py               # Provider 适配层（mock API）
+├── test_environment*.py        # 本地环境、Docker 和环境工厂
+├── test_integration.py         # Agent + 真 shell（mock Model）
+├── test_cli.py                 # CLI 参数、退出码和资源生命周期
+├── benchmarks/                 # SWE-bench runner / evaluation adapter
+└── test_e2e.py                 # 显式 opt-in 的付费 API 端到端测试
 ```
 
 ## 架构
@@ -175,8 +179,8 @@ Agent 给模型五个工具：
 
 | 工具 | 用途 |
 |---|---|
-| `bash(command, lines?, timeout?)` | 执行 shell 命令，可选限制返回行数和超时秒数 |
-| `read(path)` | 读文件内容，带行号 |
+| `bash(command, lines?, timeout?)` | 执行 shell 命令；返回内容受行数 + 字符数双预算保护 |
+| `read(path)` | 读文件内容并加行号；超大文件按字符预算保留头尾 |
 | `edit(path, old_string, new_string)` | 精确替换文件中唯一一处 `old_string` |
 | `write(path, content)` | 创建或覆盖文件 |
 | `submit(output)` | 提交最终结果（patch / 答案 / 总结） |
@@ -189,6 +193,8 @@ result = agent.run("fix the bug")
 # exit_status: "submitted" | "no_tool_calls" | "max_steps" | "max_time" | "cost_limit" | "interrupted" | "error"
 ```
 
+如果同一模型响应里包含多个 tool calls，Agent 会按顺序为每个 `tool_call_id` 写入结果。遇到 `submit` 后不再执行其后的副作用操作，但会给它们记录明确的 skipped observation，保证 trajectory 始终符合 OpenAI-compatible 消息协议。
+
 ## 成本统计
 
 Agent 自动从每次模型调用的 `response.usage`（`prompt_tokens` / `completion_tokens` /
@@ -196,7 +202,7 @@ Agent 自动从每次模型调用的 `response.usage`（`prompt_tokens` / `compl
 
 - 单价定义在 [config/default.yaml](src/mini_agent/config/default.yaml) 的 `cost` 段（`price_input_per_1m` 等，默认 0；接入具体供应商后按需配置）。
 - 累计成本写入轨迹的 `info.model_stats.instance_cost`（USD）。
-- 配好供应商单价后，用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本超过就停止，`exit_status` 为 `"cost_limit"`。
+- 配好供应商单价后，用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本达到上限就停止，`exit_status` 为 `"cost_limit"`，且不会继续派发本轮工具。
 
 ```python
 agent.run("fix the bug", output="run.traj.json", cost_limit=1.5)
@@ -282,22 +288,23 @@ minimal-swebench-eval runs/verified-20/preds.jsonl \
 ## 运行测试
 
 ```bash
-# 日常 — 跳过 E2E（Docker 集成测试自动检测 daemon，无 Docker 时自动跳过）
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v -p no:anyio -m "not e2e"
+# 日常 — 项目 conda 环境；不调用真实模型 API
+conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  python -m pytest tests/ -q -p no:anyio -m "not e2e"
 
-# E2E 测试 — 真调 OpenAI-compatible API（2 个，花钱，偶尔跑一次）
-python -m pytest tests/ -v -m e2e
+# 普通 CI 层：同时排除需要真实 Docker daemon 的测试
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -q \
+  -p no:anyio -m "not e2e and not docker"
 
-# 全量 — 包括 E2E（221 个测试）
-python -m pytest tests/ -v -p no:anyio
+# E2E — 必须显式 opt-in，真调 OpenAI-compatible API，会产生费用
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v \
+  -p no:anyio -m e2e
 
-# 只跑单元测试（跳过 Docker 集成 + E2E）
-python -m pytest tests/ -v -p no:anyio -m "not e2e" -k "not test_docker_echo and not test_docker_pwd and not test_docker_env and not test_docker_command"
+# 裸 pytest 也安全：pyproject.toml 默认排除 e2e
+python -m pytest
 ```
 
-Docker 集成测试在检测不到 Docker daemon 时自动跳过。E2E 测试在 `.env` 未配置 `OPENAI_API_KEY` 时自动跳过。
-
-**测试分层**：179 单元 + 40 集成（含 Docker）+ 2 E2E = 221 总计。
+Docker 集成测试在检测不到 daemon 时自动跳过。E2E 即使发现 API key 也不会被默认选择；这条“显式付费”边界由 pytest 配置和 CI 共同保证。测试数量不在文档中硬编码，避免新增覆盖后说明悄悄过期。
 
 ## 学习文档
 

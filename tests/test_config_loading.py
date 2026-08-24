@@ -182,3 +182,91 @@ def test_top_level_run_extension_is_preserved():
 def test_top_level_run_rejects_unknown_fields():
     with pytest.raises(ValidationError):
         build_config(['run.instances=["a"]'])
+
+
+# ---------------------------------------------------------------------------
+# semantic bounds (fail-fast validation)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "agent.max_steps=0",
+        "agent.max_steps=-1",
+        "agent.max_time=0",
+        "agent.max_time=-1",
+        "agent.cost_limit=-0.01",
+        "agent.context_window=0",
+        "agent.context_window=-1",
+        "agent.compress_threshold=0",
+        "agent.compress_threshold=-0.1",
+        "agent.compress_threshold=1.1",
+        "agent.reserve_tokens=-1",
+        "agent.keep_last_n_turns=-1",
+        "agent.no_tool_call_retries=-1",
+        "tools.default_max_lines=0",
+        "tools.default_max_lines=-1",
+        "tools.default_max_chars=0",
+        "tools.default_max_chars=-1",
+        "tools.default_timeout=0",
+        "tools.default_timeout=-1",
+        "cost.price_input_per_1m=-1",
+        "cost.price_input_cache_hit_per_1m=-1",
+        "cost.price_output_per_1m=-1",
+        "environment.timeout=0",
+        "environment.timeout=-1",
+        "environment.pull_timeout=0",
+        "environment.pull_timeout=-1",
+    ],
+)
+def test_build_config_rejects_non_positive_or_negative_limits(spec):
+    with pytest.raises(ValidationError):
+        build_config([spec])
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        'agent.max_time=null',
+        'agent.cost_limit=null',
+        'agent.cost_limit=0',
+        'agent.context_window=2001',
+        'agent.compress_threshold=1',
+        'agent.reserve_tokens=0',
+        'agent.keep_last_n_turns=0',
+        'agent.no_tool_call_retries=0',
+        'tools.default_max_chars=1',
+    ],
+)
+def test_build_config_accepts_explicit_disabled_or_boundary_values(spec):
+    build_config([spec])
+
+
+@pytest.mark.parametrize("reserve", [64000, 64001])
+def test_build_config_requires_reserve_below_context_window(reserve):
+    with pytest.raises(ValidationError, match="reserve_tokens"):
+        build_config([f"agent.reserve_tokens={reserve}"])
+
+
+def test_model_identifiers_must_not_be_blank():
+    specs = (
+        'model.model_name=""',
+        'model.model_name=" "',
+        'model.api_key_env=""',
+        'model.api_key_env=" "',
+    )
+    for spec in specs:
+        with pytest.raises(ValidationError):
+            build_config([spec])
+
+
+@pytest.mark.parametrize("reserved", ["model", "messages", "tools"])
+def test_model_kwargs_cannot_override_query_arguments(reserved):
+    with pytest.raises(ValidationError, match="model_kwargs"):
+        build_config([f'model.model_kwargs={{"{reserved}": "blocked"}}'])
+
+
+@pytest.mark.parametrize("interpreter", ["[]", '[""]', '["bash", ""]'])
+def test_environment_interpreter_must_contain_commands(interpreter):
+    with pytest.raises(ValidationError, match="interpreter"):
+        build_config([f"environment.interpreter={interpreter}"])

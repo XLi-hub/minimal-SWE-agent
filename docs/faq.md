@@ -75,7 +75,9 @@ bash(command="pip install torch", timeout=120)
 
 为避免批量任务留下孤儿进程，超时会终止完整进程组，同时保留已产生的部分输出，并向模型返回 `returncode=-1` 和具体 `exception_info`。确实需要更久的命令应在第一次调用时传更大的 timeout。详见 [tool-calling.md](tool-calling.md#超时处理终止进程组并保留输出)。
 
-**`max_time=1800`**（30 分钟）：防止模型在 timeout 上不断翻倍（30→60→120→...）把时间耗光。`max_steps` 管步数，`max_time` 管总时长，双重兜底。传 `--max-time 0` 或 `max_time=None` 可关闭限制。
+**`max_time=1800`**（30 分钟）：防止模型在 timeout 上不断翻倍（30→60→120→...）把时间耗光。`max_steps` 管步数，`max_time` 管总时长，双重兜底。通过 YAML 的 `max_time: null` 或 `-c agent.max_time=null` 可关闭限制；`0` 会在启动时被配置校验拒绝，避免误配置成“立即超时”。
+
+Agent 会在模型查询前后都检查 `max_time`，因此查询返回时若已经越时，本轮工具不会再执行。它不能抢占一个正在阻塞的同步 provider 请求；需要严格限制单次 HTTP 请求时，可在 `model.model_kwargs` 中配置 provider SDK 支持的 `timeout`。
 
 注意这和很多 agent 用 `sleep` 在命令里等待不同——sleep 阻塞的是 shell 进程，timeout 是 harness 层的硬限制。两个独立计算。
 
@@ -121,9 +123,9 @@ bash(command="pip install torch", timeout=120)
 不是。三层各自的职责不同，跑测试的人也不同：
 
 ```
-E2E (2个)     → 我（开发者）：提交代码前跑一次，验证模型真的理解工具schema
-集成 (40个)   → CI：每次 push 自动跑，验证模块配合没坏
-单元 (179个)  → 写代码时随手跑：改一行，跑一秒，确认没坏
+E2E（最少）   → 开发者显式 opt-in：验证模型真的理解工具 schema
+集成（适量）  → CI：每次 push 自动跑，验证模块配合没坏
+单元（最多）  → 写代码时随手跑：改一行，快速确认没坏
 ```
 
 如果只有 E2E，跑一次花 30 秒 + 花钱，你就不跑了。如果只有单元测试，mock 的假输出可能和真输出行为不一致（我们在集成测试里就抓过一个——`echo` 会解释反斜杠但 `printf '%s'` 不会）。
