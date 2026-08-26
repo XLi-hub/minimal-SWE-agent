@@ -289,9 +289,14 @@ def test_python_execution_output():
     )
 
 
-def test_find_command_large_output():
-    """find across a directory tree can produce hundreds of lines —
-    agent must handle truncation correctly with real paths."""
+def test_find_command_large_output(tmp_path, monkeypatch):
+    """Real ``find`` output is truncated without depending on repo layout."""
+    src = tmp_path / "src"
+    src.mkdir()
+    for index in range(30):
+        (src / f"file_{index:02}.py").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
     model = MagicMock()
     model.query.side_effect = [
         _make_response(
@@ -299,7 +304,7 @@ def test_find_command_large_output():
             tool_calls=[
                 _make_tool_call(
                     "c1", "bash",
-                    {"command": "find src/ -name '*.py'", "lines": 10},
+                    {"command": "find src/ -name '*.py' | sort", "lines": 10},
                 ),
             ],
         ),
@@ -316,11 +321,15 @@ def test_find_command_large_output():
 
     assert result["exit_status"] == "submitted"
     tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
-    find_output = tool_msgs[0]["content"]
+    observation = json.loads(tool_msgs[0]["content"])
 
-    assert "agent.py" in find_output or "config.py" in find_output, (
-        f"Expected to find project .py files: {find_output!r}"
-    )
+    assert observation["returncode"] == 0
+    assert "20 lines truncated (30 total, 10 shown)" in observation["output"]
+    assert "src/file_00.py" in observation["output"]
+    assert "src/file_04.py" in observation["output"]
+    assert "src/file_25.py" in observation["output"]
+    assert "src/file_29.py" in observation["output"]
+    assert "src/file_15.py" not in observation["output"]
 
 
 def test_empty_output_command():
