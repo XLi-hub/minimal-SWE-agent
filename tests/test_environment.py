@@ -1,3 +1,7 @@
+import signal
+import subprocess
+from unittest.mock import MagicMock, call, patch
+
 import pytest
 
 from mini_agent.environments.local import LocalEnvironment
@@ -59,6 +63,23 @@ def test_local_environment_timeout():
     result = env.execute("sleep 10", timeout=0.1)
     assert result["returncode"] == -1
     assert "timed out" in result["exception_info"]
+
+
+def test_local_environment_timeout_kills_and_reaps_process_group():
+    process = MagicMock(pid=1234)
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired("sleep 10", 0.1, output=b"partial\n"),
+        ("partial\n", None),
+    ]
+
+    with patch("subprocess.Popen", return_value=process), \
+         patch("mini_agent.environments.process.os.killpg") as killpg:
+        result = LocalEnvironment().execute("sleep 10", timeout=0.1)
+
+    killpg.assert_called_once_with(1234, signal.SIGKILL)
+    assert process.communicate.call_args_list == [call(timeout=0.1), call()]
+    assert result["returncode"] == -1
+    assert result["output"] == "partial\n"
 
 
 # --- read_file / write_file ---

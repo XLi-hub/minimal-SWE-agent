@@ -1,13 +1,15 @@
 """Docker container execution — runs commands inside an isolated container."""
 
 import os
-import signal
 import subprocess
 import uuid
-from typing import Any
 
 from mini_agent.config import EnvironmentConfig, get_default_config
 from mini_agent.environments import Environment, ExecutionResult
+from mini_agent.environments.process import (
+    communicate_with_timeout,
+    run_process,
+)
 
 
 class DockerEnvironment(Environment):
@@ -96,49 +98,19 @@ class DockerEnvironment(Environment):
             cmd.extend(["-e", f"{key}={value}"])
         cmd.extend([self._container_id, *self._interpreter, command])
 
-        process: subprocess.Popen | None = None
-        try:
-            process = subprocess.Popen(
-                cmd,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                start_new_session=os.name == "posix",
-            )
-            stdout, _ = process.communicate(
-                timeout=timeout if timeout is not None else self._timeout,
-            )
-            return ExecutionResult(
-                output=_decode_output(stdout),
-                returncode=_returncode(process),
-            )
-        except subprocess.TimeoutExpired as exc:
-            partial = _decode_output(getattr(exc, "stdout", None))
-            if process is not None:
-                _terminate_process_group(process)
-                try:
-                    tail, _ = process.communicate()
-                except Exception:
-                    tail = ""
-                # communicate() generally returns the complete buffered
-                # stream after killing the client process; avoid duplicating
-                # the bytes already present on TimeoutExpired.stdout.
-                if tail:
-                    partial = _decode_output(tail)
-            return ExecutionResult(
-                output=partial,
-                returncode=-1,
-                exception_info=f"Command timed out after {exc.timeout} seconds: {command}",
-            )
-        except Exception as exc:
-            output = _decode_output(getattr(exc, "output", None))
-            return ExecutionResult(
-                output=output,
-                returncode=-1,
-                exception_info=f"An error occurred while executing the command: {exc}",
-            )
+        return run_process(
+            cmd,
+            timeout=timeout if timeout is not None else self._timeout,
+            # Keep diagnostics focused on the model-supplied command.  The
+            # full docker argv can contain forwarded environment secrets.
+            display_command=command,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=os.name == "posix",
+        )
 
     def read_file(self, path: str) -> str:
         if self._container_id is None:
@@ -152,8 +124,9 @@ class DockerEnvironment(Environment):
             errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=os.name == "posix",
         )
-        out, _ = proc.communicate(timeout=self._timeout)
+        out, _ = communicate_with_timeout(proc, timeout=self._timeout)
         if proc.returncode != 0:
             if "no such file" in out.lower():
                 raise FileNotFoundError(out.strip() or path)
@@ -175,8 +148,13 @@ class DockerEnvironment(Environment):
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=os.name == "posix",
         )
-        out, _ = proc.communicate(input=content, timeout=self._timeout)
+        out, _ = communicate_with_timeout(
+            proc,
+            input=content,
+            timeout=self._timeout,
+        )
         if proc.returncode != 0:
             raise OSError(out.strip() or f"failed to write {path!r}")
 
@@ -242,32 +220,4 @@ class DockerEnvironment(Environment):
             self.cleanup()
         except Exception:
             # Destructors must never surface errors during interpreter shutdown.
-            pass
-
-
-def _returncode(process: Any) -> int:
-    value = getattr(process, "returncode", -1)
-    return value if isinstance(value, int) else 0
-
-
-def _decode_output(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return str(value)
-
-
-def _terminate_process_group(process: subprocess.Popen) -> None:
-    try:
-        if os.name == "posix":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:
-            process.kill()
-    except ProcessLookupError:
-        pass
-    except (OSError, TypeError, ValueError):
-        try:
-            process.kill()
-        except (ProcessLookupError, OSError, TypeError, ValueError):
             pass
