@@ -125,6 +125,10 @@ if should_compress(...):
 中断主循环——下一轮会再次尝试。代价是这一轮继续用超限的完整历史（可能被 API 拒绝），
 但至少不因为"压缩"这个本可忽略的辅助功能把整个任务搞挂。
 
+摘要模板不是普通的进度周报。它要求分别保留 invariants/contracts、已观察证据、被否定
+假设、精确测试命令与 returncode，以及尚未验证的假设和覆盖空白。尤其不能把“当前旧测试
+通过”压缩成“issue 已解决”：前者是有范围的证据，后者是仍需独立证明的结论。
+
 ### 为什么用 `messages[:] = ...` 而不是 `messages = ...`
 
 `messages`、`self.messages`、`result["messages"]` 是**同一个模型 context list 对象**的三个引用。

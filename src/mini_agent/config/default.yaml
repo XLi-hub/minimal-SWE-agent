@@ -55,12 +55,15 @@ agent:
     Start now — begin with step 1 (Explore).
 
   summary_prompt: |
-    Summarize the agent's conversation history so it can continue without the full transcript. Be concise and factual; preserve exact file paths, command names, error messages, and test results. Use these headers:
+    Summarize the agent's conversation history so it can continue without the full transcript. Be concise and evidence-focused. Separate observations from inferences. Preserve exact file paths, commands, return codes, error messages, and test scope. Never turn "the current tests passed" into "the issue is fixed" when new behavior or contracts remain unverified. Use these headers:
 
     ## Task
+    ## Invariants / Contracts
+    ## Evidence / Reproductions
     ## Files Changed
-    ## Key Decisions
-    ## Errors / Test Results
+    ## Decisions / Rejected Hypotheses
+    ## Exact Test Results
+    ## Unverified Assumptions / Coverage Gaps
     ## Current State
     ## Next Steps
 

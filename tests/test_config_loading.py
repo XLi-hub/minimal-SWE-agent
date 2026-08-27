@@ -93,6 +93,16 @@ def test_build_config_defaults():
     assert build_config().agent.max_steps == 250
 
 
+def test_summary_prompt_preserves_evidence_and_open_gaps():
+    prompt = build_config().agent.summary_prompt
+
+    assert "## Invariants / Contracts" in prompt
+    assert "## Evidence / Reproductions" in prompt
+    assert "## Exact Test Results" in prompt
+    assert "## Unverified Assumptions / Coverage Gaps" in prompt
+    assert "Separate observations from inferences" in prompt
+
+
 def test_benchmark_config_is_discoverable_and_valid():
     path = get_config_path("swebench")
     assert path.parent.name == "benchmarks"
