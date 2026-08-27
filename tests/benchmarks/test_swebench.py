@@ -208,6 +208,34 @@ def test_factory_call_does_not_bind_named_parameter_twice():
     ) == (config, instance)
 
 
+def test_factory_call_fills_unknown_parameter_before_var_kwargs():
+    config = object()
+    instance = {"instance_id": "repo__one__1"}
+
+    def factory(config, item, **kwargs):
+        return config, item, kwargs
+
+    assert _factory_call(
+        factory,
+        "model",
+        {"config": config, "instance": instance, "extra": "kept"},
+    ) == (config, instance, {"extra": "kept"})
+
+
+def test_factory_call_passes_unclaimed_values_to_var_kwargs():
+    config = object()
+    instance = {"instance_id": "repo__one__1"}
+
+    def factory(config, **kwargs):
+        return config, kwargs
+
+    assert _factory_call(
+        factory,
+        "model",
+        {"config": config, "instance": instance},
+    ) == (config, {"instance": instance})
+
+
 def test_process_instance_isolates_factories_and_persists_metadata(tmp_path):
     created = {}
 
