@@ -1527,6 +1527,114 @@ def test_compression_accounts_for_summary_call():
     assert agent.cost > 0
 
 
+def test_summary_cost_limit_stops_before_next_loop_query():
+    """A summary request that exhausts the budget prevents another API call."""
+    calls = {"loop": 0, "summary": 0}
+
+    def fake_query(messages, tools=None):
+        if tools:
+            calls["loop"] += 1
+            return _make_response(
+                "Run.",
+                tool_calls=[
+                    _make_tool_call(f"c{calls['loop']}", "bash", {"command": "ls"})
+                ],
+                usage=_make_usage(0, 0),
+            )
+        calls["summary"] += 1
+        return _make_response("## Task\nsummary", usage=_make_usage(1_000_000, 0))
+
+    model = MagicMock()
+    model.query.side_effect = fake_query
+    env = MagicMock()
+    env.execute.return_value = "out"
+
+    result = Agent(
+        model,
+        env,
+        config=PRICED_DEFAULTS,
+        context_window=100,
+        reserve_tokens=10,
+        keep_last_n_turns=0,
+    ).run("task", cost_limit=0.01)
+
+    assert result["exit_status"] == "cost_limit"
+    assert calls == {"loop": 1, "summary": 1}
+    assert model.query.call_count == 2
+
+
+def test_summary_time_limit_stops_before_next_loop_query(monkeypatch):
+    """A successful summary that exhausts wall time prevents another API call."""
+    clock = [0.0]
+    calls = {"loop": 0, "summary": 0}
+    monkeypatch.setattr("mini_agent.agent.time.monotonic", lambda: clock[0])
+
+    def fake_query(messages, tools=None):
+        if tools:
+            calls["loop"] += 1
+            return _make_response(
+                "Run.",
+                tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+            )
+        calls["summary"] += 1
+        clock[0] = 2.0
+        return _make_response("## Task\nsummary")
+
+    model = MagicMock()
+    model.query.side_effect = fake_query
+    env = MagicMock()
+    env.execute.return_value = "out"
+
+    result = Agent(
+        model,
+        env,
+        context_window=100,
+        reserve_tokens=10,
+        keep_last_n_turns=0,
+    ).run("task", max_time=1)
+
+    assert result["exit_status"] == "max_time"
+    assert calls == {"loop": 1, "summary": 1}
+
+
+def test_malformed_summary_response_is_accounted_before_budget_check():
+    """Billable usage is retained even when the summary body cannot be parsed."""
+    calls = {"loop": 0, "summary": 0}
+
+    def fake_query(messages, tools=None):
+        if tools:
+            calls["loop"] += 1
+            return _make_response(
+                "Run.",
+                tool_calls=[_make_tool_call("c1", "bash", {"command": "ls"})],
+                usage=_make_usage(0, 0),
+            )
+        calls["summary"] += 1
+        response = _make_response("unused", usage=_make_usage(1_000_000, 0))
+        response.choices = []
+        return response
+
+    model = MagicMock()
+    model.query.side_effect = fake_query
+    env = MagicMock()
+    env.execute.return_value = "out"
+    agent = Agent(
+        model,
+        env,
+        config=PRICED_DEFAULTS,
+        context_window=100,
+        reserve_tokens=10,
+        keep_last_n_turns=0,
+    )
+
+    result = agent.run("task", cost_limit=0.01)
+
+    assert result["exit_status"] == "cost_limit"
+    assert calls == {"loop": 1, "summary": 1}
+    assert agent.n_calls == 2
+    assert agent.cost > 0.01
+
+
 def test_compression_does_not_break_no_tool_calls():
     """首轮即 no_tool_calls 时（无中间内容）不触发摘要。"""
     model = MagicMock()

@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from mini_agent.config import get_default_config
 from mini_agent.tools import TOOL_REGISTRY
 from mini_agent.context import (
@@ -134,6 +136,19 @@ def test_summarize_calls_model_without_tools():
     assert "old" in msgs[0]["content"]
     assert "new lines" in msgs[0]["content"]
     assert "tools" not in model.query.call_args.kwargs
+
+
+def test_summarize_accounts_response_before_parsing_failure():
+    response = MagicMock()
+    response.choices = []
+    model = MagicMock()
+    model.query.return_value = response
+    seen = []
+
+    with pytest.raises(IndexError):
+        summarize(model, None, "new lines", on_response=seen.append)
+
+    assert seen == [response]
 
 
 # --- compress ---

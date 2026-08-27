@@ -199,7 +199,12 @@ class Agent:
     def step(self) -> None:
         """One iteration: enforce limits, compress if needed, query, execute tools."""
         self._check_limits()
-        self._maybe_compress()
+        compression_attempted = self._maybe_compress()
+        # Compression is itself a model request and can consume the remaining
+        # wall-clock or cost budget. Do not issue the main model request once
+        # that internal call has exhausted either limit.
+        if compression_attempted:
+            self._check_tool_limits()
         message = self.query()
         if message is not None:
             # The model response itself may push us over a wall-clock or cost
@@ -305,26 +310,28 @@ class Agent:
             # Raise only after the full assistant batch has been acknowledged.
             raise Submitted(submission.submission)
 
-    def _maybe_compress(self) -> None:
+    def _maybe_compress(self) -> bool:
         """Summarize the middle of the history when it nears the context window.
 
         A compression failure is non-fatal: it is silently skipped and the loop
-        continues with the full (uncompressed) history.
+        continues with the full (uncompressed) history. The return value says
+        whether compression may have issued a model request, so the caller can
+        re-check time and cost budgets before the main query.
         """
         if not should_compress(
             self.messages, self._tools,
             self.context_window, self.compress_threshold, self.reserve_tokens,
         ):
-            return
+            return False
         try:
             compressed, summary_response = compress(
-                self.messages, self.model, self.keep_last_n_turns, config=self.config,
+                self.messages,
+                self.model,
+                self.keep_last_n_turns,
+                config=self.config,
+                on_response=self._account_summary_response,
             )
-            # 摘要也是一次真实 API 调用 —— 计入调用次数与成本，
-            # 否则 model_stats 会漏算摘要那次的 token 用量。
             if summary_response is not None:
-                self.n_calls += 1
-                self.cost += compute_cost(summary_response, self.config)
                 summary_message = next(
                     (
                         copy.deepcopy(message)
@@ -344,8 +351,17 @@ class Agent:
                 )
             # 就地切片赋值，保持 self.messages / result["messages"] 别名一致。
             self.messages[:] = compressed
+            return summary_response is not None
         except Exception:
-            pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
+            # The failure may have happened after the summarizer request was
+            # sent. Re-checking budgets is safer than immediately issuing a
+            # second request with unknown elapsed time/cost.
+            return True
+
+    def _account_summary_response(self, response: object) -> None:
+        """Account for a summarizer response before its body is parsed."""
+        self.n_calls += 1
+        self.cost += compute_cost(response, self.config)
 
     def serialize(self) -> dict:
         """Serialize the agent trajectory to a JSON-compatible dict.
