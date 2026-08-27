@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mini_agent.agent import Agent
-from mini_agent.config import CostConfig, get_default_config
+from mini_agent.config import CostConfig, build_config, get_default_config
 from mini_agent.tools import (
     decode_timeout_output,
     format_assistant_message,
@@ -254,6 +254,37 @@ def test_submit_stops_loop_immediately():
 
     assert result["exit_status"] == "submitted"
     assert model.query.call_count == 1
+
+
+def test_submission_review_requires_a_second_submit():
+    """An enabled review gate turns the first valid submission into a draft."""
+    config = build_config(['agent.submission_review_prompt="Audit the evidence."'])
+    model = MagicMock()
+    model.query.side_effect = [
+        _make_response(
+            content="Initial candidate.",
+            tool_calls=[_make_tool_call("draft", "submit", {"output": "draft patch"})],
+        ),
+        _make_response(
+            content="Reviewed candidate.",
+            tool_calls=[_make_tool_call("final", "submit", {"output": "final patch"})],
+        ),
+    ]
+
+    result = Agent(model, MagicMock(), config=config).run("fix a bug")
+
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "final patch"
+    assert model.query.call_count == 2
+    review_messages = [
+        message["content"]
+        for message in result["messages"]
+        if message["role"] == "user" and "captured as a draft" in message["content"]
+    ]
+    assert review_messages == [
+        "The previous submit call was captured as a draft and has not ended the run. "
+        "Complete this review before submitting again:\n\nAudit the evidence."
+    ]
 
 
 def test_submit_with_patch():

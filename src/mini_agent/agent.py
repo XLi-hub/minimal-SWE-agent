@@ -92,6 +92,7 @@ class Agent:
         self.submission = ""
         self.error: dict | None = None
         self._consecutive_no_tool_calls = 0
+        self._submission_review_pending = False
 
     def run(self, task: str, max_steps=UNSET,
             max_time=UNSET,
@@ -163,6 +164,7 @@ class Agent:
         self.submission = ""
         self.error = None
         self._consecutive_no_tool_calls = 0
+        self._submission_review_pending = bool(agent_cfg.submission_review_prompt)
 
         result: dict = {"exit_status": "error", "submission": "", "messages": self.messages}
 
@@ -307,6 +309,17 @@ class Agent:
                 submission = exc
 
         if submission is not None:
+            if self._submission_review_pending:
+                self._submission_review_pending = False
+                self.messages.append({
+                    "role": "user",
+                    "content": (
+                        "The previous submit call was captured as a draft and has not "
+                        "ended the run. Complete this review before submitting again:\n\n"
+                        f"{self.config.agent.submission_review_prompt}"
+                    ),
+                })
+                return
             # Raise only after the full assistant batch has been acknowledged.
             raise Submitted(submission.submission)
 

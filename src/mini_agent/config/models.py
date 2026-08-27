@@ -86,6 +86,16 @@ class AgentConfig(BaseModel):
     # budget.  Negative values are never meaningful.
     cost_limit: FiniteFloat | None = Field(default=3.0, ge=0)
     no_tool_call_retries: int = Field(default=0, ge=0)
+    # When set, the first valid submit call is treated as a draft. The agent
+    # receives this prompt and must submit again to finish the run.
+    submission_review_prompt: str | None = None
+
+    @field_validator("submission_review_prompt")
+    @classmethod
+    def submission_review_prompt_is_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("submission_review_prompt must be non-empty when set")
+        return value
 
     @model_validator(mode="after")
     def reserve_fits_context_window(self) -> "AgentConfig":
