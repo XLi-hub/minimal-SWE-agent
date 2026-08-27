@@ -29,7 +29,13 @@
 2. **需要重试**：解析失败 → 构造 user message 提醒模型 → 浪费一轮对话
 3. **错误信息不统一**：每个模型的输出习惯不同，调试很痛苦
 
-Function calling 让模型返回**结构化 JSON**——`tool_calls` 数组里每个元素有 `name` 和 `arguments`。不存在"解析失败"这个概念。代价是模型必须支持 tool calling API（DeepSeek、OpenAI、Claude 都支持），且不能用于完全不兼容的模型。
+Function calling 让模型返回**结构化的工具调用请求**——`tool_calls` 数组里每个元素有
+`name` 和序列化的 `arguments`。它减少了自由文本解析，但不能保证参数字符串永远是合法
+JSON，也不能保证解码结果一定是对象：provider、模型或适配层仍可能给出 malformed JSON
+或数组/标量等非对象参数。本项目的分发器会捕获这些错误，并为原来的
+`tool_call_id` 追加一条协议完整的 `tool` error observation，让模型可以看到错误并继续
+恢复，而不是留下未回应的调用。代价是模型必须支持 tool calling API（DeepSeek、OpenAI、
+Claude 都支持），且不能用于完全不兼容的模型。
 
 **本项目选 tool calling 是因为**：作为教学项目，直接用 API 原生支持的方式比手写一个脆弱的解析器更"干净"——读者不需要理解正则的实现细节就能看懂 agent 循环的核心逻辑。
 
@@ -47,7 +53,9 @@ Function calling 让模型返回**结构化 JSON**——`tool_calls` 数组里�
 2. **沙箱友好**：`docker exec X bash -c "cmd"` 也是每次独立执行——换个后端换 `subprocess.run` 就行
 3. **线性历史**：每一步的输出 → user message，没有隐藏的 shell 状态（cd 到了哪里、设置了什么 env var）
 
-**代价**：`cd` 和 `export` 不能跨步生效。模型很快就学会了——它会在每一步命令前显式 `cd /path && actual_command`。
+**代价**：`cd` 和 `export` 不能跨步生效。Docker 的常驻容器会保留文件系统变更和容器
+进程，但每次 `docker exec` 都会启动新的 shell；shell 的 cwd 和 `export` 出来的环境变量
+也不会跨步生效。模型很快就学会了——它会在每一步命令前显式 `cd /path && actual_command`。
 
 详细讨论见 [mini-swe-agent FAQ](https://mini-swe-agent.com/latest/faq/#why-no-shell-session)。
 
@@ -85,7 +93,9 @@ Agent 会在模型查询前后都检查 `max_time`，因此查询返回时若已
 
 ## `cost_limit=3.0` 怎么定的？
 
-和 `max_steps`/`max_time` 一样，是"兜底上限"而不是精确预算。默认 3 美元对一次 SWE-bench 风格的修 bug 任务（读代码 → 改一行 → 跑测试，通常 10-50 步）绰绰有余，同时防止死循环把 API 费用烧穿。
+和 `max_steps`/`max_time` 一样，是"兜底上限"而不是精确预算。配置了真实供应商单价后，
+默认 3 美元对一次 SWE-bench 风格的修 bug 任务（读代码 → 改一行 → 跑测试，通常 10-50 步）
+通常绰绰有余，也能在估算成本达到上限时停止死循环。
 
 成本怎么算的：
 
@@ -93,7 +103,11 @@ Agent 会在模型查询前后都检查 `max_time`，因此查询返回时若已
 2. 乘以 config 里的 USD 单价（`cost.price_input_per_1m`、`cost.price_input_cache_hit_per_1m`、`cost.price_output_per_1m`，定义在 [default.yaml](../src/mini_agent/config/default.yaml)）。
 3. 累计值写进轨迹的 `info.model_stats.instance_cost`。
 
-默认配置不假设具体供应商，单价为 0；接入真实 OpenAI-compatible 模型后，建议按供应商价格填写这三个字段。`cost_limit` 传 `0` 或 `None` 就关闭限制（CLI 用 `--cost-limit 0`）。
+默认配置不假设具体供应商，三个单价字段都是 0；因此默认的 `cost_limit=3.0` 只会比较到
+本地计算出的零成本，**不能提供真实的美元费用保护**。接入真实 OpenAI-compatible 模型
+后，务必先按供应商价格填写这三个字段，再依赖 `cost_limit` 控制费用；在此之前仍应依靠
+`max_steps`/`max_time` 等运行上限。`cost_limit` 传 `0` 或 `None` 就关闭限制（CLI 用
+`--cost-limit 0`）。
 
 ## 轨迹 .traj.json 里有什么？
 
@@ -132,7 +146,7 @@ Agent 会在模型查询前后都检查 `max_time`，因此查询返回时若已
 不是。三层各自的职责不同，跑测试的人也不同：
 
 ```
-E2E（最少）   → 开发者显式 opt-in：验证模型真的理解工具 schema
+E2E（最少）   → 开发者显式 opt-in：验证真实模型能调用 bash/submit
 集成（适量）  → CI：每次 push 自动跑，验证模块配合没坏
 单元（最多）  → 写代码时随手跑：改一行，快速确认没坏
 ```
@@ -227,8 +241,8 @@ Action:  sed -i 's/a - b/a + b/' utils.py
 | | 经典 ReAct | 本项目 |
 |---|---|---|
 | 推理可见 | 显式 DISCUSSION 字段 | 隐式，模型内部推理 |
-| 解析方式 | 正则提取 COMMAND | API 保证 JSON schema |
-| 格式错误 | 可能发生，需要重试 | 不会发生 |
+| 解析方式 | 正则提取 COMMAND | API 提供结构化 tool call，分发器校验 arguments |
+| 格式错误 | 可能发生，需要重试 | malformed JSON/非对象参数会变成带原 `tool_call_id` 的 error observation |
 | 可调试 | 强（能看到每一步推理） | 弱（只看到命令和结果） |
 
 选择 function calling 的核心理由：作为教学项目，用 API 原生支持的方式比手写一个脆弱的正则解析器更"干净"——读者不需要理解解析器的实现细节就能看懂 agent 循环的核心逻辑。

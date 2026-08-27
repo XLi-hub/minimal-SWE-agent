@@ -24,21 +24,19 @@ from __future__ import annotations
 import concurrent.futures
 import inspect
 import json
-import os
 import random
 import re
-import tempfile
 import threading
 import traceback
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from mini_agent.agent import save_trajectory_data
 # Environment construction itself remains lazy (no container is started by
 # this import), while exposing the symbol keeps the compatibility helper easy
 # to monkeypatch in tests.
 from mini_agent.environments import get_environment
+from mini_agent.persistence import atomic_write_text, save_trajectory_data
 
 
 # Keep this mapping in the runner, rather than in the CLI, so Python callers
@@ -217,26 +215,6 @@ def remove_from_preds_file(output_path: str | Path, instance_id: str) -> None:
     PredictionStore(output_path).remove(instance_id)
 
 
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Write *text* beside *path* and atomically replace the destination."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-    finally:
-        # If os.replace succeeded this is harmless; if serialization or fsync
-        # failed, no partial target is left behind.
-        temporary_path.unlink(missing_ok=True)
-
-
 def _json_default(value: Any) -> str:
     """Best-effort serializer for provider-specific trajectory objects."""
 
@@ -299,7 +277,7 @@ class PredictionStore:
         with self._lock:
             data = self.read()
             data[instance_id] = value
-            _atomic_write_text(
+            atomic_write_text(
                 self.path,
                 json.dumps(data, indent=2, ensure_ascii=False, default=_json_default) + "\n",
             )
@@ -313,7 +291,7 @@ class PredictionStore:
             if str(instance_id) not in data:
                 return
             del data[str(instance_id)]
-            _atomic_write_text(
+            atomic_write_text(
                 self.path,
                 json.dumps(data, indent=2, ensure_ascii=False, default=_json_default) + "\n",
             )
@@ -324,7 +302,7 @@ class PredictionStore:
         target = self.path if path is None else Path(path)
         with self._lock:
             data = self.read()
-            _atomic_write_text(
+            atomic_write_text(
                 target,
                 json.dumps(data, indent=2, ensure_ascii=False, default=_json_default) + "\n",
             )
@@ -340,7 +318,7 @@ class PredictionStore:
                 json.dumps(value, ensure_ascii=False, default=_json_default) + "\n"
                 for value in data.values()
             )
-            _atomic_write_text(target, text)
+            atomic_write_text(target, text)
         return target
 
 
@@ -423,10 +401,23 @@ def _factory_call(factory: Callable[..., Any], role: str, values: Mapping[str, A
         and parameter.name not in values
     ]
     if required_unknown:
-        positional = positional_values[: len(required_unknown)]
-        if len(positional) < len(required_unknown):
+        # A recognized parameter may already be present in ``kwargs``.  If a
+        # fallback is also passed positionally, signatures such as
+        # ``factory(config, item)`` receive ``config`` twice.  Consume only
+        # conventional role values that have not already been claimed, then
+        # bind the unknown parameter by name.
+        fallback_values = [
+            values[name]
+            for name in role_order
+            if name in values and name not in kwargs
+        ]
+        if len(fallback_values) < len(required_unknown):
             raise TypeError(f"missing required factory argument: {required_unknown[0].name}")
-        return factory(*positional, **kwargs)
+        kwargs.update(
+            (parameter.name, value)
+            for parameter, value in zip(required_unknown, fallback_values)
+        )
+        return factory(**kwargs)
     return factory(**kwargs)
 
 
@@ -757,7 +748,7 @@ class SWEbenchRunner:
                 "submission": result.get("submission", ""),
                 "exception": result.get("exception"),
             }
-            _atomic_write_text(
+            atomic_write_text(
                 self.status_path,
                 json.dumps(statuses, indent=2, ensure_ascii=False, default=_json_default) + "\n",
             )

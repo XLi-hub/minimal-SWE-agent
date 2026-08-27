@@ -96,7 +96,10 @@ class DockerEnvironment(Environment):
                 cmd.extend(["-e", f"{key}={value}"])
         for key, value in self._env.items():
             cmd.extend(["-e", f"{key}={value}"])
-        cmd.extend([self._container_id, *self._interpreter, command])
+        cmd, pid_path = self._tracked_exec_command(
+            cmd,
+            [*self._interpreter, command],
+        )
 
         return run_process(
             cmd,
@@ -104,6 +107,7 @@ class DockerEnvironment(Environment):
             # Keep diagnostics focused on the model-supplied command.  The
             # full docker argv can contain forwarded environment secrets.
             display_command=command,
+            on_timeout=lambda: self._kill_tracked_process(pid_path),
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -115,8 +119,10 @@ class DockerEnvironment(Environment):
     def read_file(self, path: str) -> str:
         if self._container_id is None:
             raise RuntimeError("Container has not been started")
-        cmd = [self._executable, "exec", "-w", self._cwd, self._container_id,
-               "cat", "--", path]
+        cmd, pid_path = self._tracked_exec_command(
+            [self._executable, "exec", "-w", self._cwd],
+            ["cat", "--", path],
+        )
         proc = subprocess.Popen(
             cmd,
             text=True,
@@ -126,7 +132,11 @@ class DockerEnvironment(Environment):
             stderr=subprocess.STDOUT,
             start_new_session=os.name == "posix",
         )
-        out, _ = communicate_with_timeout(proc, timeout=self._timeout)
+        out, _ = communicate_with_timeout(
+            proc,
+            timeout=self._timeout,
+            on_timeout=lambda: self._kill_tracked_process(pid_path),
+        )
         if proc.returncode != 0:
             if "no such file" in out.lower():
                 raise FileNotFoundError(out.strip() or path)
@@ -138,8 +148,10 @@ class DockerEnvironment(Environment):
             raise RuntimeError("Container has not been started")
         # content on stdin (never quoted); path as positional "$1" (never
         # interpolated).  `cat > "$1"` preserves an existing file's mode.
-        cmd = [self._executable, "exec", "-i", "-w", self._cwd, self._container_id,
-               "sh", "-c", 'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", path]
+        cmd, pid_path = self._tracked_exec_command(
+            [self._executable, "exec", "-i", "-w", self._cwd],
+            ["sh", "-c", 'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", path],
+        )
         proc = subprocess.Popen(
             cmd,
             text=True,
@@ -154,6 +166,7 @@ class DockerEnvironment(Environment):
             proc,
             input=content,
             timeout=self._timeout,
+            on_timeout=lambda: self._kill_tracked_process(pid_path),
         )
         if proc.returncode != 0:
             raise OSError(out.strip() or f"failed to write {path!r}")
@@ -193,6 +206,57 @@ class DockerEnvironment(Environment):
     # ------------------------------------------------------------------
     # internal
     # ------------------------------------------------------------------
+
+    def _tracked_exec_command(
+        self,
+        prefix: list[str],
+        payload: list[str],
+    ) -> tuple[list[str], str]:
+        """Wrap a Docker exec payload in a killable container process group."""
+        if self._container_id is None:
+            raise RuntimeError("Container has not been started")
+        pid_path = f"/tmp/mini-agent-exec-{uuid.uuid4().hex}.pid"
+        tracker = (
+            'pid_file=$1; shift; printf "%s\\n" "$$" > "$pid_file"; '
+            'trap \'rm -f "$pid_file"\' EXIT; "$@"'
+        )
+        return [
+            *prefix,
+            self._container_id,
+            "sh",
+            "-c",
+            tracker,
+            "mini-agent-exec",
+            pid_path,
+            *payload,
+        ], pid_path
+
+    def _kill_tracked_process(self, pid_path: str) -> None:
+        """Kill a timed-out Docker exec process group inside the container."""
+        if self._container_id is None:
+            return
+        cleanup = (
+            'pid_file=$1; '
+            'if pid=$(cat "$pid_file" 2>/dev/null); then '
+            'kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; '
+            'fi; rm -f "$pid_file"'
+        )
+        subprocess.run(
+            [
+                self._executable,
+                "exec",
+                self._container_id,
+                "sh",
+                "-c",
+                cleanup,
+                "mini-agent-cleanup",
+                pid_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
 
     def _start_container(self) -> None:
         """Launch the container in detached mode with a long sleep."""

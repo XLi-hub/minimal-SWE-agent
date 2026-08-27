@@ -1,7 +1,9 @@
 """Tests for DockerEnvironment — unit tests (always run) + integration (skip if no Docker)."""
 
+import os
 import signal
 import subprocess
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -184,6 +186,7 @@ def test_execute_uses_custom_timeout():
         env.cleanup()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
 def test_execute_timeout_kills_and_reaps_process_group():
     """A timed-out docker exec must not leave its client process running."""
     with patch("subprocess.run") as mock_run, \
@@ -207,6 +210,9 @@ def test_execute_timeout_kills_and_reaps_process_group():
         assert result["returncode"] == -1
         assert result["output"] == "partial\n"
         assert result["exception_info"].endswith(": sleep 10")
+        cleanup_cmd = mock_run.call_args_list[-1].args[0]
+        assert cleanup_cmd[:3] == ["docker", "exec", "abc123def"]
+        assert "kill -KILL" in cleanup_cmd[-3]
         env.cleanup()
 
 
@@ -290,6 +296,7 @@ def test_read_file_missing_raises_file_not_found():
         env.cleanup()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
 def test_read_file_timeout_kills_and_reaps_process_group():
     with patch("subprocess.run") as mock_run, \
          patch("subprocess.Popen") as mock_popen, \
@@ -342,6 +349,7 @@ def test_write_file_passes_content_on_stdin():
         env.cleanup()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
 def test_write_file_timeout_kills_and_reaps_process_group():
     with patch("subprocess.run") as mock_run, \
          patch("subprocess.Popen") as mock_popen, \
@@ -432,5 +440,25 @@ def test_docker_command_failure():
     try:
         output = env.execute("bash -c 'echo failing >&2; exit 42'")
         assert "failing" in output
+    finally:
+        env.cleanup()
+
+
+@docker_integration
+@docker_required
+def test_docker_timeout_kills_container_process_group():
+    """A timed-out exec must not leave descendants running in the container."""
+    env = DockerEnvironment(image="python:3.11-slim")
+    try:
+        result = env.execute(
+            "rm -f /tmp/mini-agent-leaked; "
+            "(sleep 1; echo leaked > /tmp/mini-agent-leaked) & wait",
+            timeout=0.2,
+        )
+        assert result["returncode"] == -1
+
+        time.sleep(1.2)
+        probe = env.execute("test ! -e /tmp/mini-agent-leaked")
+        assert probe["returncode"] == 0
     finally:
         env.cleanup()

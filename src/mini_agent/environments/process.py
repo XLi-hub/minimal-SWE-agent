@@ -3,6 +3,7 @@
 import os
 import signal
 import subprocess
+from collections.abc import Callable
 from typing import Any
 
 from mini_agent.environments import ExecutionResult
@@ -16,6 +17,7 @@ def run_process(
     *,
     timeout: float | None,
     display_command: Any = _MISSING,
+    on_timeout: Callable[[], None] | None = None,
     **popen_kwargs: Any,
 ) -> ExecutionResult:
     """Run a subprocess and normalize its result for an environment.
@@ -28,7 +30,11 @@ def run_process(
     shown_command = command if display_command is _MISSING else display_command
     try:
         process = subprocess.Popen(command, **popen_kwargs)
-        stdout, _ = communicate_with_timeout(process, timeout=timeout)
+        stdout, _ = communicate_with_timeout(
+            process,
+            timeout=timeout,
+            on_timeout=on_timeout,
+        )
         return ExecutionResult(
             output=decode_output(stdout),
             returncode=returncode(process),
@@ -55,6 +61,7 @@ def communicate_with_timeout(
     *,
     timeout: float | None,
     input: Any = _MISSING,
+    on_timeout: Callable[[], None] | None = None,
 ) -> tuple[Any, Any]:
     """Communicate with *process*, killing and reaping it on timeout.
 
@@ -70,6 +77,14 @@ def communicate_with_timeout(
         return process.communicate(input=input, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         terminate_process_group(process)
+        if on_timeout is not None:
+            try:
+                on_timeout()
+            except Exception:
+                # Timeout cleanup is best effort.  The original timeout must
+                # remain the observable failure even if backend-specific
+                # cleanup (for example a second Docker exec) is unavailable.
+                pass
         # Keep the partial output available to callers handling the original
         # exception.  This also lets run_process preserve its prior output
         # preference after the process has been killed.
@@ -103,7 +118,15 @@ def terminate_process_group(process: subprocess.Popen) -> None:
         if os.name == "posix":
             os.killpg(process.pid, signal.SIGKILL)
         else:
-            process.kill()
+            # ``Popen.kill`` only terminates the direct child on Windows.
+            # taskkill /T walks the descendant tree, matching POSIX killpg as
+            # closely as the standard Windows tools allow.
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
     except ProcessLookupError:
         # The command exited between TimeoutExpired and cleanup.
         pass

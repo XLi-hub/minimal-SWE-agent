@@ -1,3 +1,4 @@
+import os
 import signal
 import subprocess
 from unittest.mock import MagicMock, call, patch
@@ -65,6 +66,7 @@ def test_local_environment_timeout():
     assert "timed out" in result["exception_info"]
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
 def test_local_environment_timeout_kills_and_reaps_process_group():
     process = MagicMock(pid=1234)
     process.communicate.side_effect = [

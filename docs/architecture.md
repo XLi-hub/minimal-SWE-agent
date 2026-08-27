@@ -60,6 +60,8 @@ DeepSeek     Local / Docker      # 实现：具体的 API 调用 / shell 执行
 
 cost.py                          # 纯函数 compute_cost(response, config) → USD（只依赖 config 包）
 context.py                       # 纯函数 token 估算 + LLM 摘要（只依赖 config 包）
+persistence.py                   # 原子写入 + 轨迹/事件 sidecar 持久化
+environments/process.py          # Local/Docker 共用的子进程超时、终止与回收
 config/                          # 配置包：YAML 加载 + recursive_merge + pydantic 校验 + Jinja2 渲染
 ```
 
@@ -123,7 +125,7 @@ class Agent:
 # 接口（ABC）—— 定义"能做什么"
 class Environment(ABC):
     @abstractmethod
-    def execute(self, command: str, timeout: int = 30) -> str: ...
+    def execute(self, command: str, timeout: int = 30) -> ExecutionResult: ...
     def cleanup(self) -> None: ...
 
 # 实现 —— 具体"怎么做"
@@ -172,13 +174,18 @@ compute_cost(response)  # ≈ 0.14 * 0.5 + 0.0028 * 0.5 = 0.0714 USD
 ```
 
 `cost_limit`（默认 3.0，`0`/`None` 关闭）是第三种"兜底"——像 `max_steps`/`max_time` 一样，
-在累计成本达到阈值后停止，`exit_status` 记为 `"cost_limit"`。成本是在模型响应返回后才能
+在累计成本达到阈值后停止，`exit_status` 记为 `"cost_limit"`。但它只在配置了
+非零供应商单价时才能提供真实的美元保护；默认价格全为 0。成本是在模型响应返回后才能
 精确计算的，所以 Agent 会在派发工具前立即复查；即使这次查询刚好越过预算，也不会继续
 执行文件写入或 shell 命令。
 
 `compute_cost` 独立成 `cost.py`（只依赖 config 包）而不是塞进 `model.py`，是为了不破坏
 `agent.py` 的延迟 import model 约定——`model.py` 在模块级 import openai + 执行
 load_dotenv，agent 不想在 import 时就被迫加载它们。
+
+轨迹落盘也独立在 `persistence.py`。Agent 和 SWE-bench runner 共用同一套原子写入、
+`.traj.json` 与 `.events.jsonl` 分离规则；benchmark 层因此不需要为了写轨迹而依赖
+Agent 的运行编排实现。
 
 ## 参考：mini-swe-agent 怎么做的
 

@@ -2,8 +2,6 @@
 
 import copy
 import json
-import os
-import tempfile
 import time
 import traceback
 from pathlib import Path
@@ -13,6 +11,11 @@ from mini_agent import __version__
 from mini_agent.config import Config, UNSET, get_default_config, render_template
 from mini_agent.context import compress, should_compress
 from mini_agent.cost import compute_cost
+from mini_agent.persistence import (
+    atomic_write_text as _atomic_write_text,
+    save_trajectory_data,
+    trajectory_events_path as _events_path,
+)
 from mini_agent.tools import (
     append_skipped_tool_result,
     execute_tool_call,
@@ -199,7 +202,12 @@ class Agent:
     def step(self) -> None:
         """One iteration: enforce limits, compress if needed, query, execute tools."""
         self._check_limits()
-        self._maybe_compress()
+        compression_attempted = self._maybe_compress()
+        # Compression is itself a model request and can consume the remaining
+        # wall-clock or cost budget.  Do not issue the main model request once
+        # that internal call has exhausted either limit.
+        if compression_attempted:
+            self._check_tool_limits()
         message = self.query()
         if message is not None:
             # The model response itself may push us over a wall-clock or cost
@@ -305,17 +313,19 @@ class Agent:
             # Raise only after the full assistant batch has been acknowledged.
             raise Submitted(submission.submission)
 
-    def _maybe_compress(self) -> None:
+    def _maybe_compress(self) -> bool:
         """Summarize the middle of the history when it nears the context window.
 
         A compression failure is non-fatal: it is silently skipped and the loop
-        continues with the full (uncompressed) history.
+        continues with the full (uncompressed) history.  The return value says
+        whether compression may have issued a model request, so the caller can
+        re-check time and cost budgets before the main query.
         """
         if not should_compress(
             self.messages, self._tools,
             self.context_window, self.compress_threshold, self.reserve_tokens,
         ):
-            return
+            return False
         try:
             compressed, summary_response = compress(
                 self.messages, self.model, self.keep_last_n_turns, config=self.config,
@@ -344,8 +354,12 @@ class Agent:
                 )
             # 就地切片赋值，保持 self.messages / result["messages"] 别名一致。
             self.messages[:] = compressed
+            return summary_response is not None
         except Exception:
-            pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
+            # The failure may have happened after the summarizer request was
+            # sent.  Re-checking budgets is safer than immediately issuing a
+            # second request with unknown elapsed time/cost.
+            return True
 
     def serialize(self) -> dict:
         """Serialize the agent trajectory to a JSON-compatible dict.
@@ -428,64 +442,6 @@ class Agent:
                 # chance to persist the complete in-memory event list.
                 self._event_log_stream_error = f"{type(exc).__name__}: {exc}"
                 self._event_log_path = None
-
-
-def _events_path(path: Path) -> Path:
-    """Return the sidecar event-log path for a trajectory path."""
-
-    suffix = ".traj.json"
-    if path.name.endswith(suffix):
-        stem = path.name[:-len(suffix)]
-    else:
-        stem = path.stem
-    return path.with_name(f"{stem}.events.jsonl")
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Atomically replace *path* with UTF-8 *text*."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
-def save_trajectory_data(path: Path, data: dict) -> dict:
-    """Persist a compact trajectory and its append-only raw event sidecar.
-
-    The returned mapping is exactly what is written to the main trajectory.
-    ``serialize()`` keeps events inline for in-memory callers; persistence
-    moves them to JSONL and leaves a relative, count-checked reference.
-    """
-
-    persisted = copy.deepcopy(data)
-    events = persisted.pop("events", None)
-    if events is not None:
-        event_path = _events_path(path)
-        event_text = "".join(
-            json.dumps(event, ensure_ascii=False, default=repr) + "\n"
-            for event in events
-        )
-        _atomic_write_text(event_path, event_text)
-        persisted["event_log"] = {
-            "path": event_path.name,
-            "format": "mini-agent-events-0.1",
-            "event_count": len(events),
-        }
-    _atomic_write_text(
-        path,
-        json.dumps(persisted, indent=2, ensure_ascii=False, default=repr) + "\n",
-    )
-    return persisted
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key

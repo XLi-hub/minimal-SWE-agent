@@ -1527,6 +1527,42 @@ def test_compression_accounts_for_summary_call():
     assert agent.cost > 0
 
 
+def test_summary_cost_limit_stops_before_next_loop_query():
+    """A summary request that exhausts the budget prevents another API call."""
+    calls = {"loop": 0, "summary": 0}
+
+    def fake_query(messages, tools=None):
+        if tools:
+            calls["loop"] += 1
+            return _make_response(
+                "Run.",
+                tool_calls=[
+                    _make_tool_call(f"c{calls['loop']}", "bash", {"command": "ls"})
+                ],
+                usage=_make_usage(0, 0),
+            )
+        calls["summary"] += 1
+        return _make_response("## Task\nsummary", usage=_make_usage(1_000_000, 0))
+
+    model = MagicMock()
+    model.query.side_effect = fake_query
+    env = MagicMock()
+    env.execute.return_value = "out"
+
+    result = Agent(
+        model,
+        env,
+        config=PRICED_DEFAULTS,
+        context_window=100,
+        reserve_tokens=10,
+        keep_last_n_turns=0,
+    ).run("task", cost_limit=0.01)
+
+    assert result["exit_status"] == "cost_limit"
+    assert calls == {"loop": 1, "summary": 1}
+    assert model.query.call_count == 2
+
+
 def test_compression_does_not_break_no_tool_calls():
     """首轮即 no_tool_calls 时（无中间内容）不触发摘要。"""
     model = MagicMock()

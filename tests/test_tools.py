@@ -304,6 +304,27 @@ def test_registered_but_disabled_tool_is_not_executed():
     assert "disabled" in messages[0]["content"]
 
 
+@pytest.mark.parametrize("arguments", ["{not-json", '[{"command": "ls"}]'])
+def test_invalid_tool_arguments_get_one_protocol_complete_error(arguments):
+    env = FakeEnv()
+    env.execute = MagicMock(wraps=env.execute)
+    messages: list = []
+    tool_call = _tc("bad-args", "bash", {})
+    tool_call.function.arguments = arguments
+
+    execute_tool_call(tool_call, messages, env)
+
+    assert messages == [
+        {
+            "role": "tool",
+            "tool_call_id": "bad-args",
+            "content": messages[0]["content"],
+        }
+    ]
+    assert "invalid arguments" in messages[0]["content"]
+    env.execute.assert_not_called()
+
+
 def test_unregistered_configured_tool_is_rejected():
     cfg = build_config(['tools.enabled=["bash","missing"]'])
     with pytest.raises(ValueError, match="not registered"):

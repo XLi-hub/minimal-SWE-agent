@@ -30,9 +30,13 @@ environments/
 ```python
 class Environment(ABC):
     @abstractmethod
-    def execute(self, command: str, timeout: int = 30) -> str: ...
+    def execute(self, command: str, timeout: int = 30) -> ExecutionResult: ...
     def cleanup(self) -> None: ...
 ```
+
+`ExecutionResult` 是一个 mapping，至少包含 `output`、`returncode` 和 `exception_info`。
+命令返回非零退出码时仍是正常结果；执行器本身超时或启动失败时，通常以
+`returncode=-1` 和 `exception_info` 描述，而不是把 shell 的失败误当成 Python 异常。
 
 - `execute` 是 `@abstractmethod` —— 子类必须实现，否则实例化时报错
 - `cleanup` 有默认空实现 —— Docker 需要（停止容器），Local 不需要
@@ -62,9 +66,13 @@ cleanup  → docker stop X                                  # 销毁容器
 
 方案 B（容器常驻 + docker exec）:
     __init__ → docker run -d ... sleep 2h   ← 容器一直活着
-    execute → docker exec X bash -c "cmd"   ← 状态保持
+    execute → docker exec X bash -c "cmd"   ← 文件系统和容器进程保持；每次是新 shell
     容器最长活 2h，到时候自己死掉
 ```
+
+常驻容器保持的是容器文件系统变更以及作为 PID 1 的长时间运行进程，降低了重复启动
+容器的开销；它**不**保持某次 `docker exec` 中 shell 的 cwd 或 `export` 环境变量。每次
+调用都会用配置的 cwd 启动新的 shell，并重新传入该次调用的环境变量。
 
 ## 注册表模式（Registry Pattern）
 

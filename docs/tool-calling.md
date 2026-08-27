@@ -46,12 +46,16 @@ DeepSeek 的 API 兼容 OpenAI 的 function calling 协议。模型不再输出�
 }
 ```
 
-Agent 不再需要 `parse_action()` 函数——`msg.tool_calls` 直接就是结构化的命令列表。
+Agent 不再需要从自然语言中提取命令——`msg.tool_calls` 直接提供结构化的调用列表。
+不过 `function.arguments` 仍是 provider 返回的 JSON 字符串，不能假设它永远可解析或解码
+为对象。若遇到 malformed JSON，或参数 JSON 解码后是数组/标量等非对象，分发器会捕获
+错误，并为相应的 `tool_call_id` 追加一条协议完整的 `tool` error observation；模型能看到
+这个错误并在后续轮次修正调用。
 
 **新能力**：
 - 模型可以一次请求调多个工具（如同时 `ls` 和 `cat`）
 - `lines` 参数让模型自主控制返回行数
-- 100% 准确——模型被训练来严格遵守 JSON schema
+- 有结构化约束——但仍需校验 provider 返回的 JSON 参数，不能保证完全准确
 
 ### 输出截断
 
@@ -156,7 +160,7 @@ Agent.run() 返回结构化结果：
 | `no_tool_calls` | 意外退出 | 模型没调任何工具（fallback） |
 | `max_steps` | 达到步数上限 | 循环到达 `max_steps` 限制（默认 250） |
 | `max_time` | 达到时长上限 | 运行超过 `max_time`（默认 1800s） |
-| `cost_limit` | 达到成本上限 | 累计成本超过 `cost_limit`（默认 3.0 USD） |
+| `cost_limit` | 达到成本上限 | 累计成本超过 `cost_limit`（默认 3.0；需配置非零供应商单价才有真实 USD 保护） |
 | `interrupted` | 用户打断 | Ctrl+C |
 | `error` | 异常 | Agent 内部未处理的错误 |
 

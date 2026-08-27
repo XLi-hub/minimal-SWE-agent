@@ -37,7 +37,7 @@ pip install -e ".[dev]"
 # 配置 API Key（创建 .env 文件）
 echo 'OPENAI_API_KEY=你的key' > .env
 
-# 日常使用（本地环境；安装后推荐）
+# 日常使用（本地环境；命令会直接在宿主机执行）
 minimal
 
 # 不安装 console script 时，也可以这样启动
@@ -49,6 +49,10 @@ python main.py
 # 使用 Docker 隔离环境
 minimal --env docker --image python:3.11-slim
 ```
+
+注意：`LocalEnvironment` 会直接在宿主机 shell 中执行模型请求的命令，模型可以读写当前
+工作树并运行任意命令；本地模式不是沙箱。只运行自己信任的任务，或改用 Docker 环境做
+隔离，并检查镜像、工作目录和环境变量转发配置。
 
 **试试这些任务**：
 
@@ -169,7 +173,7 @@ minimal / python -m mini_agent  ──►  mini_agent.cli  ──►  Agent(mode
 三个组件通过**依赖注入**组装，各自只依赖接口：
 
 - `Model.query(messages, tools) → OpenAI response`
-- `Environment.execute(command, timeout) → {output, returncode, exception_info}`
+- `Environment.execute(command, timeout) → ExecutionResult`（mapping，含 `output`、`returncode`、`exception_info`）
 
 换模型供应商、换 Docker、写 mock 测试——改配置/构造函数即可，Agent 代码不动。
 
@@ -202,7 +206,7 @@ Agent 自动从每次模型调用的 `response.usage`（`prompt_tokens` / `compl
 
 - 单价定义在 [config/default.yaml](src/mini_agent/config/default.yaml) 的 `cost` 段（`price_input_per_1m` 等，默认 0；接入具体供应商后按需配置）。
 - 累计成本写入轨迹的 `info.model_stats.instance_cost`（USD）。
-- 配好供应商单价后，用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本达到上限就停止，`exit_status` 为 `"cost_limit"`，且不会继续派发本轮工具。
+- 配好供应商单价后，用 `cost_limit` 设定上限（默认 3.0，`0` 或 `None` 关闭）：累计成本达到上限就停止，`exit_status` 为 `"cost_limit"`，且不会继续派发本轮工具。默认配置的单价均为 0，因此未填写真实价格时，`cost_limit` 不能提供真实的美元费用保护。
 
 ```python
 agent.run("fix the bug", output="run.traj.json", cost_limit=1.5)
@@ -301,7 +305,7 @@ conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -q \
   -p no:anyio -m "not e2e and not docker"
 
-# E2E — 必须显式 opt-in，真调 OpenAI-compatible API，会产生费用
+# E2E — 必须显式 opt-in，真调 OpenAI-compatible API，验证 bash/submit，会产生费用
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v \
   -p no:anyio -m e2e
 
