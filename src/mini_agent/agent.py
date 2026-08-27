@@ -328,13 +328,13 @@ class Agent:
             return False
         try:
             compressed, summary_response = compress(
-                self.messages, self.model, self.keep_last_n_turns, config=self.config,
+                self.messages,
+                self.model,
+                self.keep_last_n_turns,
+                config=self.config,
+                on_response=self._account_summary_response,
             )
-            # 摘要也是一次真实 API 调用 —— 计入调用次数与成本，
-            # 否则 model_stats 会漏算摘要那次的 token 用量。
             if summary_response is not None:
-                self.n_calls += 1
-                self.cost += compute_cost(summary_response, self.config)
                 summary_message = next(
                     (
                         copy.deepcopy(message)
@@ -360,6 +360,11 @@ class Agent:
             # sent.  Re-checking budgets is safer than immediately issuing a
             # second request with unknown elapsed time/cost.
             return True
+
+    def _account_summary_response(self, response: object) -> None:
+        """Account for a summarizer response before its body is parsed."""
+        self.n_calls += 1
+        self.cost += compute_cost(response, self.config)
 
     def serialize(self) -> dict:
         """Serialize the agent trajectory to a JSON-compatible dict.

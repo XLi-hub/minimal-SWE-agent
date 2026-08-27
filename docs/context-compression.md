@@ -100,19 +100,24 @@ should_compress(messages, tools, context_window, threshold, reserve)
 ```python
 if should_compress(...):
     try:
-        compressed, summary_response = compress(messages, self.model, self.keep_last_n_turns)
+        compressed, summary_response = compress(
+            messages,
+            self.model,
+            self.keep_last_n_turns,
+            on_response=self._account_summary_response,
+        )
         if summary_response is not None:            # 摘要也是一次真实 API 调用
-            self.n_calls += 1
-            self.cost += compute_cost(summary_response)
             self._record_event(                      # 原始事件只追加，不覆盖
                 "context_compression", summary_message=...
             )
         messages[:] = compressed                    # 只替换模型 context view
     except Exception:
-        pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
+        pass  # 摘要失败 → 保留完整历史
+    self._check_tool_limits()  # 摘要可能已耗尽时间或费用，不能直接发下一次请求
 ```
 
-`summarize()` 连同完整 response 一起返回，循环据此把摘要那次的 `usage` 计入
+`summarize()` 在 provider response 返回后、解析正文前调用记账回调，再连同完整 response
+一起返回。因此即使 response 正文 malformed，只要其中有 usage，摘要调用仍会计入
 `n_calls`（`api_calls`）和 `cost`（`instance_cost`）——统计与主循环查询一视同仁。
 没有发生摘要时（无中间内容）`summary_response` 为 `None`，跳过记账。
 

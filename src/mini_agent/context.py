@@ -15,6 +15,7 @@ Agent 循环每步都会往 ``messages`` 里追加 assistant/tool 消息，历�
 """
 
 import json
+from collections.abc import Callable
 
 from mini_agent.config import Config, UNSET, get_default_config, render_template
 
@@ -88,8 +89,13 @@ def flatten(units: list[list[dict]]) -> str:
     return "\n".join(lines)
 
 
-def summarize(model, existing_summary: str | None, new_lines: str,
-              config: Config | None = None) -> tuple[str, object]:
+def summarize(
+    model,
+    existing_summary: str | None,
+    new_lines: str,
+    config: Config | None = None,
+    on_response: Callable[[object], None] | None = None,
+) -> tuple[str, object]:
     """一次无工具的 LLM 调用，把 ``new_lines`` 折叠进 ``existing_summary``。
 
     返回 ``(summary_text, response)`` —— 连同完整 response 一起返回，调用方才能
@@ -101,11 +107,20 @@ def summarize(model, existing_summary: str | None, new_lines: str,
         new_lines=new_lines,
     )
     response = model.query([{"role": "user", "content": prompt}])
+    if on_response is not None:
+        # Account for a provider response before parsing it.  A malformed or
+        # incomplete response may still contain billable usage metadata.
+        on_response(response)
     return response.choices[0].message.content, response
 
 
-def compress(messages, model, keep_last_n_turns=UNSET,
-             config: Config | None = None) -> tuple[list[dict], object | None]:
+def compress(
+    messages,
+    model,
+    keep_last_n_turns=UNSET,
+    config: Config | None = None,
+    on_response: Callable[[object], None] | None = None,
+) -> tuple[list[dict], object | None]:
     """压缩历史，返回 ``(新列表, 摘要响应)``：``[system, user(task)] + 摘要 + 最近 N 个单元``。
 
     只压缩「中间」——system prompt 和原始任务永不动，最近 ``keep_last_n_turns``
@@ -147,7 +162,11 @@ def compress(messages, model, keep_last_n_turns=UNSET,
         return list(messages), None  # 中间只有旧摘要，无新内容
 
     summary_text, response = summarize(
-        model, existing_summary, flatten(to_summarize), config=config
+        model,
+        existing_summary,
+        flatten(to_summarize),
+        config=config,
+        on_response=on_response,
     )
     summary_msg = {"role": "user", "content": f"{marker}\n{summary_text}"}
     return [messages[0], messages[1], summary_msg] + [
