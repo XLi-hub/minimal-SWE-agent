@@ -142,6 +142,9 @@ harness/runner 可以在不泄漏隐藏测试的前提下做这些事情：
 - `d3c56fa`：修复 runner compact factory 参数重复/遗漏绑定；
 - `ca78a76`：摘要调用后重新检查时间与费用，malformed summary response 也保留 usage；
 - `7fcecfe`：宿主机超时时同步清理容器内 exec 进程组，Windows 清理后代进程树；
+- `5d33c45`：压缩摘要明确分离契约、观察证据、精确测试范围和未验证假设；
+- `5181ce9`、`3993ac1`、`785fced`：增加通用 draft submission gate，在 SWE-bench
+  中启用无 hidden-test 反馈的契约审计，并让完整轨迹准确区分 draft 与 final submit；
 - 完整事件 sidecar、压缩模型视图和官方 harness report 继续分别保存。
 
 这些改进提高运行可信度，但不会自动让错误 patch 变正确。下一层需要直接针对“验证策略”改进。
@@ -151,7 +154,8 @@ harness/runner 可以在不泄漏隐藏测试的前提下做这些事情：
 ### 1. 证据导向摘要
 
 把 summary 从“进度回顾”改成“可继续推理的状态”：必须保留 invariants/contracts、证据、
-未验证假设、测试覆盖空白和下一步关闭条件。
+未验证假设、测试覆盖空白和下一步关闭条件。该项已经落地；是否提升 resolved rate 仍需用
+固定变量的复现实验判断。
 
 ### 2. 提交前二阶段审计
 
@@ -164,7 +168,8 @@ harness/runner 可以在不泄漏隐藏测试的前提下做这些事情：
 - 旧测试通过能证明什么，不能证明什么？
 
 完成审计后第二次 `submit` 才终止。这个机制不能保证成功，但会把“我觉得好了”转换成一组
-必须关闭的证据问题。
+必须关闭的证据问题。该项已经在 SWE-bench profile 启用，第一次 draft 不运行 hidden tests，
+也不会得到 evaluator 反馈。
 
 ### 3. 可比较的实验设计
 
