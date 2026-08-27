@@ -151,6 +151,7 @@ class EnvironmentConfig(BaseModel):
     run_args: list[str] = Field(default_factory=lambda: ["--rm"])
     pull_timeout: int = Field(default=120, gt=0)
     interpreter: list[str] = Field(default_factory=lambda: ["bash", "-lc"])
+    block_network_commands: bool = False
 
     @field_validator("interpreter")
     @classmethod

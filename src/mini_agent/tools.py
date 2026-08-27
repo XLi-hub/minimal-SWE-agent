@@ -4,7 +4,10 @@ These are extracted from ``agent.py`` so the agent loop stays focused on
 orchestration, while tool-specific logic lives in its own module.
 """
 
+import copy
 import json
+import re
+import shlex
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -20,6 +23,27 @@ from mini_agent.exceptions import Submitted
 # context.  Keep this as a code-level safety limit for backwards-compatible
 # configurations that do not yet expose a character setting.
 DEFAULT_MAX_CHARS = 20_000
+
+_NETWORK_CLIENTS = {"curl", "wget", "ftp", "sftp", "scp", "rsync"}
+_PACKAGE_MANAGER_VERBS = {
+    "apt": {"install", "update", "upgrade", "download"},
+    "apt-get": {"install", "update", "upgrade", "download"},
+    "apk": {"add", "update", "upgrade", "fetch"},
+    "yum": {"install", "update", "upgrade", "download"},
+    "dnf": {"install", "update", "upgrade", "download"},
+    "npm": {"install", "add", "update"},
+    "yarn": {"install", "add", "upgrade"},
+    "pnpm": {"install", "add", "update"},
+    "conda": {"install", "update", "create"},
+    "mamba": {"install", "update", "create"},
+    "micromamba": {"install", "update", "create"},
+    "gem": {"install", "update"},
+    "cargo": {"install"},
+    "go": {"get", "install"},
+}
+_GIT_NETWORK_VERBS = {"clone", "fetch", "pull", "push", "ls-remote"}
+_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+_CONTROL_WORDS = {"!", "if", "then", "elif", "while", "until", "do"}
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +252,17 @@ def _handle_bash(args: dict[str, Any], context: ToolContext) -> ToolResult:
     if not command:
         return ToolResult("Error: 'bash' requires a 'command' argument.")
 
+    if context.config.environment.block_network_commands:
+        blocked = find_network_command(command)
+        if blocked is not None:
+            output = (
+                "Error: command blocked by policy because external network "
+                f"access is disabled for this run: {blocked}"
+            )
+            print("Action:", command)
+            print("Output:", output)
+            return ToolResult(output)
+
     defaults = context.config.tools
     max_lines = args.get("lines", defaults.default_max_lines)
     max_chars = getattr(defaults, "default_max_chars", DEFAULT_MAX_CHARS)
@@ -380,8 +415,114 @@ def get_enabled_tool_schemas(config: Config | None = None) -> list[dict[str, Any
                 f"configured tool {name!r} is not registered; "
                 f"registered tools: {registered}"
             )
-        schemas.append(definition.schema)
+        schema = definition.schema
+        if name == "bash" and cfg.environment.block_network_commands:
+            schema = copy.deepcopy(schema)
+            schema["function"]["description"] = (
+                "Execute a bash command in the prepared offline environment. "
+                "External downloads, remote Git operations, and package-manager "
+                "network commands are blocked; use only repository files and "
+                "already-installed dependencies. "
+                + schema["function"]["description"].replace(
+                    "e.g. pip install or git clone.",
+                    "e.g. long local builds or test suites.",
+                ).replace(
+                    "slow commands like pip install, git clone, or long builds.",
+                    "slow local commands such as builds or test suites.",
+                )
+            )
+            schema["function"]["parameters"]["properties"]["timeout"]["description"] = (
+                "Maximum seconds to wait for the local command (default 30). "
+                "Set higher for slow builds or test suites; external downloads "
+                "and remote package installation are blocked in this run."
+            )
+        schemas.append(schema)
     return schemas
+
+
+def find_network_command(command: str) -> str | None:
+    """Return the first obvious external-network command in a shell string."""
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        # The shell will report malformed quoting.  Network isolation remains
+        # enforced independently by the container runtime.
+        return None
+
+    segment: list[str] = []
+    for token in [*tokens, ";"]:
+        if token and all(char in ";&|()" for char in token):
+            blocked = _network_command_in_segment(segment)
+            if blocked is not None:
+                return blocked
+            segment = []
+        else:
+            segment.append(token)
+    return None
+
+
+def _network_command_in_segment(tokens: list[str]) -> str | None:
+    tokens = list(tokens)
+    while tokens and tokens[0] in _CONTROL_WORDS:
+        tokens.pop(0)
+    while tokens and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[0]):
+        tokens.pop(0)
+    if not tokens:
+        return None
+
+    executable = tokens.pop(0).rsplit("/", 1)[-1].lower()
+    while executable in {"sudo", "env", "command", "nohup", "timeout"}:
+        if executable == "timeout":
+            while tokens and tokens[0].startswith("-"):
+                tokens.pop(0)
+            if tokens:
+                tokens.pop(0)  # duration
+        else:
+            while tokens and (
+                tokens[0].startswith("-")
+                or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[0])
+            ):
+                tokens.pop(0)
+        if not tokens:
+            return None
+        executable = tokens.pop(0).rsplit("/", 1)[-1].lower()
+
+    if executable in _SHELLS and "-c" in tokens:
+        index = tokens.index("-c")
+        if index + 1 < len(tokens):
+            return find_network_command(tokens[index + 1])
+
+    lowered = [token.lower() for token in tokens]
+    if executable in _NETWORK_CLIENTS:
+        return executable
+    if re.fullmatch(r"pip(?:\d+(?:\.\d+)*)?", executable):
+        pip_verb = next((token for token in lowered if token in {"install", "download"}), "")
+        if pip_verb == "download" or (pip_verb == "install" and "--no-index" not in lowered):
+            return f"{executable} {pip_verb}"
+    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", executable):
+        if len(lowered) >= 2 and lowered[0:2] == ["-m", "pip"]:
+            pip_verb = next(
+                (token for token in lowered[2:] if token in {"install", "download"}),
+                "",
+            )
+            if pip_verb == "download" or (
+                pip_verb == "install" and "--no-index" not in lowered
+            ):
+                return f"{executable} -m pip {pip_verb}"
+    if executable == "git":
+        git_verb = next((token for token in lowered if token in _GIT_NETWORK_VERBS), "")
+        if git_verb:
+            return f"git {git_verb}"
+    if executable in _PACKAGE_MANAGER_VERBS:
+        manager_verb = next(
+            (token for token in lowered if token in _PACKAGE_MANAGER_VERBS[executable]),
+            "",
+        )
+        if manager_verb:
+            return f"{executable} {manager_verb}"
+    return None
 
 
 def execute_tool_call(tc, messages: list[dict], environment,

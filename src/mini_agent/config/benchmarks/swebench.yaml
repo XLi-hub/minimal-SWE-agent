@@ -54,6 +54,9 @@ environment:
   run_args:
     - --rm
     - --network=none
+  # Reject obvious download/package-manager commands before they reach the
+  # shell. --network=none remains the security boundary for indirect attempts.
+  block_network_commands: true
   # Preserve a failing producer's status in commands such as `pytest | tail`.
   interpreter:
     - bash
