@@ -112,6 +112,10 @@ def test_benchmark_config_is_discoverable_and_valid():
     assert config.environment.run_args == ["--rm", "--network=none"]
     assert config.environment.interpreter == ["bash", "-o", "pipefail", "-c"]
     assert config.environment.block_network_commands is True
+    assert config.agent.submission_review_prompt is not None
+    assert "underlying invariant or public contract" in config.agent.submission_review_prompt
+    assert "circular evidence" in config.agent.submission_review_prompt
+    assert "without evaluator feedback" in config.agent.instance_template
 
 
 def test_swebench_interpreter_does_not_mask_pipeline_failures():
