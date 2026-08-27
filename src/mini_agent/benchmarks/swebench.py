@@ -371,8 +371,6 @@ def _factory_call(factory: Callable[..., Any], role: str, values: Mapping[str, A
     accepts_var_kwargs = any(
         parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters
     )
-    if accepts_var_kwargs:
-        return factory(**dict(values))
 
     kwargs = {
         name: value
@@ -395,20 +393,32 @@ def _factory_call(factory: Callable[..., Any], role: str, values: Mapping[str, A
         "environment": ("instance", "image", "config"),
         "agent": ("model", "environment", "config", "instance"),
     }[role]
-    positional_values = [values[name] for name in role_order if name in values]
+    consumed_value_names = set(kwargs)
 
     # A named positional-or-keyword parameter that was not in ``values`` is
     # optional or will produce the same clear TypeError as the factory itself.
     # Positional-only parameters cannot be passed in kwargs.
     if positional_only:
         positional = []
-        for index, parameter in enumerate(positional_only):
+        remaining_fallback_names = [
+            name for name in role_order if name in values and name not in consumed_value_names
+        ]
+        for parameter in positional_only:
             if parameter.name in values:
                 positional.append(values[parameter.name])
-            elif index < len(positional_values):
-                positional.append(positional_values[index])
+                consumed_value_names.add(parameter.name)
+            elif remaining_fallback_names:
+                fallback_name = remaining_fallback_names.pop(0)
+                positional.append(values[fallback_name])
+                consumed_value_names.add(fallback_name)
             elif parameter.default is inspect.Parameter.empty:
                 raise TypeError(f"missing required factory argument: {parameter.name}")
+        if accepts_var_kwargs:
+            kwargs.update(
+                (name, value)
+                for name, value in values.items()
+                if name not in consumed_value_names
+            )
         return factory(*positional, **kwargs)
 
     # Handle short lambdas with an uninformative parameter name (e.g. ``lambda
@@ -423,10 +433,22 @@ def _factory_call(factory: Callable[..., Any], role: str, values: Mapping[str, A
         and parameter.name not in values
     ]
     if required_unknown:
-        positional = positional_values[: len(required_unknown)]
-        if len(positional) < len(required_unknown):
+        fallback_names = [
+            name
+            for name in role_order
+            if name in values and name not in kwargs
+        ]
+        if len(fallback_names) < len(required_unknown):
             raise TypeError(f"missing required factory argument: {required_unknown[0].name}")
-        return factory(*positional, **kwargs)
+        for parameter, fallback_name in zip(required_unknown, fallback_names):
+            kwargs[parameter.name] = values[fallback_name]
+            consumed_value_names.add(fallback_name)
+    if accepts_var_kwargs:
+        kwargs.update(
+            (name, value)
+            for name, value in values.items()
+            if name not in consumed_value_names
+        )
     return factory(**kwargs)
 
 
