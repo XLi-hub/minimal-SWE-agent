@@ -64,7 +64,8 @@ runs/verified-20/
 ├── preds.jsonl                # 一行一个 prediction，供 harness 使用
 ├── statuses.json              # exit status / exception 概览
 └── <instance_id>/
-    └── <instance_id>.traj.json
+    ├── <instance_id>.traj.json       # 结果、配置和最终模型 context view
+    └── <instance_id>.events.jsonl    # 完整、只追加的原始消息/压缩事件
 ```
 
 每条 prediction 都包含：
@@ -80,13 +81,25 @@ runs/verified-20/
 runner 会验证提交看起来像 unified diff。如果模型错误地提交了文字总结，会从容器执行
 `git diff --binary --no-ext-diff` 兜底；两者都没有有效 patch 时状态记为 `invalid_patch`。
 
+`.traj.json` 中的 `messages` 是 Agent 结束时实际使用的 context view，发生过上下文压缩时
+可能只包含 system、原始任务、摘要和最近若干轮。完整的 assistant/tool 交换不会再被压缩
+覆盖，而是按顺序写入 `.events.jsonl`；压缩本身也是一个事件，记录压缩前后消息数和生成的
+摘要，并保存压缩后的精确 context snapshot。事件日志用于审计和复盘，默认不会作为工具
+开放给模型。
+
+为避免轨迹本身成为泄题载体，runner 只保存公开任务和环境字段，不会把数据集中的 gold
+`patch`、`test_patch`、`eval_script`、隐藏测试列表或未知自定义字段复制到轨迹。
+
 ## 配置
 
 默认评测覆盖在
 [`config/benchmarks/swebench.yaml`](../src/mini_agent/config/benchmarks/swebench.yaml)：
 
 - 工作目录 `/testbed`；
-- `bash -c` 配合 `BASH_ENV=/root/.bashrc`，加载镜像内 testbed 环境；
+- 严格评测容器使用 `--network=none`，镜像仍可由宿主在启动前拉取，但运行中的 Agent
+  不能访问 PyPI、GitHub 或其他上游源码；
+- `bash -o pipefail -c` 配合 `BASH_ENV=/root/.bashrc`，既加载镜像内 testbed 环境，
+  又避免 `pytest | tail` 一类命令把前序测试失败伪装成成功；
 - 工具命令超时 120 秒（普通配置默认 30 秒），给跨文件修复和测试留出时间；
 - 镜像拉取超时 300 秒；
 - 最终必须调用 `submit` 并提交完整 unified diff；
@@ -113,6 +126,10 @@ minimal-swebench \
 
 首次正式批量运行前，建议先确认模型价格配置不是默认的 0，否则 `agent.cost_limit` 只记录
 上限而无法按真实美元成本触发。
+
+断网是本项目 strict SWE-bench profile 的评测策略，而不是普通 Agent 的全局策略。真实开发
+若需要查文档、下载依赖或比较上游实现，应使用普通配置，并在报告中明确标记 network
+policy；联网与断网结果不应混在同一成功率中。
 
 ## 用官方 harness 评分
 

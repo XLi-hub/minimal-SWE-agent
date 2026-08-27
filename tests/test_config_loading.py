@@ -1,6 +1,8 @@
 """Tests for the config pipeline — merge, key=value parsing, env overrides,
 template rendering, and validation."""
 
+import subprocess
+
 import pytest
 from jinja2 import UndefinedError
 from pydantic import ValidationError
@@ -97,7 +99,21 @@ def test_benchmark_config_is_discoverable_and_valid():
     config = build_config(["swebench"])
     assert config.environment.type == "docker"
     assert config.environment.cwd == "/testbed"
-    assert config.environment.interpreter == ["bash", "-c"]
+    assert config.environment.run_args == ["--rm", "--network=none"]
+    assert config.environment.interpreter == ["bash", "-o", "pipefail", "-c"]
+
+
+def test_swebench_interpreter_does_not_mask_pipeline_failures():
+    interpreter = build_config(["swebench"]).environment.interpreter
+
+    result = subprocess.run(
+        [*interpreter, "false | true"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
 
 
 def test_build_config_spec_overrides_default():

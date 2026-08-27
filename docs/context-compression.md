@@ -104,7 +104,10 @@ if should_compress(...):
         if summary_response is not None:            # 摘要也是一次真实 API 调用
             self.n_calls += 1
             self.cost += compute_cost(summary_response)
-        messages[:] = compressed                    # 就地替换，保留别名
+            self._record_event(                      # 原始事件只追加，不覆盖
+                "context_compression", summary_message=...
+            )
+        messages[:] = compressed                    # 只替换模型 context view
     except Exception:
         pass  # 摘要失败 → 跳过本轮压缩，继续用完整历史
 ```
@@ -119,18 +122,23 @@ if should_compress(...):
 
 ### 为什么用 `messages[:] = ...` 而不是 `messages = ...`
 
-`messages`、`self.messages`、`result["messages"]` 是**同一个 list 对象**的三个引用。
+`messages`、`self.messages`、`result["messages"]` 是**同一个模型 context list 对象**的三个引用。
 `compress()` 读原列表、返回新列表、不改原列表。如果写成 `messages = compress(...)`
 （重新绑定），只有局部变量 `messages` 指向新列表，`self.messages` 和 `result["messages"]`
-仍指向旧的、未压缩的列表——`serialize()` 保存的轨迹和实际继续对话的历史就会分叉。
+仍指向旧的、未压缩的列表——返回结果和实际继续对话的 context 就会分叉。
 
-就地切片赋值 `messages[:] = compress(...)` 用新内容**原地替换**列表元素，三个引用
-自然保持一致。这是最容易踩的隐蔽 bug，代码里专门加了注释。
+就地切片赋值 `messages[:] = compress(...)` 用新内容**原地替换**列表元素，三个 context
+引用自然保持一致。独立的 append-only event journal 不参与切片替换，因此仍保留所有原始
+assistant/tool 消息；持久化时写入 `.events.jsonl`，并在 `.traj.json` 中留下数量和路径索引。
+每次成功压缩还会在事件中保存当时的精确 `context_messages` snapshot，因而既能审计原始事实，
+也能还原下一次主循环查询实际看到的摘要视图。
 
 ## 已知边界（明确接受）
 
-- **轨迹内容变化**：`serialize()` 输出的是「摘要 + 尾部」，不再是完整 verbatim 历史——
-  这是有意的行为变化，换取上下文不超限。
+- **两个视图有意不同**：`.traj.json.messages` 是「摘要 + 尾部」的最终模型 context；
+  `.events.jsonl` 是完整 verbatim 事件。复盘时不要把前者误称为完整轨迹。
+- **模型默认不读取 event journal**：完整事件主要服务审计。若摘要质量不足，优先改进结构化
+  摘要；只有确认需要时才考虑增加分页、限额、只读的历史检索工具。
 - **`Error: {e}` 路径可能留下孤儿 tool_call_id**：若 `execute_tool_call` 中途抛异常
   （如 `json.loads` 失败），部分 `tool_call_id` 可能未回应。这是**预先存在**的问题，
   `group_round_trips` 不会加重它（assistant + 已产生的 tool 消息仍同组），本次不修。

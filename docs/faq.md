@@ -101,8 +101,13 @@ Agent 会在模型查询前后都检查 `max_time`，因此查询返回时若已
 
 ```json
 {
-  "trajectory_format": "mini-agent-0.1",
-  "messages": [ ... ],                          // 完整的模型思考 + 工具执行历史
+  "trajectory_format": "mini-agent-0.2",
+  "messages": [ ... ],                          // 最终模型 context，可能已压缩
+  "event_log": {
+    "path": "run.events.jsonl",                // 完整原始消息 + 压缩事件
+    "format": "mini-agent-events-0.1",
+    "event_count": 42
+  },
   "info": {
     "exit_status": "submitted",                 // 怎么结束的
     "submission": "diff --git ...",             // 最终结果
@@ -114,7 +119,8 @@ Agent 会在模型查询前后都检查 `max_time`，因此查询返回时若已
 }
 ```
 
-用途：回放推理链（`messages` 完整）、统计成本、调试（看模型卡在哪一步）。上面的金额只是
+用途：用 `.events.jsonl` 回放完整过程、用 `messages` 还原最终模型视图、统计成本和调试。
+完整事件日志默认只供审计，不会作为工具提供给模型。上面的金额只是
 轨迹格式示意，不是任何供应商或模型的固定报价；实际成本取决于配置的供应商价格、输入缓存
 命中情况和用量，价格也可能变化。`run()` 用 `try/finally` 保证——即使 `max_steps` /
 `max_time` / `cost_limit` / 报错退出，只要传了 `output` 就一定写文件。

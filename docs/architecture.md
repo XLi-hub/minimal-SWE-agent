@@ -20,7 +20,7 @@ try:
         except Exception as e:                  # 未处理错误 → 记录诊断并以 error 退出
             messages.append({"role": "user", "content": f"Error: {e}"})
 finally:
-    if output: save(output)                     # 无论怎么退出都落盘 .traj.json
+    if output: save(output)                     # 落盘 .traj.json + .events.jsonl
 ```
 
 `step()` 的关键路径是：轮次前检查预算 → 必要时压缩 → 查询模型 → 再检查本次查询是否已经耗尽时间/成本 → 执行工具。第二次检查不重复判断 `max_steps`，因为当前查询已经合法进入这一轮；它只阻止越时或越费后继续执行有副作用的工具。
@@ -87,8 +87,8 @@ Agent 内部方法分工：
 | `execute_actions(msg)` | 逐条执行工具；`submit` 后不再执行 handler，但补齐其余 tool responses 后才抛 `Submitted` |
 | `_check_limits()` | 检查步数/时长/成本上限，超限抛 `MaxSteps` / `MaxTime` / `CostLimit` |
 | `_maybe_compress()` | 历史逼近上下文上限时压缩（就地切片赋值，保持 `messages` 别名） |
-| `serialize()` | 整场会话（messages + exit_status + submission + 成本）整理成结构化 dict |
-| `save(path)` | `serialize()` 结果 JSON 序列化，落盘为 `.traj.json` |
+| `serialize()` | 模型 context、完整 events、exit status、submission 与成本整理成结构化 dict |
+| `save(path)` | context/结果落盘为 `.traj.json`，完整事件落盘为 `.events.jsonl` |
 
 工具 schema 与 handler 成对注册在 `tools.py` 的 `TOOL_REGISTRY`。`get_enabled_tool_schemas` 根据配置生成模型可见列表，`execute_tool_call` 用同一名单检查执行权限；消息格式化和输出处理（`format_assistant_message`、`truncate_output`、`decode_timeout_output`）也留在该模块。
 
@@ -144,17 +144,18 @@ Agent 只和 `Environment` 接口打交道，不关心是 local 还是 docker。
 
 ### 轨迹（trajectory）
 
-`Agent.serialize()` 把整场会话整理成结构化 dict（`messages` 完整历史、`exit_status`、
-`submission`，以及 `info.model_stats` 里的调用次数和累计成本），`save(path)` 再
-`json.dumps` 落盘为 `.traj.json`。好处：
+`Agent` 同时维护两层记录：`messages` 是可能被压缩的模型 context view，`events` 是只追加
+的原始消息和压缩事件。`serialize()` 将两者与 `exit_status`、`submission`、调用次数和累计
+成本整理成结构化 dict；`save(path)` 把主数据和事件分别落盘。好处：
 
-- **可回放**：`messages` 完整记录每一轮"模型思考 → 工具执行"，事后能复现推理链。
+- **可审计**：`.events.jsonl` 完整记录每一轮“模型消息 → 工具执行”和压缩发生时点；
+- **上下文真实**：`.traj.json.messages` 保留结束时模型真正继续使用的压缩视图；
 - **可分析**：`info.model_stats.instance_cost` / `api_calls` 让每次运行的成本一目了然。
 - **保证落盘**：`run()` 用 `try/finally`，无论正常提交、超时、超步数还是报错，只要传了
   `output` 就一定会写文件。
 
 ```python
-agent.run("fix the bug", output="run.traj.json")   # 结束后生成 run.traj.json
+agent.run("fix the bug", output="run.traj.json")   # 同时生成 run.events.jsonl
 # CLI 等价：minimal --task "fix the bug" -o run.traj.json
 ```
 

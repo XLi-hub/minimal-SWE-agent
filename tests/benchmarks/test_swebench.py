@@ -183,7 +183,14 @@ class FakeAgent:
         return {"exit_status": "submitted", "submission": self.submission, "messages": []}
 
     def serialize(self):
-        return {"messages": [{"role": "user", "content": "task"}]}
+        message = {"role": "user", "content": "task"}
+        return {
+            "messages": [message],
+            "events": [
+                {"sequence": 0, "type": "message", "message": message}
+            ],
+            "trajectory_format": "mini-agent-0.2",
+        }
 
 
 def test_process_instance_isolates_factories_and_persists_metadata(tmp_path):
@@ -225,10 +232,76 @@ def test_process_instance_isolates_factories_and_persists_metadata(tmp_path):
     assert created[instance_id].cleaned is True
     assert created["model"].closed is True
     data = json.loads(trajectory.read_text())
+    event_path = trajectory.with_name(f"{instance_id}.events.jsonl")
     assert data["instance_id"] == instance_id
     assert data["instance"]["problem_statement"] == "fix one"
     assert data["info"]["exit_status"] == "submitted"
+    assert data["event_log"]["path"] == event_path.name
+    assert json.loads(event_path.read_text())["message"]["content"] == "task"
     assert json.loads((tmp_path / "preds.json").read_text())[instance_id]["model_name_or_path"] == "mock-model"
+
+
+def test_process_instance_passes_trajectory_path_to_supported_agent(tmp_path):
+    seen = {}
+
+    class OutputAwareAgent(FakeAgent):
+        def run(self, task, output=None):
+            seen["task"] = task
+            seen["output"] = output
+            return super().run(task)
+
+    instance = _instances()[0]
+    result = process_instance(
+        instance,
+        tmp_path,
+        model_factory=lambda **kwargs: object(),
+        environment_factory=lambda **kwargs: FakeEnvironment(),
+        agent_factory=lambda **kwargs: OutputAwareAgent(),
+    )
+
+    expected = tmp_path / instance["instance_id"] / f"{instance['instance_id']}.traj.json"
+    assert result["exit_status"] == "submitted"
+    assert seen == {"task": "fix one", "output": expected}
+
+
+def test_trajectory_instance_metadata_excludes_gold_and_evaluation_fields(tmp_path):
+    instance = {
+        "instance_id": "repo__one__1",
+        "repo": "owner/repo",
+        "problem_statement": "fix one",
+        "base_commit": "abc123",
+        "patch": "GOLD PATCH",
+        "test_patch": "HIDDEN TEST PATCH",
+        "eval_script": "RUN SECRET TESTS",
+        "FAIL_TO_PASS": ["secret::failure"],
+        "PASS_TO_PASS": ["secret::regression"],
+        "hints_text": "answer-shaped hint",
+        "custom_private_field": "do not persist",
+    }
+
+    result = process_instance(
+        instance,
+        tmp_path,
+        model_factory=lambda **kwargs: object(),
+        environment_factory=lambda **kwargs: FakeEnvironment(),
+        agent_factory=lambda **kwargs: FakeAgent(),
+    )
+
+    assert result["exit_status"] == "submitted"
+    path = tmp_path / instance["instance_id"] / f"{instance['instance_id']}.traj.json"
+    trajectory_text = path.read_text()
+    saved_instance = json.loads(trajectory_text)["instance"]
+    assert saved_instance == {
+        "instance_id": "repo__one__1",
+        "repo": "owner/repo",
+        "base_commit": "abc123",
+        "problem_statement": "fix one",
+    }
+    event_text = path.with_name("repo__one__1.events.jsonl").read_text()
+    persisted_text = trajectory_text + event_text
+    assert "GOLD PATCH" not in persisted_text
+    assert "HIDDEN TEST PATCH" not in persisted_text
+    assert "RUN SECRET TESTS" not in persisted_text
 
 
 def test_process_instance_records_factory_error_and_still_cleans(tmp_path):

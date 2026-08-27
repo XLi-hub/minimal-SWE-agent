@@ -12,6 +12,7 @@ The default output layout is compatible with SWE-bench's harness::
       preds.jsonl
       statuses.json
       <instance_id>/<instance_id>.traj.json
+      <instance_id>/<instance_id>.events.jsonl
 
 ``preds.json`` is a mapping keyed by instance id.  Every prediction value has
 the standard SWE-bench fields ``model_name_or_path``, ``instance_id``, and
@@ -33,6 +34,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from mini_agent.agent import save_trajectory_data
 # Environment construction itself remains lazy (no container is started by
 # this import), while exposing the symbol keeps the compatibility helper easy
 # to monkeypatch in tests.
@@ -51,6 +53,25 @@ DATASET_MAPPING: dict[str, str] = {
     "_test": "klieret/swe-bench-dummy-test-dataset",
     "rebench": "nebius/SWE-rebench",
 }
+
+# Trajectories are routinely browsed, shared, and reused for analysis.  Keep
+# only public task/setup metadata; copying the dataset row wholesale would
+# persist gold patches, hidden tests, and evaluation scripts beside the model
+# trace even though none of them were sent to the model.
+TRAJECTORY_INSTANCE_FIELDS: tuple[str, ...] = (
+    "instance_id",
+    "repo",
+    "base_commit",
+    "environment_setup_commit",
+    "problem_statement",
+    "version",
+    "created_at",
+    "difficulty",
+    "eval_type",
+    "image",
+    "image_name",
+    "docker_image",
+)
 
 
 def get_swebench_docker_image_name(instance: Mapping[str, Any]) -> str:
@@ -545,6 +566,16 @@ def _safe_instance_id(instance: Mapping[str, Any]) -> str:
     return str(value)
 
 
+def _trajectory_instance(instance: Mapping[str, Any]) -> dict[str, Any]:
+    """Return public instance metadata safe to persist beside a trajectory."""
+
+    return {
+        key: instance[key]
+        for key in TRAJECTORY_INSTANCE_FIELDS
+        if key in instance
+    }
+
+
 def _trajectory_path(output_dir: Path, instance_id: str) -> Path:
     # SWE-bench ids do not contain path separators.  Rejecting them rather
     # than silently writing outside output_dir protects custom datasets.
@@ -596,12 +627,27 @@ def _write_trajectory(
         info.update(exception_info)
     data["info"] = info
     data["instance_id"] = str(instance["instance_id"])
-    data["instance"] = dict(instance)
-    data.setdefault("trajectory_format", "mini-agent-0.1")
-    _atomic_write_text(
-        path,
-        json.dumps(data, indent=2, ensure_ascii=False, default=_json_default) + "\n",
+    data["instance"] = _trajectory_instance(instance)
+    data.setdefault("trajectory_format", "mini-agent-0.2")
+    save_trajectory_data(path, data)
+
+
+def _run_agent(agent: Any, task: str, trajectory: Path) -> Any:
+    """Run an agent, enabling live event journalling when its API supports it."""
+
+    run_method = agent.run
+    try:
+        parameters = inspect.signature(run_method).parameters.values()
+    except (TypeError, ValueError):
+        parameters = ()
+    accepts_output = any(
+        parameter.name == "output"
+        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
     )
+    if accepts_output:
+        return run_method(task, output=trajectory)
+    return run_method(task)
 
 
 def _standard_prediction(
@@ -772,7 +818,7 @@ class SWEbenchRunner:
                     "instance": instance,
                 },
             )
-            raw_result = agent.run(task)
+            raw_result = _run_agent(agent, task, trajectory)
             if isinstance(raw_result, Mapping):
                 result.update(raw_result)
             else:

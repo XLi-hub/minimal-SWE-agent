@@ -1088,7 +1088,7 @@ class TestSerialize:
 
         data = agent.serialize()
 
-        assert data["trajectory_format"] == "mini-agent-0.1"
+        assert data["trajectory_format"] == "mini-agent-0.2"
         assert data["info"]["exit_status"] == "submitted"
         assert data["info"]["submission"] == "final answer"
         assert data["info"]["model_stats"]["api_calls"] == 1
@@ -1099,6 +1099,12 @@ class TestSerialize:
         # messages must be the same list the agent used during the run
         assert data["messages"] == agent.messages
         assert data["messages"][0]["role"] == "system"
+        assert [event["sequence"] for event in data["events"]] == list(
+            range(len(data["events"]))
+        )
+        assert [event["type"] for event in data["events"]] == [
+            "message", "message", "message", "message"
+        ]
 
     def test_serialize_before_run_is_empty(self):
         """未运行前 serialize() 返回空轨迹。"""
@@ -1107,6 +1113,7 @@ class TestSerialize:
         data = agent.serialize()
 
         assert data["messages"] == []
+        assert data["events"] == []
         assert data["info"]["exit_status"] == ""
         assert data["info"]["submission"] == ""
         assert data["info"]["model_stats"]["api_calls"] == 0
@@ -1134,6 +1141,11 @@ class TestSave:
         loaded = json.loads(path.read_text())
         assert loaded == data
         assert loaded["info"]["exit_status"] == "submitted"
+        assert "events" not in loaded
+        event_path = path.with_name("run.events.jsonl")
+        events = [json.loads(line) for line in event_path.read_text().splitlines()]
+        assert loaded["event_log"]["path"] == event_path.name
+        assert loaded["event_log"]["event_count"] == len(events) == 4
 
     def test_save_none_returns_data_without_writing(self, tmp_path):
         """save(None) 不写文件，只返回序列化数据。"""
@@ -1154,6 +1166,7 @@ class TestSave:
         agent.save(path)
 
         assert path.exists()
+        assert (path.parent / "c.events.jsonl").exists()
 
 
 class TestRunAutoSave:
@@ -1171,6 +1184,11 @@ class TestRunAutoSave:
         assert loaded["info"]["exit_status"] == result["exit_status"]
         assert loaded["info"]["submission"] == result["submission"]
         assert loaded["messages"] == result["messages"]
+        event_path = tmp_path / "run.events.jsonl"
+        assert event_path.exists()
+        assert loaded["event_log"]["event_count"] == len(
+            event_path.read_text().splitlines()
+        )
 
     def test_run_saves_on_max_steps(self, tmp_path):
         """达到 max_steps 退出时也应保存轨迹。"""
@@ -1189,6 +1207,36 @@ class TestRunAutoSave:
         assert result["exit_status"] == "max_steps"
         assert path.exists()
         assert json.loads(path.read_text())["info"]["exit_status"] == "max_steps"
+
+    def test_event_sidecar_is_journalled_before_run_finishes(self, tmp_path):
+        """工具执行期间已能看到先前事件，而不是只在 finally 一次性写入。"""
+        model = MagicMock()
+        model.query.side_effect = [
+            _make_response(
+                content="Run.",
+                tool_calls=[_make_tool_call("c1", "bash", {"command": "echo ok"})],
+            ),
+            _make_response(
+                content="Done.",
+                tool_calls=[_make_tool_call("s1", "submit", {"output": "done"})],
+            ),
+        ]
+        event_path = tmp_path / "live.events.jsonl"
+        observed_sequences = []
+
+        def execute(command, timeout=None):
+            observed_sequences.extend(
+                json.loads(line)["sequence"]
+                for line in event_path.read_text().splitlines()
+            )
+            return "ok"
+
+        env = MagicMock()
+        env.execute.side_effect = execute
+        result = Agent(model, env).run("task", output=tmp_path / "live.traj.json")
+
+        assert result["exit_status"] == "submitted"
+        assert observed_sequences == [0, 1, 2]
 
     def test_run_without_output_does_not_save(self, tmp_path):
         """run(output=None) 不写文件，但 self 状态已同步可 serialize。"""
@@ -1341,6 +1389,38 @@ def test_compression_triggers_and_injects_summary():
         isinstance(m.get("content"), str) and m["content"].startswith(SUMMARY_MARKER)
         for m in result["messages"]
     )
+
+
+def test_compression_preserves_raw_messages_in_append_only_events():
+    """压缩只改变模型 context，原始 assistant/tool 消息仍完整留在事件流。"""
+    calls = {"loop": 0, "summary": 0}
+    model = MagicMock()
+    model.query.side_effect = _compression_query(calls)
+    env = MagicMock()
+    env.execute.return_value = "out"
+
+    agent = Agent(model, env, context_window=100, reserve_tokens=10, keep_last_n_turns=1)
+    result = agent.run("task")
+    data = agent.serialize()
+
+    raw_messages = [
+        event["message"] for event in data["events"] if event["type"] == "message"
+    ]
+    raw_tool_ids = [
+        message["tool_call_id"] for message in raw_messages if message["role"] == "tool"
+    ]
+    compression_events = [
+        event for event in data["events"] if event["type"] == "context_compression"
+    ]
+
+    assert raw_tool_ids == ["c1", "c2"]
+    assert len(raw_messages) > len(result["messages"])
+    assert len(compression_events) == 1
+    assert compression_events[0]["summary_message"]["content"].startswith(SUMMARY_MARKER)
+    assert compression_events[0]["context_messages"] == result["messages"][:-1]
+    # Only the compressed context view is sent to later loop queries; the
+    # append-only event list is an audit artifact, not an extra model input.
+    assert all(call.args[0] is not data["events"] for call in model.query.call_args_list)
 
 
 def test_compression_skips_on_summarizer_failure():

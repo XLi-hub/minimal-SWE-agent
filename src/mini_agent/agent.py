@@ -1,9 +1,13 @@
 """Agent 主循环 — 使用模型 tool calling 替代文本解析."""
 
+import copy
 import json
+import os
+import tempfile
 import time
 import traceback
 from pathlib import Path
+from typing import Callable
 
 from mini_agent import __version__
 from mini_agent.config import Config, UNSET, get_default_config, render_template
@@ -23,6 +27,24 @@ from mini_agent.exceptions import (
     NoToolCalls,
     Submitted,
 )
+
+
+class _RecordedMessageList(list[dict]):
+    """Active model context that journals newly appended real messages.
+
+    Context compression replaces a slice of this list.  Slice replacement is
+    deliberately *not* journalled: summaries are model-facing context views,
+    while the event journal remains an immutable record of the original
+    assistant/tool exchange.
+    """
+
+    def __init__(self, recorder: Callable[[dict], None]):
+        super().__init__()
+        self._recorder = recorder
+
+    def append(self, message: dict) -> None:
+        super().append(message)
+        self._recorder(message)
 
 
 class Agent:
@@ -58,7 +80,10 @@ class Agent:
             agent_cfg.keep_last_n_turns if keep_last_n_turns is UNSET else keep_last_n_turns
         )
         # Trajectory state — reset and updated by run().
-        self.messages: list[dict] = []
+        self.events: list[dict] = []
+        self._event_log_path: Path | None = None
+        self._event_log_stream_error: str | None = None
+        self.messages: list[dict] = _RecordedMessageList(self._record_message)
         self.n_calls = 0
         self._steps = 0
         self.cost = 0.0
@@ -104,7 +129,7 @@ class Agent:
               ``"max_steps"``, ``"max_time"``, ``"cost_limit"``,
               ``"interrupted"``, ``"error"``
             - ``submission``: the final answer (empty if not submitted)
-            - ``messages``: the full message history
+            - ``messages``: the current model-facing context (possibly compressed)
         """
         agent_cfg = self.config.agent
         if max_steps is UNSET:
@@ -120,10 +145,17 @@ class Agent:
         self._deadline = time.monotonic() + max_time if max_time is not None else None
         self._steps = 0
 
-        self.messages = [
-            {"role": "system", "content": agent_cfg.system_prompt},
-            {"role": "user", "content": render_template(agent_cfg.instance_template, task=task)},
-        ]
+        self.events = []
+        self._event_log_path = _events_path(Path(output)) if output is not None else None
+        self._event_log_stream_error = None
+        if self._event_log_path is not None:
+            _atomic_write_text(self._event_log_path, "")
+        self.messages = _RecordedMessageList(self._record_message)
+        self.messages.append({"role": "system", "content": agent_cfg.system_prompt})
+        self.messages.append({
+            "role": "user",
+            "content": render_template(agent_cfg.instance_template, task=task),
+        })
         self.n_calls = 0
         self.cost = 0.0
         self.cost_limit = cost_limit
@@ -293,6 +325,23 @@ class Agent:
             if summary_response is not None:
                 self.n_calls += 1
                 self.cost += compute_cost(summary_response, self.config)
+                summary_message = next(
+                    (
+                        copy.deepcopy(message)
+                        for message in compressed
+                        if message.get("role") == "user"
+                        and isinstance(message.get("content"), str)
+                        and message["content"].startswith(self.config.agent.summary_marker)
+                    ),
+                    None,
+                )
+                self._record_event(
+                    "context_compression",
+                    messages_before=len(self.messages),
+                    messages_after=len(compressed),
+                    summary_message=summary_message,
+                    context_messages=copy.deepcopy(compressed),
+                )
             # 就地切片赋值，保持 self.messages / result["messages"] 别名一致。
             self.messages[:] = compressed
         except Exception:
@@ -301,9 +350,10 @@ class Agent:
     def serialize(self) -> dict:
         """Serialize the agent trajectory to a JSON-compatible dict.
 
-        Captures the full message history plus run metadata (exit status,
-        submission, model call stats).  Use :meth:`save` to write it to
-        disk as a ``.traj.json`` file.
+        Captures the current model-facing context, the append-only raw event
+        journal, and run metadata.  :meth:`save` stores the journal in a
+        sibling ``.events.jsonl`` file so context compression never destroys
+        audit evidence and the main trajectory stays compact.
         """
         return {
             "info": {
@@ -332,9 +382,11 @@ class Agent:
                 "exit_status": self.exit_status,
                 "submission": self.submission,
                 "error": self.error,
+                "event_log_stream_error": self._event_log_stream_error,
             },
-            "messages": self.messages,
-            "trajectory_format": "mini-agent-0.1",
+            "messages": list(self.messages),
+            "events": list(self.events),
+            "trajectory_format": "mini-agent-0.2",
         }
 
     def save(self, path: str | Path | None) -> dict:
@@ -346,10 +398,94 @@ class Agent:
         """
         data = self.serialize()
         if path is not None:
-            path = Path(path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(data, indent=2))
+            data = save_trajectory_data(Path(path), data)
         return data
+
+    def _record_message(self, message: dict) -> None:
+        """Copy one real conversation message into the immutable event log."""
+
+        self._record_event("message", message=copy.deepcopy(message))
+
+    def _record_event(self, event_type: str, **payload) -> None:
+        """Append one sequenced event in memory and, when configured, on disk."""
+
+        event = {
+            "sequence": len(self.events),
+            "type": event_type,
+            **payload,
+        }
+        self.events.append(event)
+        if self._event_log_path is not None:
+            try:
+                self._event_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with self._event_log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(
+                        json.dumps(event, ensure_ascii=False, default=repr) + "\n"
+                    )
+            except OSError as exc:
+                # Live journalling is best-effort observability.  It must not
+                # break the agent loop; the final atomic save gets another
+                # chance to persist the complete in-memory event list.
+                self._event_log_stream_error = f"{type(exc).__name__}: {exc}"
+                self._event_log_path = None
+
+
+def _events_path(path: Path) -> Path:
+    """Return the sidecar event-log path for a trajectory path."""
+
+    suffix = ".traj.json"
+    if path.name.endswith(suffix):
+        stem = path.name[:-len(suffix)]
+    else:
+        stem = path.stem
+    return path.with_name(f"{stem}.events.jsonl")
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Atomically replace *path* with UTF-8 *text*."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def save_trajectory_data(path: Path, data: dict) -> dict:
+    """Persist a compact trajectory and its append-only raw event sidecar.
+
+    The returned mapping is exactly what is written to the main trajectory.
+    ``serialize()`` keeps events inline for in-memory callers; persistence
+    moves them to JSONL and leaves a relative, count-checked reference.
+    """
+
+    persisted = copy.deepcopy(data)
+    events = persisted.pop("events", None)
+    if events is not None:
+        event_path = _events_path(path)
+        event_text = "".join(
+            json.dumps(event, ensure_ascii=False, default=repr) + "\n"
+            for event in events
+        )
+        _atomic_write_text(event_path, event_text)
+        persisted["event_log"] = {
+            "path": event_path.name,
+            "format": "mini-agent-events-0.1",
+            "event_count": len(events),
+        }
+    _atomic_write_text(
+        path,
+        json.dumps(persisted, indent=2, ensure_ascii=False, default=repr) + "\n",
+    )
+    return persisted
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key

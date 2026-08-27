@@ -13,7 +13,7 @@
 - **协议正确性**：assistant 的每个 tool call 都必须有对应 observation，批次提前提交也不会留下无法回放的半截轨迹。
 - **资源治理**：步数、时间、成本和工具输出都有预算；超长单行输出也不能挤爆模型上下文。
 - **可替换架构**：Model / Environment / Config 通过依赖注入组装，本地、Docker、mock 和 OpenAI-compatible provider 互不耦合。
-- **失败可诊断**：每次运行都可保存 trajectory，包含退出状态、消息、模型调用数、成本和错误信息。
+- **失败可诊断**：压缩后的模型 context 与完整 append-only 事件日志分开保存，退出状态、调用数、成本和错误都可审计。
 - **安全的交付流程**：默认测试不选择真实模型 E2E，不会因为开发机恰好存在 API key 就误产生费用；CI 再把真实 Docker 层独立排除。
 
 ```
@@ -276,7 +276,9 @@ minimal-swebench \
 ```
 
 runner 会按实例选择官方 Docker image，保存原子更新的 `preds.json`、harness 使用的
-`preds.jsonl`、状态概览和逐实例 trajectory，并支持 `--redo-existing` / `--retry-failed`。
+`preds.jsonl`、状态概览、逐实例 `.traj.json` 和完整 `.events.jsonl`。SWE-bench profile
+默认断开容器外网并启用 Bash `pipefail`，防止检索上游答案或由管道掩盖测试失败；普通
+Agent 配置不受这一严格评测策略影响。runner 也支持 `--redo-existing` / `--retry-failed`。
 生成结束后可选安装 `.[eval]`，用官方 harness 评分：
 
 ```bash

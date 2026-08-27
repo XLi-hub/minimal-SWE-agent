@@ -79,6 +79,11 @@ Agent 不再需要 `parse_action()` 函数——`msg.tool_calls` 直接就是结
 输出”“测试失败”和“执行器自身超时”。如果命令确实需要长时间运行，应在第一次调用时
 传更高的 `timeout`；需要自主轮询的任务可以显式放到后台并把日志写入文件。
 
+SWE-bench strict profile 还把 Docker interpreter 配成 `bash -o pipefail -c`。Bash 默认只
+返回 pipeline 最后一个命令的状态，容易让 `pytest | tail` 掩盖 pytest 的失败；`pipefail`
+使前序非零状态能够进入 observation。普通 Agent 配置保持原有 shell 语义，避免把 grep
+无匹配或预期失败的探测命令全局改成另一种行为。
+
 ### 超长时间任务与后台执行
 
 `pip install` 最多几分钟，但训练模型、大规模构建可能需要几小时。目前有两种处理方式：
