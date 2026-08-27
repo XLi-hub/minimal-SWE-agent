@@ -38,7 +38,50 @@ def test_dataset_loader_uses_alias_and_split():
     assert result == [{"instance_id": "x", "problem_statement": "task"}]
 
 
+@pytest.mark.parametrize(
+    ("alias", "dataset_path"),
+    [
+        ("full", "SWE-bench/SWE-bench"),
+        ("verified", "SWE-bench/SWE-bench_Verified"),
+        ("lite", "SWE-bench/SWE-bench_Lite"),
+        ("multimodal", "SWE-bench/SWE-bench_Multimodal"),
+        ("multilingual", "SWE-bench/SWE-bench_Multilingual"),
+    ],
+)
+def test_official_dataset_aliases_match_current_harness(alias, dataset_path):
+    assert DATASET_MAPPING[alias] == dataset_path
+
+
+def test_verified_alias_uses_official_dataset_with_image_column():
+    expected_path = "SWE-bench/SWE-bench_Verified"
+    calls = []
+
+    def loader(path, *, split):
+        calls.append((path, split))
+        assert path == expected_path
+        return [
+            {
+                "instance_id": "repo__one__1",
+                "problem_statement": "fix one",
+                "image": "docker.io/swebench/sweb.eval.x86_64.repo_1776_one_1776_1:latest",
+            }
+        ]
+
+    result = load_swebench_dataset("verified", "test", dataset_loader=loader)
+
+    assert DATASET_MAPPING["verified"] == expected_path
+    assert calls == [(expected_path, "test")]
+    assert result[0]["image"].endswith(":latest")
+
+
 def test_image_name_supports_explicit_and_derived_images():
+    assert get_swebench_docker_image_name(
+        {
+            "instance_id": "x__y__1",
+            "image": "current/image:tag",
+            "image_name": "legacy/image:tag",
+        }
+    ) == "current/image:tag"
     assert get_swebench_docker_image_name(
         {"instance_id": "x__y__1", "image_name": "custom/image:tag"}
     ) == "custom/image:tag"

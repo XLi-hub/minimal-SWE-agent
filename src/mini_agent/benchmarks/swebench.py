@@ -42,11 +42,11 @@ from mini_agent.environments import get_environment
 # Keep this mapping in the runner, rather than in the CLI, so Python callers
 # can use exactly the same dataset aliases as command-line callers.
 DATASET_MAPPING: dict[str, str] = {
-    "full": "princeton-nlp/SWE-Bench",
-    "verified": "princeton-nlp/SWE-Bench_Verified",
-    "lite": "princeton-nlp/SWE-Bench_Lite",
-    "multimodal": "princeton-nlp/SWE-Bench_Multimodal",
-    "multilingual": "swe-bench/SWE-Bench_Multilingual",
+    "full": "SWE-bench/SWE-bench",
+    "verified": "SWE-bench/SWE-bench_Verified",
+    "lite": "SWE-bench/SWE-bench_Lite",
+    "multimodal": "SWE-bench/SWE-bench_Multimodal",
+    "multilingual": "SWE-bench/SWE-bench_Multilingual",
     "smith": "SWE-bench/SWE-smith",
     "_test": "klieret/swe-bench-dummy-test-dataset",
     "rebench": "nebius/SWE-rebench",
@@ -56,13 +56,18 @@ DATASET_MAPPING: dict[str, str] = {
 def get_swebench_docker_image_name(instance: Mapping[str, Any]) -> str:
     """Return the Docker image associated with a SWE-bench instance.
 
-    Dataset revisions have used both ``image_name`` and ``docker_image``.
-    When neither is present, the conventional SWE-bench image name is
-    derived from ``instance_id``.  Docker rejects double underscores in some
-    image-name components, so SWE-bench uses ``_1776_`` as its replacement.
+    Dataset revisions have used ``image``, ``image_name``, and
+    ``docker_image``.  When none is present, the conventional SWE-bench image
+    name is derived from ``instance_id``.  Docker rejects double underscores
+    in some image-name components, so SWE-bench uses ``_1776_`` as its
+    replacement.
     """
 
-    image_name = instance.get("image_name") or instance.get("docker_image")
+    image_name = (
+        instance.get("image")
+        or instance.get("image_name")
+        or instance.get("docker_image")
+    )
     if image_name:
         return str(image_name)
     instance_id = str(instance["instance_id"])

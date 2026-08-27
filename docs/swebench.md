@@ -3,6 +3,10 @@
 项目提供独立的 `minimal-swebench` 命令，用同一套 Agent/Model/Environment 组件生成
 SWE-bench predictions。数据集依赖保持可选，普通 `minimal` 安装不会被评测依赖拖大。
 
+`full`、`verified`、`lite`、`multimodal` 和 `multilingual` 别名指向当前
+`SWE-bench/*` 官方数据集。这些数据集包含新版 harness 需要的 `image`、`eval_script`
+等字段；也可以直接传完整 Hugging Face dataset id 或本地数据集路径。
+
 ## 安装与前置条件
 
 ```bash
@@ -107,6 +111,8 @@ minimal-swebench-eval runs/verified-20/preds.jsonl \
 
 该命令以参数列表启动官方 `python -m swebench.harness.run_evaluation`，不经过 shell，
 并把 dataset、predictions、worker 数、单实例 timeout 和 report directory 显式传入。
+harness 和生成命令共用上述数据集别名，因此 `--dataset verified` 会解析为
+`SWE-bench/SWE-bench_Verified`。
 harness 完成后会定位 `<model>.<run-id>.json`，打印 resolved/total/rate，并原样返回官方
 进程退出码。评分会启动 Docker、执行真实测试，可能消耗大量磁盘和时间，因此不会被默认
 测试或生成命令隐式触发。

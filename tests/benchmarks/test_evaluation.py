@@ -22,7 +22,7 @@ def test_build_harness_command_uses_official_module_and_alias(tmp_path):
         python_executable="python-test",
     )
     assert command[:3] == ["python-test", "-m", "swebench.harness.run_evaluation"]
-    assert "princeton-nlp/SWE-Bench_Verified" in command
+    assert "SWE-bench/SWE-bench_Verified" in command
     assert command[command.index("--max_workers") + 1] == "4"
     assert command[-2:] == ["--instance_ids", "repo__one-1"]
 

@@ -256,6 +256,9 @@ _MAPPING = {
 
 评测依赖是可选的。安装后可以先跑一个实例，再逐步扩大并发：
 
+`full`、`verified`、`lite`、`multimodal` 和 `multilingual` 别名使用当前
+`SWE-bench/*` 官方数据集，可直接供新版 Docker harness 生成和评分。
+
 ```bash
 pip install -e ".[bench]"
 
