@@ -43,7 +43,10 @@ class Environment(ABC):
 
 ### LocalEnvironment
 
-和原来的 `Environment` 一样——`subprocess.run(command, shell=True, ...)`。加了环境变量覆盖（`PAGER=cat` 等）防止命令卡死。
+使用 `subprocess.Popen(command, shell=True, ...)` 启动宿主机 shell，并通过共享的
+`environments/process.py` 等待、收集输出和处理超时。POSIX 超时时终止整个进程组，
+Windows 使用 `taskkill /T /F` 终止进程树，避免只杀父 shell 后留下测试子进程。环境变量
+覆盖（`PAGER=cat` 等）用于防止分页器卡住无人值守的命令。
 
 ### DockerEnvironment
 

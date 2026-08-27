@@ -74,7 +74,7 @@ config/                          # 配置包：YAML 加载 + recursive_merge + p
 | 模块 | 可以单独 | 怎么测 |
 |---|---|---|
 | `Model` | 换 OpenAI / Ollama / Claude | Mock `httpx.Client`，不需要联网 |
-| `Environment` | 换 local / Docker / Singularity | Mock `subprocess.run`，不需要真执行 |
+| `Environment` | 换 local / Docker / Singularity | Mock `subprocess.Popen` / `run`，不需要真执行 |
 | `Agent` | 换不同的循环策略 | Mock Model + Environment，不需要 API |
 | `Config` | 换工具定义 / system prompt | 纯数据验证，不涉及任何 IO |
 | `context` | 换不同的压缩/摘要策略 | Mock Model 返回固定摘要文本，不调 API |
@@ -131,11 +131,11 @@ class Environment(ABC):
 # 实现 —— 具体"怎么做"
 class LocalEnvironment(Environment):
     def execute(self, command, timeout=30):
-        return subprocess.run(command, shell=True, ...).stdout
+        return run_process(command, timeout=timeout, shell=True, ...)
 
 class DockerEnvironment(Environment):
     def execute(self, command, timeout=30):
-        return subprocess.run(["docker", "exec", ...]).stdout
+        return run_process(["docker", "exec", ...], timeout=timeout)
 ```
 
 Agent 只和 `Environment` 接口打交道，不关心是 local 还是 docker。这叫**面向接口编程**。

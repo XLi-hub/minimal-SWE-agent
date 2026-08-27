@@ -137,6 +137,7 @@ src/mini_agent/
 ├── tools.py                  # 工具注册表（schema + handler）+ 权限分发 + 输出处理
 ├── cost.py                   # 成本计算（token → USD）
 ├── context.py                # 上下文压缩（token 估算 + LLM 增量摘要）
+├── persistence.py            # 原子轨迹写入 + 完整事件 sidecar
 ├── model.py                  # OpenAI-compatible API 封装
 ├── config/                   # 配置包（YAML + pydantic + 模板渲染）
 │   ├── __init__.py            #   recursive_merge / build_config / render_template
@@ -144,6 +145,7 @@ src/mini_agent/
 │   └── default.yaml           #   权威运行配置（prompt / 启用工具 / 价格 / 环境）
 └── environments/             # 执行环境（可插拔）
     ├── __init__.py            #   Environment ABC + get_environment() 工厂
+    ├── process.py             #   共用的进程超时、进程树终止与回收
     ├── local.py               #   LocalEnvironment — 本机 shell
     └── docker.py              #   DockerEnvironment — 容器内执行
 
