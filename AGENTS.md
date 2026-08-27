@@ -40,6 +40,20 @@ OpenAI-compatible API and may cost money.
 
 Use concise but informative commit messages.
 
+### Commit Discipline
+
+- Before editing, confirm the current branch matches the requested delivery
+  branch. Do not rename, switch, merge, or rewrite branches implicitly.
+- Commit every completed logical change before starting the next one.
+- Keep commits small and cohesive: one behavior or one documentation concern,
+  together with only its direct tests and docs. Do not collect unrelated fixes
+  into a broad catch-all commit or touch many files merely because they are
+  nearby.
+- Preserve unrelated working-tree changes and never absorb them into the current
+  commit.
+- Run focused tests before each commit. Run the full non-E2E suite before final
+  completion.
+
 Prefer this format:
 
 ```text
