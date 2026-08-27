@@ -1,6 +1,9 @@
 """Tests for DockerEnvironment — unit tests (always run) + integration (skip if no Docker)."""
 
+import os
+import signal
 import subprocess
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -183,6 +186,51 @@ def test_execute_uses_custom_timeout():
         env.cleanup()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
+def test_execute_timeout_kills_host_and_container_process_groups():
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen, \
+         patch("mini_agent.environments.docker.os.killpg") as killpg:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+        process = MagicMock(pid=1234)
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired("docker exec", 0.1, output=b"partial\n"),
+            ("partial\n", None),
+        ]
+        mock_popen.return_value = process
+
+        env = DockerEnvironment(image="python:3.11-slim")
+        result = env.execute("sleep 10", timeout=0.1)
+
+        killpg.assert_called_once_with(1234, signal.SIGKILL)
+        assert process.communicate.call_count == 2
+        assert result["returncode"] == -1
+        assert result["output"] == "partial\n"
+        cleanup_cmd = mock_run.call_args_list[-1].args[0]
+        assert cleanup_cmd[:3] == ["docker", "exec", "abc123def"]
+        assert "kill -KILL" in cleanup_cmd[-3]
+        env.cleanup()
+
+
+def test_windows_docker_timeout_terminates_client_tree():
+    process = MagicMock(pid=1234)
+
+    with patch("mini_agent.environments.docker.os.name", "nt"), \
+         patch("mini_agent.environments.docker.subprocess.run") as run:
+        from mini_agent.environments.docker import _terminate_process_group
+
+        _terminate_process_group(process)
+
+    run.assert_called_once_with(
+        ["taskkill", "/PID", "1234", "/T", "/F"],
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    process.kill.assert_not_called()
+
+
 def test_cleanup_stops_container():
     """cleanup() should call docker stop/rm."""
     with patch("subprocess.run") as mock_run:
@@ -263,6 +311,29 @@ def test_read_file_missing_raises_file_not_found():
         env.cleanup()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
+def test_read_file_timeout_kills_and_reaps_process_group():
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen, \
+         patch("mini_agent.environments.docker.os.killpg") as killpg:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+        process = MagicMock(pid=1234)
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired("docker exec cat", 30),
+            ("", None),
+        ]
+        mock_popen.return_value = process
+
+        env = DockerEnvironment(image="python:3.11-slim")
+        with pytest.raises(subprocess.TimeoutExpired):
+            env.read_file("slow.txt")
+
+        killpg.assert_called_once_with(1234, signal.SIGKILL)
+        assert process.communicate.call_count == 2
+        env.cleanup()
+
+
 def test_write_file_passes_content_on_stdin():
     with patch("subprocess.run") as mock_run, \
          patch("subprocess.Popen") as mock_popen:
@@ -289,6 +360,29 @@ def test_write_file_passes_content_on_stdin():
             input="print('hi')\n", timeout=30
         )
 
+        env.cleanup()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
+def test_write_file_timeout_kills_and_reaps_process_group():
+    with patch("subprocess.run") as mock_run, \
+         patch("subprocess.Popen") as mock_popen, \
+         patch("mini_agent.environments.docker.os.killpg") as killpg:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+        process = MagicMock(pid=1234)
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired("docker exec write", 30),
+            ("", None),
+        ]
+        mock_popen.return_value = process
+
+        env = DockerEnvironment(image="python:3.11-slim")
+        with pytest.raises(subprocess.TimeoutExpired):
+            env.write_file("slow.txt", "content")
+
+        killpg.assert_called_once_with(1234, signal.SIGKILL)
+        assert process.communicate.call_count == 2
         env.cleanup()
 
 
@@ -359,5 +453,25 @@ def test_docker_command_failure():
     try:
         output = env.execute("bash -c 'echo failing >&2; exit 42'")
         assert "failing" in output
+    finally:
+        env.cleanup()
+
+
+@docker_integration
+@docker_required
+def test_docker_timeout_kills_container_process_group():
+    """A timed-out exec must not leave descendants running in the container."""
+    env = DockerEnvironment(image="python:3.11-slim")
+    try:
+        result = env.execute(
+            "rm -f /tmp/mini-agent-leaked; "
+            "(sleep 1; echo leaked > /tmp/mini-agent-leaked) & wait",
+            timeout=0.2,
+        )
+        assert result["returncode"] == -1
+
+        time.sleep(1.2)
+        probe = env.execute("test ! -e /tmp/mini-agent-leaked")
+        assert probe["returncode"] == 0
     finally:
         env.cleanup()

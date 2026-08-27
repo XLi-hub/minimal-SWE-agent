@@ -112,7 +112,12 @@ def _terminate_process_group(process: subprocess.Popen) -> None:
         if os.name == "posix":
             os.killpg(process.pid, signal.SIGKILL)
         else:
-            process.kill()
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
     except ProcessLookupError:
         # The command exited between TimeoutExpired and cleanup.
         pass

@@ -1,3 +1,6 @@
+import subprocess
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from mini_agent.environments.local import LocalEnvironment
@@ -59,6 +62,28 @@ def test_local_environment_timeout():
     result = env.execute("sleep 10", timeout=0.1)
     assert result["returncode"] == -1
     assert "timed out" in result["exception_info"]
+
+
+def test_windows_local_timeout_terminates_process_tree():
+    process = MagicMock(pid=1234)
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired("sleep 10", 0.1),
+        ("", None),
+    ]
+
+    with patch("mini_agent.environments.local.os.name", "nt"), \
+         patch("mini_agent.environments.local.subprocess.Popen", return_value=process), \
+         patch("mini_agent.environments.local.subprocess.run") as run:
+        result = LocalEnvironment().execute("sleep 10", timeout=0.1)
+
+    run.assert_called_once_with(
+        ["taskkill", "/PID", "1234", "/T", "/F"],
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    process.kill.assert_not_called()
+    assert result["returncode"] == -1
 
 
 # --- read_file / write_file ---
