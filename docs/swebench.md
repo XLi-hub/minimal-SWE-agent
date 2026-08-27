@@ -87,9 +87,29 @@ runner 会验证提交看起来像 unified diff。如果模型错误地提交了
 
 - 工作目录 `/testbed`；
 - `bash -c` 配合 `BASH_ENV=/root/.bashrc`，加载镜像内 testbed 环境；
-- 单命令 60 秒、镜像拉取 300 秒；
+- 工具命令超时 120 秒（普通配置默认 30 秒），给跨文件修复和测试留出时间；
+- 镜像拉取超时 300 秒；
 - 最终必须调用 `submit` 并提交完整 unified diff；
 - 对偶发的无工具响应允许两次纠正。
+
+高难实例建议单并发运行，并使用 400 步、2400 秒的 Agent 预算。SWE-bench 配置还把
+Agent 压缩预算设为 128K、为下一轮保留 8K token，并保留最近 8 轮；这些都是当前
+benchmark 配置的默认值。必要时可以显式覆盖：
+
+```bash
+minimal-swebench \
+  --subset verified --split test \
+  --instance sympy__sympy-13878 \
+  --workers 1 \
+  -c agent.context_window=128000 \
+  -c agent.reserve_tokens=8000 \
+  -c agent.keep_last_n_turns=8 \
+  -c agent.max_steps=400 \
+  -c agent.max_time=2400 \
+  -c tools.default_timeout=120 \
+  --model gpt-4o-mini \
+  --output runs/verified-hard
+```
 
 首次正式批量运行前，建议先确认模型价格配置不是默认的 0，否则 `agent.cost_limit` 只记录
 上限而无法按真实美元成本触发。

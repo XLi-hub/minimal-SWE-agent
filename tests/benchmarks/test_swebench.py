@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from mini_agent.config import build_config
 from mini_agent.benchmarks.swebench import (
     DATASET_MAPPING,
     PredictionStore,
@@ -50,6 +51,17 @@ def test_dataset_loader_uses_alias_and_split():
 )
 def test_official_dataset_aliases_match_current_harness(alias, dataset_path):
     assert DATASET_MAPPING[alias] == dataset_path
+
+
+def test_swebench_config_uses_extended_execution_budgets():
+    config = build_config(["swebench"])
+
+    assert config.agent.context_window == 128000
+    assert config.agent.reserve_tokens == 8000
+    assert config.agent.keep_last_n_turns == 8
+    assert config.agent.max_steps == 400
+    assert config.agent.max_time == 2400
+    assert config.tools.default_timeout == 120
 
 
 def test_verified_alias_uses_official_dataset_with_image_column():

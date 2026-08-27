@@ -139,9 +139,11 @@ BASH_TOOL = {
 
 # 查模型时把工具列表传过去
 response = client.chat.completions.create(
-    model="deepseek-chat",
+    model="deepseek-v4-flash",
     messages=messages,
     tools=[BASH_TOOL, SUBMIT_TOOL],  # ← 模型会从这里面选
+    # 关闭思考模式；项目 YAML 中对应 model_kwargs.extra_body
+    extra_body={"thinking": {"type": "disabled"}},
 )
 ```
 
@@ -268,7 +270,7 @@ class AgentConfig(BaseModel):
     temperature: float = 0.0
 
 # 构造时校验
-config = AgentConfig(model_name="deepseek-chat")           # ✅ 正常
+config = AgentConfig(model_name="deepseek-v4-flash")      # ✅ 正常
 config = AgentConfig(model_name=123)                        # ❌ 当场报错: must be str
 config = AgentConfig(max_steps="oops")                      # ❌ 当场报错: must be int
 config = AgentConfig(model_name="gpt", extra_field=True)    # ❌ 当场报错: extra field not allowed

@@ -108,13 +108,16 @@ Agent 会在模型查询前后都检查 `max_time`，因此查询返回时若已
     "submission": "diff --git ...",             // 最终结果
     "model_stats": {
       "api_calls": 12,                          // 调了几次模型
-      "instance_cost": 0.0428                   // 花了多少钱（USD）
+      "instance_cost": 0.0428                   // 费用示意（USD）
     }
   }
 }
 ```
 
-用途：回放推理链（`messages` 完整）、统计成本、调试（看模型卡在哪一步）。`run()` 用 `try/finally` 保证——即使 `max_steps` / `max_time` / `cost_limit` / 报错退出，只要传了 `output` 就一定写文件。
+用途：回放推理链（`messages` 完整）、统计成本、调试（看模型卡在哪一步）。上面的金额只是
+轨迹格式示意，不是任何供应商或模型的固定报价；实际成本取决于配置的供应商价格、输入缓存
+命中情况和用量，价格也可能变化。`run()` 用 `try/finally` 保证——即使 `max_steps` /
+`max_time` / `cost_limit` / 报错退出，只要传了 `output` 就一定写文件。
 
 ---
 
@@ -141,12 +144,21 @@ E2E（最少）   → 开发者显式 opt-in：验证模型真的理解工具 sc
 ```yaml
 # config/default.yaml
 model:
-  model_name: deepseek-chat
+  model_name: deepseek-v4-flash
   base_url: https://api.deepseek.com
   api_key_env: DEEPSEEK_API_KEY
+  model_kwargs:
+    extra_body:
+      thinking:
+        type: disabled
 ```
 
-tools 参数不用改——它们走 OpenAI function calling 结构。更多覆盖方式（`-c`、环境变量、`--config`）见 [config.md](config.md)。
+`deepseek-v4-flash` 是当前明确的模型名。`extra_body.thinking.type: disabled` 通过
+DeepSeek 的 OpenAI-compatible 接口关闭思考模式，保持原有的非思考语义；
+在本项目里，它对应 `model_kwargs.extra_body`，工具参数不用改——它们仍走 OpenAI function
+calling 结构。该模型服务端当前支持最高 1M token 上下文；长任务可以把项目自己的压缩预算
+保守地设为 128K，例如 `-c agent.context_window=128000`。更多覆盖方式（`-c`、环境变量、
+`--config`）见 [config.md](config.md)。
 
 切成 Claude 需要换成 `anthropic` SDK，但 API 概念（messages、tools、tool_calls）完全一样。
 

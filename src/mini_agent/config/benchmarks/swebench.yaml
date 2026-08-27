@@ -22,10 +22,20 @@ agent:
     4. Run focused tests and inspect the final git diff.
     5. Call `submit(output=...)` with only the complete unified diff.
 
-  max_steps: 250
-  max_time: 1800.0
+  # Hard instances can spend substantial time reproducing failures and running
+  # focused suites before they are ready to submit a patch.
+  context_window: 128000
+  reserve_tokens: 8000
+  keep_last_n_turns: 8
+  max_steps: 400
+  max_time: 2400.0
   cost_limit: 3.0
   no_tool_call_retries: 2
+
+tools:
+  # SWE-bench tests can legitimately run longer than the general-purpose
+  # default; keep the larger tool timeout scoped to benchmark runs.
+  default_timeout: 120
 
 environment:
   type: docker
