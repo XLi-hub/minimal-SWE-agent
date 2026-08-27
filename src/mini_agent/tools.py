@@ -525,8 +525,14 @@ def _network_command_in_segment(tokens: list[str]) -> str | None:
     return None
 
 
-def execute_tool_call(tc, messages: list[dict], environment,
-                      config: Config | None = None) -> None:
+def execute_tool_call(
+    tc,
+    messages: list[dict],
+    environment,
+    config: Config | None = None,
+    *,
+    defer_submission: bool = False,
+) -> str | None:
     """Validate, dispatch, and record one OpenAI tool call.
 
     Parameters
@@ -542,6 +548,9 @@ def execute_tool_call(tc, messages: list[dict], environment,
     config:
         Optional :class:`Config`. Its ``tools.enabled`` list controls both
         model visibility and execution permission.
+    defer_submission:
+        Capture a valid submission as a draft instead of ending the run. The
+        draft is returned to the caller and recorded accurately in history.
 
     Raises
     ------
@@ -578,10 +587,17 @@ def execute_tool_call(tc, messages: list[dict], environment,
             except Exception as exc:
                 result = ToolResult(f"Error: {exc}")
 
-    append_tool_result(tc, messages, result.content)
-
     if result.submission is not None:
+        if defer_submission:
+            append_tool_result(
+                tc,
+                messages,
+                "Draft submission captured; required review is still pending.",
+            )
+            return result.submission
+        append_tool_result(tc, messages, result.content)
         raise Submitted(result.submission)
+    append_tool_result(tc, messages, result.content)
     return None
 
 

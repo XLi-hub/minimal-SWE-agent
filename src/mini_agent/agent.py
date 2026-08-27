@@ -299,27 +299,34 @@ class Agent:
         skipped handlers are never dispatched.
         """
         submission: Submitted | None = None
+        draft_submission: str | None = None
         for tc in msg.tool_calls:
-            if submission is not None:
+            if submission is not None or draft_submission is not None:
                 append_skipped_tool_result(tc, self.messages)
                 continue
             try:
-                execute_tool_call(tc, self.messages, self.environment, config=self.config)
+                draft_submission = execute_tool_call(
+                    tc,
+                    self.messages,
+                    self.environment,
+                    config=self.config,
+                    defer_submission=self._submission_review_pending,
+                )
             except Submitted as exc:
                 submission = exc
 
+        if draft_submission is not None:
+            self._submission_review_pending = False
+            self.messages.append({
+                "role": "user",
+                "content": (
+                    "The previous submit call was captured as a draft and has not "
+                    "ended the run. Complete this review before submitting again:\n\n"
+                    f"{self.config.agent.submission_review_prompt}"
+                ),
+            })
+            return
         if submission is not None:
-            if self._submission_review_pending:
-                self._submission_review_pending = False
-                self.messages.append({
-                    "role": "user",
-                    "content": (
-                        "The previous submit call was captured as a draft and has not "
-                        "ended the run. Complete this review before submitting again:\n\n"
-                        f"{self.config.agent.submission_review_prompt}"
-                    ),
-                })
-                return
             # Raise only after the full assistant batch has been acknowledged.
             raise Submitted(submission.submission)
 

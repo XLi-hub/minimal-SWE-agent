@@ -285,6 +285,13 @@ def test_submission_review_requires_a_second_submit():
         "The previous submit call was captured as a draft and has not ended the run. "
         "Complete this review before submitting again:\n\nAudit the evidence."
     ]
+    tool_messages = [
+        message["content"] for message in result["messages"] if message["role"] == "tool"
+    ]
+    assert tool_messages == [
+        "Draft submission captured; required review is still pending.",
+        "Submitted.",
+    ]
 
 
 def test_submit_with_patch():
