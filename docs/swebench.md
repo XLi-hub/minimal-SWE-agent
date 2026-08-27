@@ -98,6 +98,9 @@ runner 会验证提交看起来像 unified diff。如果模型错误地提交了
 - 工作目录 `/testbed`；
 - 严格评测容器使用 `--network=none`，镜像仍可由宿主在启动前拉取，但运行中的 Agent
   不能访问 PyPI、GitHub 或其他上游源码；
+- 同一配置启用 `environment.block_network_commands`：常见下载、远程 Git 和包管理器
+  联网命令会在进入 shell 前得到明确的 policy error。这个检查用于减少无效尝试和提供
+  可解释反馈；Docker 的网络命名空间仍是处理间接或混淆访问的安全边界；
 - `bash -o pipefail -c` 配合 `BASH_ENV=/root/.bashrc`，既加载镜像内 testbed 环境，
   又避免 `pytest | tail` 一类命令把前序测试失败伪装成成功；
 - 工具命令超时 120 秒（普通配置默认 30 秒），给跨文件修复和测试留出时间；

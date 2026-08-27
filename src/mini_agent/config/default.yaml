@@ -124,3 +124,4 @@ environment:
   interpreter:
     - bash
     - -lc
+  block_network_commands: false

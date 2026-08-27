@@ -101,6 +101,7 @@ def test_benchmark_config_is_discoverable_and_valid():
     assert config.environment.cwd == "/testbed"
     assert config.environment.run_args == ["--rm", "--network=none"]
     assert config.environment.interpreter == ["bash", "-o", "pipefail", "-c"]
+    assert config.environment.block_network_commands is True
 
 
 def test_swebench_interpreter_does_not_mask_pipeline_failures():
