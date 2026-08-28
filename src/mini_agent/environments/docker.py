@@ -234,17 +234,38 @@ class DockerEnvironment(Environment):
         prefix: list[str],
         payload: list[str],
     ) -> tuple[list[str], str]:
-        """Wrap a Docker exec payload in a killable container process group."""
+        """Wrap a Docker exec payload in a killable container process group.
+
+        ``docker exec`` does not promise that the process it starts has its
+        own process group.  Blindly sending ``SIGKILL`` to ``-PID`` can
+        therefore either leave descendants behind or target the container's
+        long-running PID 1 when the exec inherited its process group.  The
+        launcher creates a new session when ``setsid`` is available and
+        records which cleanup strategy is safe to use.  Minimal images that
+        do not ship ``setsid`` use an exact ``/proc`` child-tree fallback.
+        """
         if self._container_id is None:
             raise RuntimeError("Container has not been started")
         pid_path = f"/tmp/mini-agent-exec-{uuid.uuid4().hex}.pid"
+        launcher = (
+            "if command -v setsid >/dev/null 2>&1; then "
+            "MINI_AGENT_EXEC_MODE=group setsid \"$@\" & "
+            "child=$!; wait \"$child\"; status=$?; exit \"$status\"; "
+            "else MINI_AGENT_EXEC_MODE=tree exec \"$@\"; fi"
+        )
         tracker = (
-            'pid_file=$1; shift; printf "%s\\n" "$$" > "$pid_file"; '
-            'trap \'rm -f "$pid_file"\' EXIT; "$@"'
+            'pid_file=$1; shift; '
+            'trap \'rm -f "$pid_file"\' EXIT; '
+            'printf "%s %s\\n" "$$" "${MINI_AGENT_EXEC_MODE:-tree}" > "$pid_file"; '
+            '"$@"'
         )
         return [
             *prefix,
             self._container_id,
+            "sh",
+            "-c",
+            launcher,
+            "mini-agent-launcher",
             "sh",
             "-c",
             tracker,
@@ -254,14 +275,42 @@ class DockerEnvironment(Environment):
         ], pid_path
 
     def _kill_tracked_process(self, pid_path: str) -> None:
-        """Kill a timed-out Docker exec process group inside the container."""
+        """Kill a timed-out Docker exec process tree without touching PID 1."""
         if self._container_id is None:
             return
         cleanup = (
-            'pid_file=$1; '
-            'if pid=$(cat "$pid_file" 2>/dev/null); then '
-            'kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; '
-            'fi; rm -f "$pid_file"'
+            'pid_file=$1; pid=""; mode=""; '
+            'if read -r pid mode < "$pid_file" 2>/dev/null; then '
+            'case "$pid" in ""|*[!0-9]*) pid="";; esac; '
+            'if [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; then '
+            'if [ "$mode" = group ]; then '
+            # POSIX ``kill`` accepts a negative process-group id, but dash's
+            # builtin parses it as an invalid option.  Docker always exposes
+            # /proc, so select group members explicitly and stop them before
+            # killing them to prevent new descendants during cleanup.
+            'for sig in STOP KILL; do '
+            'for proc in /proc/[0-9]*; do '
+            'stat=$(cat "$proc/stat" 2>/dev/null) || continue; '
+            'rest=${stat#*) }; set -- $rest; '
+            '[ "${3:-}" = "$pid" ] || continue; '
+            'member=${proc##*/}; [ "$member" -gt 1 ] 2>/dev/null || continue; '
+            'kill -"$sig" "$member" 2>/dev/null || true; '
+            'done; '
+            'done; '
+            'else '
+            'kill_tree() { '
+            'kill -STOP "$1" 2>/dev/null || true; '
+            'children="/proc/$1/task/$1/children"; '
+            'if [ -r "$children" ]; then '
+            'for child in $(cat "$children" 2>/dev/null); do kill_tree "$child"; done; '
+            'fi; '
+            'kill -KILL "$1" 2>/dev/null || true; '
+            '}; '
+            'kill_tree "$pid"; '
+            'fi; '
+            'fi; '
+            'fi; '
+            'rm -f "$pid_file"'
         )
         subprocess.run(
             [
@@ -355,12 +404,16 @@ def _communicate_with_timeout(
             return process.communicate(timeout=timeout)
         return process.communicate(input=input, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        _terminate_process_group(process)
+        # Clean up the container-side process while the tracking wrapper (and
+        # its PID file) is still alive.  Killing the host ``docker exec``
+        # client first can make the wrapper exit and remove that evidence,
+        # leaving detached descendants running in the container.
         if on_timeout is not None:
             try:
                 on_timeout()
             except Exception:
                 pass
+        _terminate_process_group(process)
         try:
             tail, _ = process.communicate()
         except Exception:

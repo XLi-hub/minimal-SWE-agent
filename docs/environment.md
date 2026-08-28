@@ -39,7 +39,8 @@ class Environment(ABC):
 
 ### LocalEnvironment
 
-和原来的 `Environment` 一样——`subprocess.run(command, shell=True, ...)`。加了环境变量覆盖（`PAGER=cat` 等）防止命令卡死。
+通过 `subprocess.Popen(command, shell=True, ...)` 执行，并加了环境变量覆盖（`PAGER=cat`
+等）防止命令卡死。使用 `Popen` 是为了在超时时终止整个进程树，而不只结束父 shell。
 
 ### DockerEnvironment
 
@@ -52,6 +53,9 @@ cleanup  → docker stop X                                  # 销毁容器
 ```
 
 每个 `DockerEnvironment` 实例有自己的容器。容器名用 `uuid4().hex[:8]` 保证不冲突。
+每次 `docker exec` 还会在容器内记录一个隔离会话或进程树。命令超时时，执行器先清理
+容器内的这棵树，再终止宿主侧 `docker exec` 客户端；反过来会丢失 PID 记录，让后台测试
+继续占用 CPU/内存或修改工作区。PID 1 和其他并发 exec 不在清理范围内。
 
 ### 为什么用 `sleep 2h` 而不是每次 docker run
 

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mini_agent.environments.docker import DockerEnvironment
+from mini_agent.environments.docker import DockerEnvironment, _communicate_with_timeout
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +210,30 @@ def test_execute_timeout_kills_host_and_container_process_groups():
         cleanup_cmd = mock_run.call_args_list[-1].args[0]
         assert cleanup_cmd[:3] == ["docker", "exec", "abc123def"]
         assert "kill -KILL" in cleanup_cmd[-3]
+        assert '"$pid" -gt 1' in cleanup_cmd[-3]
+        assert "/proc/[0-9]*" in cleanup_cmd[-3]
+        assert "for sig in STOP KILL" in cleanup_cmd[-3]
+        assert "kill_tree" in cleanup_cmd[-3]
+        env.cleanup()
+
+
+def test_tracked_exec_uses_isolated_session_or_safe_tree_fallback():
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+
+        env = DockerEnvironment(image="python:3.11-slim")
+        cmd, pid_path = env._tracked_exec_command(
+            ["docker", "exec"], ["sh", "-c", "echo hi"]
+        )
+
+        assert pid_path.startswith("/tmp/mini-agent-exec-")
+        launcher = cmd[cmd.index("-c") + 1]
+        tracker = cmd[cmd.index("-c", cmd.index("-c") + 1) + 1]
+        assert "setsid" in launcher
+        assert "MINI_AGENT_EXEC_MODE=group" in launcher
+        assert "MINI_AGENT_EXEC_MODE=tree" in launcher
+        assert '"${MINI_AGENT_EXEC_MODE:-tree}"' in tracker
         env.cleanup()
 
 
@@ -229,6 +253,28 @@ def test_windows_docker_timeout_terminates_client_tree():
         timeout=10,
     )
     process.kill.assert_not_called()
+
+
+def test_timeout_cleans_container_before_terminating_client():
+    process = MagicMock()
+    process.communicate.side_effect = [
+        subprocess.TimeoutExpired("docker exec", 0.1),
+        ("", None),
+    ]
+    order = []
+
+    with patch(
+        "mini_agent.environments.docker._terminate_process_group",
+        side_effect=lambda ignored: order.append("host"),
+    ):
+        with pytest.raises(subprocess.TimeoutExpired):
+            _communicate_with_timeout(
+                process,
+                timeout=0.1,
+                on_timeout=lambda: order.append("container"),
+            )
+
+    assert order == ["container", "host"]
 
 
 def test_cleanup_stops_container():
