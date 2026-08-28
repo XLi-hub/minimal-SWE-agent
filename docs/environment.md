@@ -55,7 +55,9 @@ cleanup  → docker stop X                                  # 销毁容器
 每个 `DockerEnvironment` 实例有自己的容器。容器名用 `uuid4().hex[:8]` 保证不冲突。
 每次 `docker exec` 还会在容器内记录一个隔离会话或进程树。命令超时时，执行器先清理
 容器内的这棵树，再终止宿主侧 `docker exec` 客户端；反过来会丢失 PID 记录，让后台测试
-继续占用 CPU/内存或修改工作区。PID 1 和其他并发 exec 不在清理范围内。
+继续占用 CPU/内存或修改工作区。跟踪 wrapper 会显式保留标准输入，因此 `write_file`
+通过 `docker exec -i` 传入的大文件不会因后台会话默认连接 `/dev/null` 而被截空。PID 1
+和其他并发 exec 不在清理范围内。
 
 ### 为什么用 `sleep 2h` 而不是每次 docker run
 

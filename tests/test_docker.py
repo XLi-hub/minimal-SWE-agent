@@ -233,6 +233,8 @@ def test_tracked_exec_uses_isolated_session_or_safe_tree_fallback():
         assert "setsid" in launcher
         assert "MINI_AGENT_EXEC_MODE=group" in launcher
         assert "MINI_AGENT_EXEC_MODE=tree" in launcher
+        assert "exec 3<&0" in launcher
+        assert 'setsid "$@" <&3 &' in launcher
         assert '"${MINI_AGENT_EXEC_MODE:-tree}"' in tracker
         env.cleanup()
 
@@ -499,6 +501,19 @@ def test_docker_command_failure():
     try:
         output = env.execute("bash -c 'echo failing >&2; exit 42'")
         assert "failing" in output
+    finally:
+        env.cleanup()
+
+
+@docker_integration
+@docker_required
+def test_docker_write_file_preserves_large_stdin():
+    """Tracked writes must not redirect a background session's stdin to EOF."""
+    env = DockerEnvironment(image="python:3.11-slim", cwd="/tmp")
+    content = "".join(f"line {number:05d} -- payload\n" for number in range(12_000))
+    try:
+        env.write_file("large-edit-target.py", content)
+        assert env.read_file("large-edit-target.py") == content
     finally:
         env.cleanup()
 

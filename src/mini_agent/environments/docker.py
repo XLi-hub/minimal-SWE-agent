@@ -249,8 +249,12 @@ class DockerEnvironment(Environment):
         pid_path = f"/tmp/mini-agent-exec-{uuid.uuid4().hex}.pid"
         launcher = (
             "if command -v setsid >/dev/null 2>&1; then "
-            "MINI_AGENT_EXEC_MODE=group setsid \"$@\" & "
-            "child=$!; wait \"$child\"; status=$?; exit \"$status\"; "
+            # Non-interactive POSIX shells connect an asynchronous command's
+            # stdin to /dev/null unless it has an explicit redirection.  Keep
+            # a duplicate alive so tracked ``docker exec -i`` writes do not
+            # truncate their target and immediately receive EOF.
+            "exec 3<&0; MINI_AGENT_EXEC_MODE=group setsid \"$@\" <&3 & "
+            "child=$!; exec 3<&-; wait \"$child\"; status=$?; exit \"$status\"; "
             "else MINI_AGENT_EXEC_MODE=tree exec \"$@\"; fi"
         )
         tracker = (
