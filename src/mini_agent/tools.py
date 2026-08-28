@@ -159,8 +159,10 @@ READ_SCHEMA = {
         "name": "read",
         "description": (
             "Read a file's contents and return them with line numbers. Use this "
-            "to inspect code before editing. Very large content is truncated to "
-            "the configured character budget."
+            "to inspect code before editing. By default it returns at most 100 "
+            "lines from the requested starting line; continue with 'line_start' "
+            "instead of repeatedly reading the whole file. A separate character "
+            "budget also bounds long lines."
         ),
         "parameters": {
             "type": "object",
@@ -170,6 +172,19 @@ READ_SCHEMA = {
                     "description": (
                         "Path to the file to read (relative to the working "
                         "directory, or absolute)."
+                    ),
+                },
+                "line_start": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "First 1-based line to return (default 1).",
+                },
+                "lines": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": (
+                        "Maximum source lines to return (default 100). Use "
+                        "line_start to request the next chunk."
                     ),
                 },
             },
@@ -307,6 +322,16 @@ def _handle_read(args: dict[str, Any], context: ToolContext) -> ToolResult:
         return ToolResult("Error: 'read' requires a 'path' argument.")
 
     print("Read:", path)
+    line_start = args.get("line_start", 1)
+    max_lines = args.get("lines", context.config.tools.default_max_lines)
+    if (
+        isinstance(line_start, bool)
+        or not isinstance(line_start, int)
+        or line_start < 1
+    ):
+        return ToolResult("Error: 'read' 'line_start' must be an integer >= 1.")
+    if isinstance(max_lines, bool) or not isinstance(max_lines, int) or max_lines < 1:
+        return ToolResult("Error: 'read' 'lines' must be an integer >= 1.")
     max_chars = getattr(
         context.config.tools, "default_max_chars", DEFAULT_MAX_CHARS
     )
@@ -319,7 +344,12 @@ def _handle_read(args: dict[str, Any], context: ToolContext) -> ToolResult:
     except Exception as exc:
         output = f"Error: {exc}"
     else:
-        output = format_read_output(content, max_chars=max_chars)
+        output = format_read_output(
+            content,
+            start_line=line_start,
+            max_lines=max_lines,
+            max_chars=max_chars,
+        )
     # Error strings (including a model-supplied path) must obey the same bound
     # as successful file reads.
     output = _truncate_by_chars(output, max_chars)
@@ -841,12 +871,35 @@ def apply_edit(content: str, old_string: str, new_string: str) -> str:
 
 def format_read_output(
     content: str,
+    start_line: int = 1,
+    max_lines: int | None = None,
     max_chars: int | None = DEFAULT_MAX_CHARS,
 ) -> str:
-    """Prefix lines with numbers and enforce a hard character budget."""
+    """Return one numbered source range within line and character budgets."""
     if content == "":
         return _truncate_by_chars("(empty file)", max_chars)
+    source_lines = content.splitlines()
+    if start_line > len(source_lines):
+        return _truncate_by_chars(
+            f"(line_start {start_line} is beyond end of file; "
+            f"file has {len(source_lines)} lines)",
+            max_chars,
+        )
+
+    selected = source_lines[start_line - 1:]
+    omitted = 0
+    if max_lines is not None and len(selected) > max_lines:
+        omitted = len(selected) - max_lines
+        selected = selected[:max_lines]
     formatted = "\n".join(
-        f"{i:>6}\t{line}" for i, line in enumerate(content.splitlines(), 1)
+        f"{i:>6}\t{line}"
+        for i, line in enumerate(selected, start_line)
     )
+    if omitted:
+        next_line = start_line + len(selected)
+        formatted += (
+            f"\n[... {omitted} later lines not shown ...]\n"
+            "[WARNING: Continue reading with "
+            f"line_start={next_line}; do not reread the whole file.]"
+        )
     return _truncate_by_chars(formatted, max_chars)

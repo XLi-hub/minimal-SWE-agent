@@ -95,6 +95,17 @@ def test_format_read_output_empty():
     assert format_read_output("") == "(empty file)"
 
 
+def test_format_read_output_returns_requested_source_chunk():
+    content = "\n".join(f"line {number}" for number in range(1, 301))
+
+    output = format_read_output(content, start_line=101, max_lines=3)
+
+    assert output.startswith("   101\tline 101")
+    assert "   103\tline 103" in output
+    assert "line 104" not in output
+    assert "line_start=104" in output
+
+
 def test_format_read_output_has_character_budget_for_one_long_line():
     content = "开头" + "中" * (DEFAULT_MAX_CHARS * 2) + "结尾"
     output = format_read_output(content, max_chars=256)
@@ -125,6 +136,43 @@ def test_read_returns_numbered_content():
     )
     assert messages[0]["role"] == "tool"
     assert "     1\tx = 1" in messages[0]["content"]
+
+
+def test_read_uses_configured_default_line_limit_and_supports_continuation():
+    content = "\n".join(f"line {number}" for number in range(1, 301))
+    env = FakeEnv(files={"large.py": content})
+    messages: list = []
+
+    execute_tool_call(_tc("first", "read", {"path": "large.py"}), messages, env)
+    execute_tool_call(
+        _tc("next", "read", {"path": "large.py", "line_start": 101, "lines": 2}),
+        messages,
+        env,
+    )
+
+    assert "   100\tline 100" in messages[0]["content"]
+    assert "line 101" not in messages[0]["content"]
+    assert "line_start=101" in messages[0]["content"]
+    assert messages[1]["content"].startswith("   101\tline 101")
+    assert "   102\tline 102" in messages[1]["content"]
+    assert "line 103" not in messages[1]["content"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"path": "f.py", "line_start": 0},
+        {"path": "f.py", "line_start": True},
+        {"path": "f.py", "lines": 0},
+        {"path": "f.py", "lines": "10"},
+    ],
+)
+def test_read_rejects_invalid_line_ranges(arguments):
+    messages: list = []
+
+    execute_tool_call(_tc("read", "read", arguments), messages, FakeEnv())
+
+    assert messages[0]["content"].startswith("Error: 'read'")
 
 
 def test_read_missing_file_is_error_message():
