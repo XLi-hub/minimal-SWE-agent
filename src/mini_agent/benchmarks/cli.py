@@ -5,10 +5,30 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Sequence
 
 from mini_agent.benchmarks.swebench import SWEbenchRunner, filter_instances
 from mini_agent.config import UNSET, build_config
+
+
+def _warn_if_cost_limit_is_unenforced(config: object) -> None:
+    """Warn when a configured dollar cap has no non-zero prices to enforce it."""
+    agent = getattr(config, "agent", None)
+    cost = getattr(config, "cost", None)
+    cost_limit = getattr(agent, "cost_limit", None)
+    prices = (
+        getattr(cost, "price_input_per_1m", 0),
+        getattr(cost, "price_input_cache_hit_per_1m", 0),
+        getattr(cost, "price_output_per_1m", 0),
+    )
+    if cost_limit is not None and cost_limit > 0 and not any(prices):
+        print(
+            "Warning: agent.cost_limit is set, but all configured token prices are "
+            "zero; the cost limit cannot stop this run. Configure cost.price_*_per_1m "
+            "for this provider, or set agent.cost_limit=0 explicitly.",
+            file=sys.stderr,
+        )
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -56,6 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "model": {"model_name": args.model if args.model is not None else UNSET},
         },
     )
+    _warn_if_cost_limit_is_unenforced(config)
     output_dir = Path(args.output)
     runner = SWEbenchRunner(
         output_dir,

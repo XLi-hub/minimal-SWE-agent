@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mini_agent.benchmarks import cli
+from mini_agent.config import build_config
 
 
 def test_parse_args_supports_batch_selection():
@@ -34,6 +35,30 @@ def test_select_instance_accepts_id_and_sorted_index():
     assert cli._select_instance(instances, "0")[0]["instance_id"] == "a__repo__1"
     with pytest.raises(ValueError, match="Unknown"):
         cli._select_instance(instances, "missing")
+
+
+def test_warns_when_cost_limit_has_no_prices(capsys):
+    config = build_config([])
+
+    cli._warn_if_cost_limit_is_unenforced(config)
+
+    assert "cost limit cannot stop this run" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"agent": {"cost_limit": 0}},
+        {"agent": {"cost_limit": None}},
+        {"cost": {"price_output_per_1m": 1.0}},
+    ],
+)
+def test_cost_limit_warning_is_silent_when_disabled_or_priced(overrides, capsys):
+    config = build_config([], cli_overrides=overrides)
+
+    cli._warn_if_cost_limit_is_unenforced(config)
+
+    assert capsys.readouterr().err == ""
 
 
 def test_main_builds_benchmark_config_and_runs(tmp_path, capsys):
