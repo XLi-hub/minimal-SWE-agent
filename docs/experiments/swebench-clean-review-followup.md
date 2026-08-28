@@ -34,32 +34,46 @@ Agent 最终提交了 patch，但“提交了 patch”不等于“解决了实�
 
 ## 3. 这个实例要求解决什么问题
 
-该实例要求 Sphinx 的 C++ domain 正确处理 user-defined numeric literal（UDL），例如：
+该实例要求 Sphinx 正确理解 C++ 的 user-defined literal（UDL）。以 `5_udl` 为例，它看起来像一个
+带后缀的数字，但在 C++ 中表达的是一次调用：
 
 ```cpp
-6.62607015e-34q_J * 1q_s
+operator ""_udl(5)
 ```
 
-正确实现不只要做到“能够解析”和“能够重新输出字符串”，还必须为表达式生成符合 C++ Itanium ABI
-语义的 identity。也就是说，这个任务至少包含三个可观察结果：
+上面的写法是为了说明语义，不是原始源码的等价改写。Sphinx 需要把 `5_udl` 解析成“用参数 `5` 调用
+literal operator `_udl`”，并为这个 C++ 表达式生成稳定的内部 ID。
 
-1. parser 接受 UDL；
-2. AST stringify 保留 UDL；
-3. expression ID / mangling 正确表示对 literal operator 的调用。
+因此任务不是只让 parser 接受这段文本，而是同时做到：
+
+1. 能读入 `5_udl`；
+2. 能重新显示为 `5_udl`；
+3. 内部语义必须是“调用 `_udl` operator”，不能把整个 `5_udl` 当成一个普通数字。
 
 ## 4. Agent 做了什么，为什么仍然失败
 
-候选 patch 把 UDL suffix 一起收进 `ASTNumberLiteral.data`。这使解析和 stringify 看起来正常，也没有
-破坏原有的 24 个 PASS_TO_PASS 测试，但它没有实现 UDL 的调用语义。
+**一句话原因：Agent 只修好了“读入这段文字”，没有修好“理解这段文字”。**
 
-官方新增测试给出了直接反例：
+候选 patch 直接把 `_udl` 粘到数字内容后面，把 `5_udl` 作为一个整体存进普通数字节点。这样做产生了
+下面的结果：
+
+| 检查层次 | 正确行为 | 候选 patch | 结果 |
+|---|---|---|---|
+| 读取源码 | 接受 `5_udl` | 可以接受 | 通过 |
+| 重新显示 | 输出 `5_udl` | 可以原样输出 | 通过 |
+| 理解语义 | `_udl` operator 接受参数 `5` | 把 `5_udl` 当成一个普通数字 | **错误** |
+| 生成内部 ID | 生成“operator 调用”的 ID | 生成“数字 literal”的 ID | **错误** |
+
+这就像把一条指令原样抄写出来，却没有识别出它是一次函数调用。表面文本正确，内部表示仍然错误。
+
+官方新增测试正好检查了这个内部语义：
 
 | 输入 | 官方期望 expression ID | 候选实际结果 |
 |---|---|---|
-| `5_udl` | `clL_Zli4_udlEL5EE` | `L5_udlE` |
+| `5_udl` | `clL_Zli4_udlEL5EE`（operator 调用） | `L5_udlE`（普通数字） |
 
-候选把 `5_udl` 当成一个普通数字 literal 编码；正确结果则把它编码成对 literal operator
-`operator \"\"_udl` 的调用。因此失败的直接原因不是边界输入漏测，而是 **AST 表示和 identity 建模层级错误**。
+两串 ID 本身不需要记。它们只是证明：官方要求的是“调用 `_udl` operator”，候选提交的却是“一个叫
+`5_udl` 的数字”。因此新增测试没有通过，最终 `FAIL_TO_PASS = 0/1`，整个实例判定为失败。
 
 clean reviewer 做过以下检查：
 
@@ -68,14 +82,15 @@ clean reviewer 做过以下检查：
 - 运行 `tests/test_domain_cpp.py`，25 个已有测试通过；
 - 检查 declaration stringify、signature 和若干 ID。
 
-这些检查仍未发现错误，原因有三点：
+reviewer 没发现这个问题，是因为它主要检查了前两层——“能不能读”和“能不能原样输出”——没有直接
+检查第三层“它在语义上是不是一次 operator 调用”。具体来说：
 
 1. 25 个已有测试没有对新的 UDL 输入断言精确 expression ID，不能充当该行为的 oracle；
 2. reviewer 检查的周围 member declaration ID 不编码 initializer，因此与失败点无关；
 3. parse、stringify 和 `get_id` 都来自同一个错误的 `ASTNumberLiteral` 表示，三者彼此一致不构成独立验证。
 
-所以，本实例的核心失败是：**reviewer 验证了“补丁内部是否自洽”，却没有验证“新增语法在外部规范下
-应该产生什么精确 identity”。**
+所以，本实例的核心失败是：**实现把 UDL 当成特殊数字，而 C++ 要求把它当成 operator 调用；reviewer
+又没有为这个调用语义建立直接测试。**
 
 ## 5. Docker/harness 事故是否导致了这次失败
 
