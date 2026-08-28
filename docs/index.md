@@ -19,6 +19,7 @@
 | [SWE-bench Verified 双实例复盘](experiments/swebench-verified-deepseek-v4-retrospective.md) | 想了解一次 2/2 结果背后的污染、轨迹审计和评测设计思考 |
 | [SWE-bench 高难双实例 0/2 复盘](experiments/swebench-verified-hard-0-of-2-analysis.md) | 想理解自测全绿仍失败的原因、harness 边界和验证机制改进 |
 | [SWE-bench 高难双实例审计复跑](experiments/swebench-verified-hard-audit-rerun.md) | 想比较 draft audit 前后轨迹，并理解为什么过程改善仍可能是 0/2 |
+| [Clean-context review 续试](experiments/swebench-clean-review-followup.md) | 想理解去锚定仍失败的原因、按需完整轨迹和 harness 分层归因 |
 | [testing.md](testing.md) | 想理解测试策略和分层的原因 |
 | [faq.md](faq.md) | 有具体问题时查阅 |
 
