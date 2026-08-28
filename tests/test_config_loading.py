@@ -113,8 +113,12 @@ def test_benchmark_config_is_discoverable_and_valid():
     assert config.environment.interpreter == ["bash", "-o", "pipefail", "-c"]
     assert config.environment.block_network_commands is True
     assert config.agent.submission_review_prompt is not None
+    assert config.agent.submission_review_reset_context is True
     assert "underlying invariant or public contract" in config.agent.submission_review_prompt
     assert "circular evidence" in config.agent.submission_review_prompt
+    assert "behavior matrix" in config.agent.submission_review_prompt
+    assert "independent repository oracle" in config.agent.submission_review_prompt
+    assert "internally consistent" in config.agent.submission_review_prompt
     assert "without evaluator feedback" in config.agent.instance_template
 
 

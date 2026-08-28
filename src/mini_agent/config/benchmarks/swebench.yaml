@@ -42,21 +42,31 @@ agent:
   max_time: 2400.0
   cost_limit: 3.0
   no_tool_call_retries: 2
+  submission_review_reset_context: true
   submission_review_prompt: |
     Audit the candidate using only the issue, repository, and locally available
     tests; no hidden evaluator result is available.
 
     1. State the underlying invariant or public contract. Check whether the
        patch repairs the producer of invalid state or only a downstream symptom.
-    2. Trace relevant lifecycle transitions and downstream contracts such as
-       construction, mutation, serialization, identity, and rendering. Inspect
-       callers instead of assuming legacy-test success covers new behavior.
-    3. Run an independent minimal regression check derived from the issue's
-       expected behavior. A check that merely repeats the implementation's own
-       assumption is circular evidence.
-    4. Record exact commands, return codes, tested scope, and remaining
+    2. For stateful APIs, derive a behavior matrix from public parameters,
+       lifecycle transitions, counterpart methods, and adjacent repository
+       tests. Exercise contrasting modes and argument shapes; proving only the
+       issue's no-exception example is insufficient.
+    3. For identity, serialization, mangling, rendering, or protocol behavior,
+       locate an independent repository oracle: an analogous established AST or
+       operation, a canonical encoder, a caller contract, or an existing golden
+       expectation. Compute the expected observable before accepting the patch.
+       Methods that all derive from the same new representation are only
+       internally consistent; they are not independent evidence of correctness.
+    4. Run an independent minimal regression check derived from the issue's
+       expected behavior. It must assert the complete observable state/output,
+       cover at least one contrasting case when applicable, and fail without
+       the patch. A check that repeats the implementation's own assumption is
+       circular evidence.
+    5. Record exact commands, return codes, tested scope, and remaining
        assumptions. Continue investigating when a material gap remains.
-    5. Reinspect the complete diff for unintended scope before submitting it.
+    6. Reinspect the complete diff for unintended scope before submitting it.
 
 tools:
   # SWE-bench tests can legitimately run longer than the general-purpose
