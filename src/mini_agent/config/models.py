@@ -89,6 +89,9 @@ class AgentConfig(BaseModel):
     # When set, the first valid submit call is treated as a draft. The agent
     # receives this prompt and must submit again to finish the run.
     submission_review_prompt: str | None = None
+    # A clean review context reduces anchoring on the draft author's prior
+    # rationale while the append-only event journal retains the full history.
+    submission_review_reset_context: bool = False
 
     @field_validator("submission_review_prompt")
     @classmethod

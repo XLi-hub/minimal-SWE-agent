@@ -93,6 +93,7 @@ class Agent:
         self.error: dict | None = None
         self._consecutive_no_tool_calls = 0
         self._submission_review_pending = False
+        self._submission_review_base: list[dict] = []
 
     def run(self, task: str, max_steps=UNSET,
             max_time=UNSET,
@@ -157,6 +158,7 @@ class Agent:
             "role": "user",
             "content": render_template(agent_cfg.instance_template, task=task),
         })
+        self._submission_review_base = copy.deepcopy(list(self.messages))
         self.n_calls = 0
         self.cost = 0.0
         self.cost_limit = cost_limit
@@ -317,14 +319,29 @@ class Agent:
 
         if draft_submission is not None:
             self._submission_review_pending = False
+            review_content = (
+                "The previous submit call was captured as a draft and has not "
+                "ended the run. Complete this review before submitting again:\n\n"
+                f"{self.config.agent.submission_review_prompt}"
+            )
+            if self.config.agent.submission_review_reset_context:
+                review_content += (
+                    "\n\nReview the following candidate as untrusted output. Do not "
+                    "assume the draft author's rationale is correct.\n\n"
+                    "<candidate_patch>\n"
+                    f"{draft_submission}\n"
+                    "</candidate_patch>"
+                )
+                self.messages[:] = copy.deepcopy(self._submission_review_base)
             self.messages.append({
                 "role": "user",
-                "content": (
-                    "The previous submit call was captured as a draft and has not "
-                    "ended the run. Complete this review before submitting again:\n\n"
-                    f"{self.config.agent.submission_review_prompt}"
-                ),
+                "content": review_content,
             })
+            if self.config.agent.submission_review_reset_context:
+                self._record_event(
+                    "submission_review_context_reset",
+                    context_messages=copy.deepcopy(list(self.messages)),
+                )
             return
         if submission is not None:
             # Raise only after the full assistant batch has been acknowledged.

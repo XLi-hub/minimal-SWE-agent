@@ -87,6 +87,9 @@ agent:
   # Optional review gate: when set, the first valid submit is a draft and this
   # prompt is returned to the model before a second, final submit is accepted.
   submission_review_prompt: null
+  # When enabled with a review prompt, start review from the original task and
+  # draft patch instead of anchoring on the full authoring conversation.
+  submission_review_reset_context: false
 
 tools:
   # 工具 schema + handler 在 mini_agent.tools.TOOL_REGISTRY 中成对注册；

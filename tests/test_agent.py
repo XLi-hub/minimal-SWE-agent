@@ -294,6 +294,58 @@ def test_submission_review_requires_a_second_submit():
     ]
 
 
+def test_submission_review_can_reset_authoring_context():
+    """A clean review sees the task and draft without the author's rationale."""
+    config = build_config([
+        'agent.submission_review_prompt="Find an independent oracle."',
+        "agent.submission_review_reset_context=true",
+    ])
+    seen_contexts: list[list[dict]] = []
+    responses = iter([
+        _make_response(
+            content="Rationale that should not anchor review.",
+            tool_calls=[_make_tool_call("draft", "submit", {"output": "draft diff"})],
+        ),
+        _make_response(
+            content="Fresh review complete.",
+            tool_calls=[_make_tool_call("final", "submit", {"output": "revised diff"})],
+        ),
+    ])
+    model = MagicMock()
+
+    def query(messages, tools=None):
+        seen_contexts.append([dict(message) for message in messages])
+        return next(responses)
+
+    model.query.side_effect = query
+    agent = Agent(model, MagicMock(), config=config)
+
+    result = agent.run("fix a bug")
+
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "revised diff"
+    assert len(seen_contexts) == 2
+    review_context = seen_contexts[1]
+    assert [message["role"] for message in review_context] == ["system", "user", "user"]
+    assert "fix a bug" in review_context[1]["content"]
+    assert "draft diff" in review_context[2]["content"]
+    assert "Find an independent oracle" in review_context[2]["content"]
+    assert all(
+        "Rationale that should not anchor review" not in str(message)
+        for message in review_context
+    )
+    assert any(
+        event["type"] == "submission_review_context_reset"
+        for event in agent.events
+    )
+    assert any(
+        event["type"] == "message"
+        and event["message"].get("role") == "tool"
+        and "Draft submission captured" in event["message"].get("content", "")
+        for event in agent.events
+    )
+
+
 def test_submit_with_patch():
     """SWE-bench 风格：模型生成 git diff patch 后提交。"""
     patch = (
