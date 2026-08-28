@@ -85,7 +85,8 @@ runner 会验证提交看起来像 unified diff。如果模型错误地提交了
 可能只包含 system、原始任务、摘要和最近若干轮。完整的 assistant/tool 交换不会再被压缩
 覆盖，而是按顺序写入 `.events.jsonl`；压缩本身也是一个事件，记录压缩前后消息数和生成的
 摘要，并保存压缩后的精确 context snapshot。事件日志用于审计和复盘，默认不会作为工具
-开放给模型。
+开放给普通 Agent；SWE-bench 的独立 review 例外，它可以用只读 `trajectory` 工具按关键词
+或事件序号检索有界片段，但不会自动恢复作者上下文。
 
 为避免轨迹本身成为泄题载体，runner 只保存公开任务和环境字段，不会把数据集中的 gold
 `patch`、`test_patch`、`eval_script`、隐藏测试列表或未知自定义字段复制到轨迹。
@@ -107,7 +108,8 @@ runner 会验证提交看起来像 unified diff。如果模型错误地提交了
 - 镜像拉取超时 300 秒；
 - 第一次 `submit` 只捕获候选 diff，不结束运行；随后 Agent 会收到一次不包含 hidden test
   结果的证据审计；review 从原始 issue 和候选 patch 的干净 context 开始，避免继续被作者阶段
-  的既有解释锚定，完整作者轨迹仍保存在 `.events.jsonl`；
+  的既有解释锚定，完整作者轨迹仍保存在 `.events.jsonl`；review 可按需用只读 `trajectory`
+  工具找回精确命令/输出，并继续把作者结论视为未验证；
 - 审计检查底层契约、状态 API 的参数/生命周期行为矩阵，以及 identity、serialization、
   mangling 等行为在仓库内的独立类比或 canonical oracle；同一个新表示派生出的多个方法彼此
   一致，只能证明内部自洽，不能证明外部契约正确；

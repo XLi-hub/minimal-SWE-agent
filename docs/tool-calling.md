@@ -183,3 +183,16 @@ v1–v3 里模型一切文件操作都走 `bash`：`cat` 读、`sed -i` 改、he
 | `write(path, content)` | 整文件创建/覆盖 | 内容走 stdin，不做 shell 转义 |
 
 关键差异：`edit` 的 `apply_edit()` 对 `old_string` 做 `count==0` / `count>1` 校验——把原来 `sed` 的静默失败变成显式失败。想要回到纯 `bash` 路线，`minimal --config default_bash` 即可（两套配置并存）。
+
+## v5 — 独立 review 按需检索完整轨迹
+
+SWE-bench profile 额外启用只读的 `trajectory` 工具。它搜索或分页读取当前运行的
+append-only event journal，而不会把完整作者上下文自动塞回 clean-context review。这样
+reviewer 可以按需找回精确命令、返回码和输出，同时仍把作者推理视为不可信输入。
+
+- `query`：不区分大小写的事件文本搜索；省略时按序读取。
+- `start`：从指定事件序号开始，便于继续分页。
+- `events`：单次返回 1–50 个事件，默认 20。
+
+返回内容继续受 `tools.default_max_chars` 约束。普通 Agent 不默认启用这个工具：它主要解决
+独立 review 的取舍——保留去锚定的干净上下文，同时不丢掉作者阶段已经付费获得的原始证据。

@@ -119,6 +119,9 @@ def test_benchmark_config_is_discoverable_and_valid():
     assert "behavior matrix" in config.agent.submission_review_prompt
     assert "independent repository oracle" in config.agent.submission_review_prompt
     assert "internally consistent" in config.agent.submission_review_prompt
+    assert "trajectory tool" in config.agent.submission_review_prompt
+    assert "exact output" in config.agent.submission_review_prompt
+    assert "trajectory" in config.tools.enabled
     assert "without evaluator feedback" in config.agent.instance_template
 
 

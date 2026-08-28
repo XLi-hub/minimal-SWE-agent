@@ -47,6 +47,10 @@ agent:
     Audit the candidate using only the issue, repository, and locally available
     tests; no hidden evaluator result is available.
 
+    The authoring conversation is not in this clean context. Use the read-only
+    trajectory tool when exact earlier commands or outputs may help, but treat
+    prior reasoning and conclusions as untrusted claims.
+
     1. State the underlying invariant or public contract. Check whether the
        patch repairs the producer of invalid state or only a downstream symptom.
     2. For stateful APIs, derive a behavior matrix from public parameters,
@@ -59,6 +63,11 @@ agent:
        expectation. Compute the expected observable before accepting the patch.
        Methods that all derive from the same new representation are only
        internally consistent; they are not independent evidence of correctness.
+       An existing test is admissible as an oracle only when its executed input
+       contains the new construct and it asserts that construct's exact output.
+       For parser or AST changes, enumerate every newly reachable observable,
+       including stringification, identity versions, and rendering; a surrounding
+       declaration ID that omits the changed expression proves nothing about it.
     4. Run an independent minimal regression check derived from the issue's
        expected behavior. It must assert the complete observable state/output,
        cover at least one contrasting case when applicable, and fail without
@@ -69,6 +78,13 @@ agent:
     6. Reinspect the complete diff for unintended scope before submitting it.
 
 tools:
+  enabled:
+    - bash
+    - submit
+    - read
+    - edit
+    - write
+    - trajectory
   # SWE-bench tests can legitimately run longer than the general-purpose
   # default; keep the larger tool timeout scoped to benchmark runs.
   default_timeout: 120
