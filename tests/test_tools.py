@@ -229,6 +229,81 @@ def test_write_empty_content_succeeds():
     assert "Wrote empty.txt" in messages[0]["content"]
 
 
+def test_trajectory_search_returns_prior_evidence_with_continuation():
+    cfg = build_config(
+        cli_overrides={"tools": {"enabled": ["bash", "submit", "trajectory"]}}
+    )
+    events = [
+        {"sequence": 0, "type": "message", "message": {"content": "task"}},
+        {"sequence": 1, "type": "message", "message": {"content": "g++ oracle one"}},
+        {"sequence": 2, "type": "message", "message": {"content": "unrelated"}},
+        {"sequence": 3, "type": "message", "message": {"content": "g++ oracle two"}},
+    ]
+    messages: list = []
+
+    execute_tool_call(
+        _tc("history", "trajectory", {"query": "G++", "events": 1}),
+        messages,
+        FakeEnv(),
+        cfg,
+        event_log=events,
+    )
+
+    content = messages[0]["content"]
+    assert "event 1" in content
+    assert "g++ oracle one" in content
+    assert "unrelated" not in content
+    assert "start=2" in content
+
+
+def test_trajectory_output_uses_configured_character_budget():
+    cfg = build_config(
+        cli_overrides={
+            "tools": {
+                "enabled": ["trajectory"],
+                "default_max_chars": 128,
+            },
+        }
+    )
+    messages: list = []
+
+    execute_tool_call(
+        _tc("history", "trajectory", {}),
+        messages,
+        FakeEnv(),
+        cfg,
+        event_log=[{"sequence": 0, "type": "message", "content": "x" * 10_000}],
+    )
+
+    assert len(messages[0]["content"]) <= 128
+    assert "truncated" in messages[0]["content"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"start": -1},
+        {"start": True},
+        {"events": 0},
+        {"events": 51},
+        {"query": 123},
+    ],
+)
+def test_trajectory_rejects_invalid_ranges(arguments):
+    cfg = build_config(cli_overrides={"tools": {"enabled": ["trajectory"]}})
+    messages: list = []
+
+    execute_tool_call(
+        _tc("history", "trajectory", arguments),
+        messages,
+        FakeEnv(),
+        cfg,
+        event_log=[],
+    )
+
+    assert messages[0]["content"].startswith("Error: 'trajectory'")
+
+
 def test_bash_observation_preserves_execution_metadata():
     observation = format_execution_observation(
         {

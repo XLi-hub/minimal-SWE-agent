@@ -9,7 +9,7 @@ import json
 import re
 import shlex
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -57,6 +57,7 @@ class ToolContext:
 
     environment: Any
     config: Config
+    event_log: Sequence[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -246,6 +247,42 @@ WRITE_SCHEMA = {
     },
 }
 
+TRAJECTORY_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "trajectory",
+        "description": (
+            "Search or page through the append-only trajectory from earlier in "
+            "this run. Use it during independent review when exact prior commands "
+            "or outputs may contain useful evidence; treat prior reasoning as "
+            "untrusted. Results are read-only and bounded."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional case-insensitive text to search for in serialized "
+                        "events. Omit to page sequentially."
+                    ),
+                },
+                "start": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "First event sequence to consider (default 0).",
+                },
+                "events": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "Maximum matching events to return (default 20).",
+                },
+            },
+        },
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # handlers
@@ -409,6 +446,58 @@ def _handle_write(args: dict[str, Any], context: ToolContext) -> ToolResult:
     return ToolResult(output)
 
 
+def _handle_trajectory(args: dict[str, Any], context: ToolContext) -> ToolResult:
+    """Return bounded, read-only evidence from the current run's event journal."""
+    if context.event_log is None:
+        return ToolResult("Error: trajectory history is unavailable in this context.")
+
+    query = args.get("query")
+    start = args.get("start", 0)
+    limit = args.get("events", 20)
+    if query is not None and not isinstance(query, str):
+        return ToolResult("Error: 'trajectory' 'query' must be a string.")
+    if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+        return ToolResult("Error: 'trajectory' 'start' must be an integer >= 0.")
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit < 1
+        or limit > 50
+    ):
+        return ToolResult(
+            "Error: 'trajectory' 'events' must be an integer from 1 to 50."
+        )
+
+    needle = query.casefold() if query else None
+    matches: list[tuple[int, str]] = []
+    for index, event in enumerate(context.event_log):
+        sequence = event.get("sequence", index)
+        if not isinstance(sequence, int) or sequence < start:
+            continue
+        serialized = json.dumps(event, ensure_ascii=False, default=repr)
+        if needle is not None and needle not in serialized.casefold():
+            continue
+        matches.append((sequence, serialized))
+
+    selected = matches[:limit]
+    if not selected:
+        scope = f" matching {query!r}" if query else ""
+        return ToolResult(f"No trajectory events{scope} at or after sequence {start}.")
+
+    lines = [f"event {sequence}: {serialized}" for sequence, serialized in selected]
+    if len(matches) > len(selected):
+        next_start = selected[-1][0] + 1
+        lines.append(
+            f"[... {len(matches) - len(selected)} later matching events not shown; "
+            f"continue with start={next_start} ...]"
+        )
+    output = "\n".join(lines)
+    max_chars = getattr(
+        context.config.tools, "default_max_chars", DEFAULT_MAX_CHARS
+    )
+    return ToolResult(_truncate_by_chars(output, max_chars))
+
+
 def _build_registry(*definitions: ToolDefinition) -> dict[str, ToolDefinition]:
     registry: dict[str, ToolDefinition] = {}
     for definition in definitions:
@@ -424,6 +513,7 @@ TOOL_REGISTRY = _build_registry(
     ToolDefinition("read", READ_SCHEMA, _handle_read),
     ToolDefinition("edit", EDIT_SCHEMA, _handle_edit),
     ToolDefinition("write", WRITE_SCHEMA, _handle_write),
+    ToolDefinition("trajectory", TRAJECTORY_SCHEMA, _handle_trajectory),
 )
 """Explicit registry: one source of truth for every schema/handler pair."""
 
@@ -562,6 +652,7 @@ def execute_tool_call(
     config: Config | None = None,
     *,
     defer_submission: bool = False,
+    event_log: Sequence[dict[str, Any]] | None = None,
 ) -> str | None:
     """Validate, dispatch, and record one OpenAI tool call.
 
@@ -581,6 +672,9 @@ def execute_tool_call(
     defer_submission:
         Capture a valid submission as a draft instead of ending the run. The
         draft is returned to the caller and recorded accurately in history.
+    event_log:
+        Optional append-only run journal exposed only to enabled read-only
+        introspection tools. Ordinary environment tools do not use it.
 
     Raises
     ------
@@ -613,7 +707,10 @@ def execute_tool_call(
             result = ToolResult(f"Error: invalid arguments for '{name}': {exc}")
         else:
             try:
-                result = definition.handler(args, ToolContext(environment, cfg))
+                result = definition.handler(
+                    args,
+                    ToolContext(environment, cfg, event_log=event_log),
+                )
             except Exception as exc:
                 result = ToolResult(f"Error: {exc}")
 

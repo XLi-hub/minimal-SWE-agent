@@ -313,6 +313,7 @@ class Agent:
                     self.environment,
                     config=self.config,
                     defer_submission=self._submission_review_pending,
+                    event_log=self.events,
                 )
             except Submitted as exc:
                 submission = exc

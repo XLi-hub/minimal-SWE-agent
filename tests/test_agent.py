@@ -346,6 +346,59 @@ def test_submission_review_can_reset_authoring_context():
     )
 
 
+def test_clean_submission_review_can_search_append_only_trajectory():
+    config = build_config(
+        [
+            'agent.submission_review_prompt="Find an independent oracle."',
+            "agent.submission_review_reset_context=true",
+        ],
+        cli_overrides={
+            "tools": {"enabled": ["bash", "submit", "trajectory"]},
+        },
+    )
+    seen_contexts: list[list[dict]] = []
+    responses = iter([
+        _make_response(
+            content="Author evidence: g++ emitted li4_udl.",
+            tool_calls=[_make_tool_call("draft", "submit", {"output": "draft diff"})],
+        ),
+        _make_response(
+            content="Search the author evidence without trusting its conclusion.",
+            tool_calls=[
+                _make_tool_call(
+                    "history",
+                    "trajectory",
+                    {"query": "g++ emitted"},
+                )
+            ],
+        ),
+        _make_response(
+            content="Review complete.",
+            tool_calls=[_make_tool_call("final", "submit", {"output": "revised diff"})],
+        ),
+    ])
+    model = MagicMock()
+
+    def query(messages, tools=None):
+        seen_contexts.append([dict(message) for message in messages])
+        return next(responses)
+
+    model.query.side_effect = query
+
+    result = Agent(model, MagicMock(), config=config).run("fix a bug")
+
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "revised diff"
+    assert "Author evidence" not in str(seen_contexts[1])
+    trajectory_results = [
+        message["content"]
+        for message in seen_contexts[2]
+        if message.get("role") == "tool"
+    ]
+    assert len(trajectory_results) == 1
+    assert "g++ emitted li4_udl" in trajectory_results[0]
+
+
 def test_submit_with_patch():
     """SWE-bench 风格：模型生成 git diff patch 后提交。"""
     patch = (
