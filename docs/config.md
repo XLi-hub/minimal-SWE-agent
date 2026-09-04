@@ -97,7 +97,7 @@ def recursive_merge(*dictionaries):
 Prompt 不能写死在代码里，但 prompt 里又有变量（任务描述、摘要内容）。有两种做法：
 
 ```python
-# 做法 A：str.format()——引用不存在的变量不会报错
+# 做法 A：str.format()——缺少变量时抛出 KeyError
 "Hello {task}".format(task="fix the bug")   # "Hello fix the bug"
 "Hello {task}".format()                      # KeyError（缺参数时）
 
@@ -127,7 +127,10 @@ agent:
 render_template(agent_cfg.instance_template, task="修一下 bug")
 ```
 
-**为什么用 Jinja2 而不是 `.format()`**：`.format()` 对「漏传变量」要么抛 `KeyError`（`{}` 裸调用）、要么静默放过（`{missing}` 不在 kwargs 里时其实会 KeyError，但 `.format_map` 可以漏）。Jinja2 的 `StrictUndefined` 让「模板引用了不存在的变量」变成**当场报错**——配置拼写错误在启动时就暴露，而不是等到 agent 跑了一半才把空串发给模型。
+**为什么用 Jinja2 而不是 `.format()`**：普通 `.format()` 对漏传变量会抛 `KeyError`，而不是
+自动渲染成空串；自定义 mapping/formatter 虽然可以改变这种行为，但会让漏配更难发现。
+Jinja2 的 `StrictUndefined` 同样让「模板引用了不存在的变量」在渲染时**当场报错**，配置
+拼写错误不会悄悄变成发给模型的空串。
 
 另一个附带好处：`{{ }}` 和 `.format()` 的 `{}` 不同，prompt 里可以安全出现 JSON 示例的 `{}`。而单行 YAML 里的 `{{ }}` 需要单引号包裹（`|` 字面块则不需要）。
 
@@ -163,6 +166,10 @@ Config.model_validate(recursive_merge(*layers))
 | `cost.*_per_1m` | 非负有限数值 |
 | `environment.timeout` / `pull_timeout` | 正整数；`interpreter` 至少包含一条非空命令 |
 | `model.model_name` / `api_key_env` | 非空字符串 |
+
+随仓库提供的三个 `cost.*_per_1m` 默认值都是 0。这样 `instance_cost` 默认不会反映真实
+供应商账单，`cost_limit` 也不能提供真实的美元费用保护；接入 provider 后应按其价格填写
+这些字段，再依赖 `cost_limit` 做费用上限控制。
 
 例如，下面的覆盖会在启动时直接报 `ValidationError`：
 

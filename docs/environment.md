@@ -30,9 +30,13 @@ environments/
 ```python
 class Environment(ABC):
     @abstractmethod
-    def execute(self, command: str, timeout: int = 30) -> str: ...
+    def execute(self, command: str, timeout: int = 30) -> ExecutionResult: ...
     def cleanup(self) -> None: ...
 ```
+
+`ExecutionResult` 是一个 mapping，至少包含 `output`、`returncode` 和
+`exception_info`。命令返回非零退出码时仍是正常结果；执行器本身超时或启动
+失败时，通常以 `returncode=-1` 和 `exception_info` 描述。
 
 - `execute` 是 `@abstractmethod` —— 子类必须实现，否则实例化时报错
 - `cleanup` 有默认空实现 —— Docker 需要（停止容器），Local 不需要
@@ -68,9 +72,12 @@ cleanup  → docker stop X                                  # 销毁容器
 
 方案 B（容器常驻 + docker exec）:
     __init__ → docker run -d ... sleep 2h   ← 容器一直活着
-    execute → docker exec X bash -c "cmd"   ← 状态保持
+    execute → docker exec X bash -c "cmd"   ← 文件系统/容器进程保持，每次是新 shell
     容器最长活 2h，到时候自己死掉
 ```
+
+常驻容器保留文件系统变更和容器进程，但每次 `docker exec` 都会启动新的
+shell；上一次命令的 `cd` 和 `export` 不会影响下一次调用。
 
 ## 注册表模式（Registry Pattern）
 

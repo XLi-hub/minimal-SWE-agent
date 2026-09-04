@@ -65,7 +65,11 @@ model = MagicMock()
 model.query.return_value = fake_response    # 假装模型说了这些
 
 env = MagicMock()
-env.execute.return_value = "fake output"     # 假装命令输出了这些
+env.execute.return_value = {                 # 假装执行器返回结构化结果
+    "output": "fake output",
+    "returncode": 0,
+    "exception_info": "",
+}
 
 agent = Agent(model, env)
 result = agent.run("test")
@@ -183,9 +187,12 @@ def test_simple_echo_task():
     assert result["exit_status"] == "submitted"
 ```
 
-**E2E 只回答一个问题**：模型真的理解我们 5 个工具（`bash`/`read`/`edit`/`write`/`submit`）的 JSON schema 吗？会正确地构造 `tool_calls` 吗？
+**E2E 只回答一个受限的问题**：在真实 API 和本地 shell 组成的链路中，模型能否正确理解
+并调用当前 E2E 任务实际使用的 `bash` 与 `submit` schema。E2E 不覆盖
+`read`/`edit`/`write` 的真实模型调用；这些工具的参数校验、handler 和环境交互由单元及
+集成测试覆盖。
 
-剩下的（Agent 循环是否正确、execute 是否转发了 timeout、truncation 是否正确……）前三层已经全覆盖了。
+剩下的（Agent 循环是否正确、execute 是否转发了 timeout、truncation 是否正确……）前两层已经全覆盖了。
 
 **为什么只有 2 个 E2E**：每个 E2E 要调 API（花钱 + 等网络）。单元测试和集成测试已经把逻辑验证完了，E2E 不需要覆盖各种边界情况——那是前两层的职责。pytest 默认使用 `-m 'not e2e'`，即使环境中有 API key 也不会执行；只有明确传入 `-m e2e` 才会 opt in。
 
@@ -194,7 +201,7 @@ def test_simple_echo_task():
 ## 汇总
 
 ```
-       ╱‾‾‾‾‾╲         E2E:   最少   真 API + 真 shell    慢/付费  "模型理解工具吗?"
+       ╱‾‾‾‾‾╲         E2E:   最少   真 API + 真 shell    慢/付费  "模型会用 bash/submit 吗?"
       ╱       ╲
      ╱ 集成    ╲       集成:  适量   假 API + 真 shell     秒级    "shell 输出正确解析吗?"
     ╱           ╲
@@ -205,7 +212,7 @@ def test_simple_echo_task():
 三条原则：
 
 1. **越底层越多**：大量单元、适量集成、极少 E2E，不是反过来的
-2. **每层测不同的事**：单元测逻辑、集成测编码、E2E 测 API schema——没有重叠
+2. **每层测不同的事**：单元测逻辑、集成测编码、E2E 测 `bash`/`submit` 的真实 API schema——没有重叠
 3. **每层的 mock 点不同**：单元全 mock、集成半 mock、E2E 不 mock
 
 关于测试概念的详细解释（mock、ABC、工厂模式、happy path vs error path），见 [concepts.md](concepts.md)。

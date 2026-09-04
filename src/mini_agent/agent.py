@@ -2,8 +2,6 @@
 
 import copy
 import json
-import os
-import tempfile
 import time
 import traceback
 from pathlib import Path
@@ -13,6 +11,11 @@ from mini_agent import __version__
 from mini_agent.config import Config, UNSET, get_default_config, render_template
 from mini_agent.context import compress, should_compress
 from mini_agent.cost import compute_cost
+from mini_agent.persistence import (
+    atomic_write_text as _atomic_write_text,
+    save_trajectory_data,
+    trajectory_events_path as _events_path,
+)
 from mini_agent.tools import (
     append_skipped_tool_result,
     execute_tool_call,
@@ -482,64 +485,6 @@ class Agent:
                 # chance to persist the complete in-memory event list.
                 self._event_log_stream_error = f"{type(exc).__name__}: {exc}"
                 self._event_log_path = None
-
-
-def _events_path(path: Path) -> Path:
-    """Return the sidecar event-log path for a trajectory path."""
-
-    suffix = ".traj.json"
-    if path.name.endswith(suffix):
-        stem = path.name[:-len(suffix)]
-    else:
-        stem = path.stem
-    return path.with_name(f"{stem}.events.jsonl")
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Atomically replace *path* with UTF-8 *text*."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-
-
-def save_trajectory_data(path: Path, data: dict) -> dict:
-    """Persist a compact trajectory and its append-only raw event sidecar.
-
-    The returned mapping is exactly what is written to the main trajectory.
-    ``serialize()`` keeps events inline for in-memory callers; persistence
-    moves them to JSONL and leaves a relative, count-checked reference.
-    """
-
-    persisted = copy.deepcopy(data)
-    events = persisted.pop("events", None)
-    if events is not None:
-        event_path = _events_path(path)
-        event_text = "".join(
-            json.dumps(event, ensure_ascii=False, default=repr) + "\n"
-            for event in events
-        )
-        _atomic_write_text(event_path, event_text)
-        persisted["event_log"] = {
-            "path": event_path.name,
-            "format": "mini-agent-events-0.1",
-            "event_count": len(events),
-        }
-    _atomic_write_text(
-        path,
-        json.dumps(persisted, indent=2, ensure_ascii=False, default=repr) + "\n",
-    )
-    return persisted
 
 
 # 向后兼容：延迟创建，避免 import 时就需要 API key

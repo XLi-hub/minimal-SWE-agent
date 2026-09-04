@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 
 class Environment(ABC):
     @abstractmethod
-    def execute(self, command: str) -> str:
+    def execute(self, command: str) -> ExecutionResult:
         """子类必须实现这个方法"""
         ...
 
@@ -153,7 +153,11 @@ response = client.chat.completions.create(
 |---|---|---|
 | 模型输出 | 自由文本 | 结构化的 JSON |
 | 提取命令 | 正则 `re.findall` | `response.choices[0].message.tool_calls` |
-| 可靠性 | 模型可能不按格式写 | 100% 准确（模型被训练来遵守 schema） |
+| 可靠性 | 模型可能不按格式写 | 有 schema 约束，但 malformed JSON/非对象参数仍需校验 |
+
+Function calling 只规定了调用的结构，不等于参数字符串永远能被解析。若 provider 返回
+malformed JSON，或 JSON 值不是对象，分发器会为原 `tool_call_id` 追加协议完整的 `tool`
+error observation；因此模型可以看到错误并重试，调用不会因为参数解析失败而留下孤儿 ID。
 
 **在本项目中**：每个工具的 schema 和 handler 成对定义在 [tools.py](../src/mini_agent/tools.py) 的 `TOOL_REGISTRY`；[config/default.yaml](../src/mini_agent/config/default.yaml) 的 `tools.enabled` 只选择启用哪些工具。[agent.py](../src/mini_agent/agent.py) 把启用工具的 schema 发给模型，分发器也用同一名单检查执行权限。
 
@@ -210,6 +214,10 @@ docker exec -w / mini-agent-abc123 bash -lc "ls -la"
 # cleanup: 停止并删除
 docker stop mini-agent-abc123
 ```
+
+常驻容器会保留文件系统改动和容器进程，但上面的每次 `docker exec` 都是新的 shell；某次
+命令里的 `cd` 和 `export` 不会影响下一次调用。下一次命令从配置的 `cwd` 开始，并重新
+获得该次调用传入的环境变量。
 
 **在本项目中**：[environments/docker.py](../src/mini_agent/environments/docker.py)
 
@@ -357,7 +365,11 @@ def test_long_output_is_truncated():
 model = MagicMock()                          # 假模型
 model.query.return_value = fake_response     # 不调 API
 env = MagicMock()                            # 假环境
-env.execute.return_value = "fake output"     # 不执行命令
+env.execute.return_value = {                 # 不执行命令，模拟执行器结果
+    "output": "fake output",
+    "returncode": 0,
+    "exception_info": "",
+}
 agent = Agent(model, env)                    # Agent 不知道是假的
 ```
 
@@ -389,12 +401,13 @@ def test_executes_tool_call_then_exits():
 
 ## 端到端测试 (E2E — End to End)
 
-**整个系统从头到尾，不 mock 任何东西**。用户怎么用就怎么测。
+**选定场景从头到尾，不 mock 真实模型、API 或 shell**。当前 E2E 只验证模型实际调用
+`bash` 并用 `submit` 结束这一条链路。
 
 ```
 单元测试:  Agent ──► mock Model ──► 假数据          测一段
 集成测试:  Agent ──► 真 Env ──► 真 shell           测两段
-E2E:       Agent ──► 真 Model ──► 真 API ──► 真 shell  测整条链
+E2E:       Agent ──► 真 Model ──► 真 API ──► 真 shell  测选定链路
 ```
 
 ```python
@@ -407,7 +420,9 @@ def test_simple_echo_task():
 
 特点：**最慢（秒~分钟）、花钱（调 API 要按 token 计费）、数量最少**。
 
-**为什么 E2E 数量最少**：单元测试和集成测试已经把逻辑验证完了，E2E 只回答一个问题——"模型真的理解我们的 tool schema 吗？真的会调 bash 和 submit 吗？"这是 mock 永远验证不了的。
+**为什么 E2E 数量最少**：单元测试和集成测试已经把逻辑验证完了，E2E 只回答一个受限
+问题——"模型真的会调 `bash` 和 `submit` 吗？"它不声称覆盖 `read`、`edit`、`write`
+的真实模型行为；这是 mock 永远验证不了、但也不需要在每个边界场景重复付费验证的部分。
 
 **在本项目中**：test_e2e.py（2 个，默认跳过，手动 `-m e2e` 才跑）
 
@@ -424,7 +439,11 @@ Error Path（异常路径） — 某个环节出问题了
 
 ```python
 # Happy Path — 命令正常执行
-env.execute.return_value = "hello world"
+env.execute.return_value = {
+    "output": "hello world",
+    "returncode": 0,
+    "exception_info": "",
+}
 result = agent.run("echo hello")
 assert result["exit_status"] == "submitted"
 
@@ -451,7 +470,7 @@ assert "disk full" in result["messages"][-2]["content"]
 经典的分层策略——越底层数量越多、速度越快：
 
 ```
-       ╱‾‾‾‾‾╲         E2E           最少    慢/贵    "整条链路通了吗?"
+       ╱‾‾‾‾‾╲         E2E           最少    慢/贵    "bash/submit 链路通了吗?"
       ╱       ╲
      ╱ 集成    ╲       集成测试       适量    中级     "两个模块配合对了吗?"
     ╱           ╲

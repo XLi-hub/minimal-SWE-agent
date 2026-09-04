@@ -148,9 +148,11 @@ assistant/tool 消息；持久化时写入 `.events.jsonl`，并在 `.traj.json`
   `.events.jsonl` 是完整 verbatim 事件。复盘时不要把前者误称为完整轨迹。
 - **模型默认不读取 event journal**：完整事件主要服务审计。若摘要质量不足，优先改进结构化
   摘要；只有确认需要时才考虑增加分页、限额、只读的历史检索工具。
-- **`Error: {e}` 路径可能留下孤儿 tool_call_id**：若 `execute_tool_call` 中途抛异常
-  （如 `json.loads` 失败），部分 `tool_call_id` 可能未回应。这是**预先存在**的问题，
-  `group_round_trips` 不会加重它（assistant + 已产生的 tool 消息仍同组），本次不修。
+- **参数错误也会保留协议完整性**：`execute_tool_call` 会捕获 `json.loads` 失败，以及
+  参数解码后不是 JSON object 的情况，并为原来的 `tool_call_id` 追加一条 `tool` error
+  observation。因此这类 malformed arguments 不会留下孤儿调用。若外部调用者事先手工
+  构造了孤儿 `tool` 消息，`group_round_trips` 会把它作为独立单元处理；压缩不会再拆散
+  已成对的 assistant/tool 消息。
 - **summarizer 期间的 Ctrl+C**：`except Exception` 不捕获 `KeyboardInterrupt`，会传播到
   外层 `finally` 正常落盘。边缘情况。
 
