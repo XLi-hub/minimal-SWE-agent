@@ -192,3 +192,6 @@ harness/runner 可以在不泄漏隐藏测试的前提下做这些事情：
 
 旧测试全绿、最小复现不报错、diff 很小，都只是证据的一部分。高质量 Agent 还需要主动
 寻找被遗漏的契约，以及明确承认哪些部分仍未验证。
+
+导航：[实验索引](index.md) · [设计取舍](../decisions/design-tradeoffs.md) ·
+[SWE-bench 指南](../guides/swebench.md)

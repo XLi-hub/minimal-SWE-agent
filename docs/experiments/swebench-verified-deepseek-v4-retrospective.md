@@ -426,3 +426,5 @@ harness 输入仍按原逻辑工作；改变的只是调试轨迹的元数据边
 6. 为网络配置、pipeline、压缩后完整事件、sidecar 文件和元数据脱敏补测试；
 7. 运行全部非 E2E 测试后提交实现。
 
+导航：[实验索引](index.md) · [Benchmark 架构](../architecture/benchmark-layer.md) ·
+[上下文与记录](../architecture/context-and-records.md)

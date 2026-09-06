@@ -173,3 +173,6 @@ xarray 结果。
 **一句话结论：本轮只跑了 SWE-bench Verified 的 `sphinx-doc__sphinx-7590`，官方结果失败；失败来自
 UDL expression ID 的语义建模错误，不是 Docker 事故，下一轮将用已经补强的轨迹访问和 exact-oracle
 规则先复跑同一实例。**
+
+导航：[实验索引](index.md) · [SWE-bench 指南](../guides/swebench.md) ·
+[轨迹格式](../reference/trajectory-format.md)

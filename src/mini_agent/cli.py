@@ -38,7 +38,7 @@
     minimal --context-window 2000 --task "修一下 bug"
 
 配置优先级（低 → 高）：内置 default.yaml < --config（从左到右）
-< MINI_AGENT_* 环境变量 < CLI 参数。详见 docs/config.md。
+< MINI_AGENT_* 环境变量 < CLI 参数。详见 docs/guides/configuration.md。
 """
 
 import argparse

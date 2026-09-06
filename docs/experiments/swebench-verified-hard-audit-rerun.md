@@ -163,3 +163,6 @@ reviewer 仍可用 `trajectory` 读取原始记录，不过读取变成主动、
 这轮不同时调整模型、prompt 大段内容和硬预算，否则即便成功也无法知道是哪项改变起作用。
 400 steps 继续作为防失控的上限，不是鼓励模型用满；checkpoint 的摘要请求计入调用、成本和
 墙钟，但不计入主循环 step。
+
+导航：[实验索引](index.md) · [Agent 循环](../architecture/agent-loop.md) ·
+[工具参考](../reference/tools.md)
