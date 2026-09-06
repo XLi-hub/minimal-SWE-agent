@@ -98,3 +98,68 @@ steps；没有因 2400 秒上限退出。继续把上限从 400 提高只会扩�
 
 即使下一轮仍为 0/2，只要 clean reviewer 能明确指出当前 patch 的 ABI 或状态矩阵缺口，机制
 也比“更多步骤”更接近可解释、可迭代的 Agent 设计；但最终是否有效仍以官方 resolved 为准。
+
+## 后续实现：压缩记忆与按需回查并存
+
+后续 Sphinx clean-review 单实例复跑仍然是 `0/1`；xarray 没有在那一轮复跑，不能把它写成
+第二次失败。Sphinx 证明“清空作者上下文”本身并不能保证 reviewer 找到正确 ABI oracle：它
+去除了锚定，也同时丢掉了作者已经付费获得的命令、测试和文件定位。于是问题不该被简化为
+“保留全文”与“完全清空”二选一。
+
+现在采用三层内存：
+
+```text
+热上下文：system + 原始 issue + 有界 checkpoint + candidate + review prompt
+                              │
+             reviewer 需要精确证据时主动查询
+                              ▼
+冷存储：append-only .events.jsonl（完整、只读、不自动回灌）
+```
+
+checkpoint 本身又分两层：
+
+- 机器层只抽取 event sequence、工具名、命令、return code、文件路径和错误；它不复制作者
+  的自然语言结论，也不复制 submit 中的大 patch；
+- 模型层用 evidence-focused prompt 压缩工作状态，并明确标为不可信 navigation aid；它帮助
+  reviewer 知道“可能要去哪里查”，但不能替代 repository oracle。
+
+reviewer 仍可用 `trajectory` 读取原始记录，不过读取变成主动、局部、可组合的操作：除了
+`query/start/events`，还可以按 `event_type`、`role`、`tool_name` 和 `returncode` 过滤。例如先
+找 `tool_name=bash, returncode=1`，再用事件序号回查相关上下文，不需要恢复作者全文。
+
+对应实现分成三笔提交，避免把存储、交接和检索耦合在一个大改动里：
+
+| commit | 作用 | 不声称解决什么 |
+|---|---|---|
+| `7cd2cf7` | 从原始 events 建立确定性、有界、可关联 call/result 的证据 checkpoint | 不判断 patch 正确性 |
+| `b5ec908` | 在 clean-review 边界强制生成 checkpoint，并保留不可信压缩摘要 | 不保证 reviewer 会找到正确 oracle |
+| `b5691c5` | 为 trajectory 增加结构化组合筛选 | 不自动选择该查哪条证据 |
+
+这个机制针对的是两次失败中的**信息组织问题**，不是直接修复任务本身：
+
+| benchmark 实例 | 官方结果 | 根本失败 | 新机制可能改善 | 新机制不能替代 |
+|---|---:|---|---|---|
+| `pydata__xarray-6992` | FAIL_TO_PASS 0/12，失败 | 没有从 public 参数和状态转换构造完整 behavior matrix | checkpoint 保留已跑模式，减少 reviewer 重复探索；trajectory 可找已有失败/成功对照 | reviewer 仍必须主动枚举 dimension、level、drop、MultiIndex 等轴 |
+| `sphinx-doc__sphinx-7590` | FAIL_TO_PASS 0/1，失败 | 把 UDL 建模成普通 number，而非 literal-operator call，导致 ABI ID 错误 | checkpoint 暴露 parse/stringify/ID 检查范围；reviewer 可精确回查命令与 return code | reviewer 仍必须找到 `ASTOperatorLiteral`/call expression 这一独立 oracle，并断言 exact ID |
+
+因此不能说这三笔改动已经解决前两次 benchmark 失败。更准确的假设是：它们减少 clean reset
+造成的信息损耗，同时不恢复完整推理带来的锚定；是否提高 resolved rate 必须由同配置复跑
+验证。
+
+## 下一轮对照实验（尚未执行）
+
+下一轮应保持模型、prepared image、断网、400 steps、2400 秒、128K context 和测试超时不变，
+只把 memory handoff 作为实验变量。报告必须按实例分开，不再用一个笼统的“bench 跑了”概括：
+
+1. 先跑 `sphinx-doc__sphinx-7590`。成功门槛是 FAIL_TO_PASS 1/1、PASS_TO_PASS 24/24；同时记录
+   reviewer 是否在提交前建立 exact expression-ID oracle。
+2. 再跑 `pydata__xarray-6992`。成功门槛是 FAIL_TO_PASS 12/12、PASS_TO_PASS 945/945；同时记录
+   reviewer 是否在看官方反馈前形成完整 behavior matrix。
+3. 每个实例分别报告 author 主循环 calls、checkpoint 摘要 calls、reviewer calls、trajectory
+   调用与过滤条件、压缩次数、墙钟时间和真实费用。
+4. 如果仍失败，先判断是 checkpoint 丢证据、reviewer 没有主动检索，还是检索后仍选择了错误
+   抽象；这三类失败对应不同改法，不能统一归咎于步数不够。
+
+这轮不同时调整模型、prompt 大段内容和硬预算，否则即便成功也无法知道是哪项改变起作用。
+400 steps 继续作为防失控的上限，不是鼓励模型用满；checkpoint 的摘要请求计入调用、成本和
+墙钟，但不计入主循环 step。

@@ -137,20 +137,26 @@ clean reset 本身按设计工作：reviewer 的初始上下文只有 system、�
 | `972f025` | 已完成 | 保留 Docker 写文件命令的 stdin，避免大文件被截断 |
 | `6477834` | 已完成 | 提供只读、可搜索、可分页的 `trajectory` 证据工具 |
 | `e98d73c` | 已完成 | 在 SWE-bench clean reviewer 中启用 trajectory，并收紧 exact-oracle 规则 |
+| `7cd2cf7` | 已完成 | 建立不含作者结论和 candidate body 的机器证据 checkpoint |
+| `b5ec908` | 已完成 | clean review 同时接收机器索引与不可信压缩工作记忆；摘要失败可降级 |
+| `b5691c5` | 已完成 | trajectory 支持按事件、角色、工具和 return code 组合过滤 |
 
 轨迹继续采用两层存储：`.traj.json` 保存紧凑的 model-facing view，`.events.jsonl` 保存完整的
-append-only journal。clean reviewer 默认不继承作者对话；需要时可用
-`trajectory(query, start, events)` 检索原始命令和输出。取回的是待验证的 evidence，而不是自动可信的
-conclusion。
+append-only journal。clean reviewer 默认不继承作者全文，而是接收一份有界的机器证据索引和明确
+标为不可信的模型摘要；需要时可用 `trajectory(query, start, events, event_type, role, tool_name,
+returncode)` 检索原始命令和输出。所有过滤条件按 AND 组合。取回的是待验证的 evidence，而不是
+自动可信的 conclusion。
 
 ## 8. 下一步计划（尚未执行）
 
-1. 先配置真实的 DeepSeek token 价格或明确的 provider cost policy，使 `agent.cost_limit` 真正生效。
-2. 只重跑 `sphinx-doc__sphinx-7590`，保持断网、步数、时间和上下文上限不变，避免同时改变多个变量。
+1. 先配置真实的 DeepSeek token 价格或明确的 provider cost policy，使 `agent.cost_limit` 真正生效；
+   checkpoint 至多多一次摘要请求，这次调用也必须纳入真实费用。
+2. 只重跑 `sphinx-doc__sphinx-7590`，保持断网、步数、时间和上下文上限不变，把新的 memory
+   handoff 作为唯一主要变量。
 3. 要求 reviewer 对 UDL 在相关 identity version 下的精确 expression ID 建立直接测试；只验证
    parse/stringify 或重跑旧测试不算通过审查。
 4. 以官方 `FAIL_TO_PASS = 1/1`、`PASS_TO_PASS = 24/24` 作为成功门槛，同时记录 reviewer 是否调用
-   trajectory、取回了什么证据、是否减少重复探索。
+   trajectory、使用了哪些结构化过滤、取回了什么证据、是否减少重复探索。
 5. Sphinx 得到可解释结果后再运行 xarray。若 reviewer 仍把相关性不足的证据当 oracle，再考虑真正
    分离的 critic/author protocol 或更换 reviewer model，而不是继续堆叠提示词。
 
