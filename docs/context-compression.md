@@ -14,8 +14,9 @@ Agent 循环的每一步都会往 `messages` 里追加两条消息：模型思�
 早期决策、已改过的文件）——后者更隐蔽，agent 会开始重复做已经做过的事。
 
 **解决思路**：当历史逼近上限时，用一次 LLM 调用把旧的中间对话折叠成一条结构化摘要，
-只保留 system prompt + 原始任务 + 最近 N 轮 verbatim。这是**会话内**压缩——不写任何
-持久化记忆文件，压缩结果只活在本次 `messages` 里。
+只保留 system prompt + 原始任务 + 最近 N 轮 verbatim。压缩结果只活在本次模型
+`messages` 视图里；与它并存的 `.events.jsonl` 是 append-only 原始事件账本，用于审计和
+按需回查，不会被摘要覆盖。
 
 ## 两条设计决策
 
@@ -78,6 +79,29 @@ OpenAI/DeepSeek 协议要求：每条 `assistant` 消息里的 `tool_call_id` �
 3. 调用 summarizer 时传入 `existing_summary + new_lines`，生成一条**新**摘要。
 
 这样摘要内容随会话演进逐步累积，而不会嵌套出多层摘要。
+
+### clean review 的强制 checkpoint
+
+按窗口阈值压缩解决的是“上下文快装不下”的问题；第一次 `submit` 后切到独立 reviewer
+则是另一个边界。直接清空作者历史能减少锚定，却会让 reviewer 重跑已经做过的探索。
+`submission_review_checkpoint_context=true` 因此在这个边界**无论是否达到压缩阈值**，都
+建立一次分层交接：
+
+1. 原始 task 与 system prompt 原样保留；
+2. 从 append-only events 确定性提取命令、return code、文件路径、错误和事件序号；
+3. 用同一个 evidence-focused `summary_prompt` 将作者阶段压成 working-memory 摘要；
+4. 最后附上候选 patch 和 review prompt。
+
+候选 patch 所在的最后一个 submit round-trip 不送进 summarizer，避免大 diff 重复占用
+上下文。机器证据和模型摘要也刻意分层：前者只作索引，后者明确标为
+`untrusted_author_working_memory`，reviewer 必须通过仓库工具或 `trajectory` 回查关键结论。
+完整作者交换始终留在事件账本中。
+
+强制 checkpoint 最多增加一次无工具模型请求，计入 `api_calls`、`instance_cost` 和墙钟
+时间，但不计入 `max_steps`（`max_steps` 只统计主循环决策轮）。若摘要服务报错，review
+仍携带确定性的机器证据索引继续；事件会记录 `summary_status=error`，不会退回未经压缩的
+作者全文。该开关只允许与 `submission_review_prompt` 和
+`submission_review_reset_context=true` 一起使用，非法组合在配置加载时直接失败。
 
 ### 触发时机
 
@@ -146,8 +170,8 @@ assistant/tool 消息；持久化时写入 `.events.jsonl`，并在 `.traj.json`
 
 - **两个视图有意不同**：`.traj.json.messages` 是「摘要 + 尾部」的最终模型 context；
   `.events.jsonl` 是完整 verbatim 事件。复盘时不要把前者误称为完整轨迹。
-- **模型默认不读取 event journal**：完整事件主要服务审计。若摘要质量不足，优先改进结构化
-  摘要；只有确认需要时才考虑增加分页、限额、只读的历史检索工具。
+- **原始事件不会自动回灌**：完整事件主要服务审计。启用 `trajectory` 时模型可以分页或搜索
+  回查，但只有模型主动调用才进入当前上下文；普通配置默认不启用该工具。
 - **参数错误也会保留协议完整性**：`execute_tool_call` 会捕获 `json.loads` 失败，以及
   参数解码后不是 JSON object 的情况，并为原来的 `tool_call_id` 追加一条 `tool` error
   observation。因此这类 malformed arguments 不会留下孤儿调用。若外部调用者事先手工
@@ -169,8 +193,8 @@ assistant/tool 消息；持久化时写入 `.events.jsonl`，并在 `.traj.json`
 | **ChatGPT / Cursor** | 后台"记忆"：从历史抽取事实存长期记忆，跨会话召回 | 跨会话记忆 |
 
 共同点正是本项目采用的三条：**按 token 占比触发（~75–85%）**、**保留头尾只压中间**、
-**结构化摘要**。区别在于持久化——MemGPT/Claude Code 有跨会话记忆，本项目用户明确选了
-**仅会话内压缩**，所以不做持久化，保持最小。
+**结构化摘要**。本项目不做跨任务的长期记忆；只在单次运行内保留 append-only 事件账本，
+并让启用该能力的 reviewer 按需检索。
 
 ## 对照代码
 
@@ -179,5 +203,7 @@ assistant/tool 消息；持久化时写入 `.events.jsonl`，并在 `.traj.json`
 - 循环钩子：[agent.py](../src/mini_agent/agent.py) 的 `run()` 循环顶部。
 - 常量（现为配置）：[config/default.yaml](../src/mini_agent/config/default.yaml) 的 `agent` 段 —
   `context_window` / `compress_threshold` / `reserve_tokens` / `keep_last_n_turns` /
-  `summary_marker` / `summary_prompt`。
-- 测试：[test_context.py](../tests/test_context.py)（纯函数 17 个）+ `test_agent.py`（Agent 级 6 个）。
+  `summary_marker` / `summary_prompt` / `submission_review_checkpoint_context`。
+- 机器证据 checkpoint：[evidence.py](../src/mini_agent/evidence.py)。
+- 测试：[test_context.py](../tests/test_context.py)、[test_evidence.py](../tests/test_evidence.py)
+  和 [test_agent.py](../tests/test_agent.py)。

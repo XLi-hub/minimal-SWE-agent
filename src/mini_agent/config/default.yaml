@@ -90,6 +90,10 @@ agent:
   # When enabled with a review prompt, start review from the original task and
   # draft patch instead of anchoring on the full authoring conversation.
   submission_review_reset_context: false
+  # Optionally carry a bounded machine-evidence index plus an explicitly
+  # untrusted model summary into that clean review context. This adds one model
+  # request at the draft boundary when there is author history to summarize.
+  submission_review_checkpoint_context: false
 
 tools:
   # 工具 schema + handler 在 mini_agent.tools.TOOL_REGISTRY 中成对注册；

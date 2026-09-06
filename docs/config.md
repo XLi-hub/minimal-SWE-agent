@@ -162,6 +162,7 @@ Config.model_validate(recursive_merge(*layers))
 | `agent.context_window` / `reserve_tokens` | 窗口为正、预留 token 非负，且 `context_window > reserve_tokens` |
 | `agent.compress_threshold` | `(0, 1]` 之间；`1` 表示达到可用窗口再压缩 |
 | `agent.keep_last_n_turns` / `no_tool_call_retries` | 非负整数 |
+| `agent.submission_review_checkpoint_context` | 仅可与非空 `submission_review_prompt` 及 `submission_review_reset_context=true` 一起启用；会在 draft 边界增加至多一次摘要请求 |
 | `tools.default_max_lines` / `default_max_chars` / `default_timeout` | 正整数 |
 | `cost.*_per_1m` | 非负有限数值 |
 | `environment.timeout` / `pull_timeout` | 正整数；`interpreter` 至少包含一条非空命令 |

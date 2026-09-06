@@ -399,6 +399,125 @@ def test_clean_submission_review_can_search_append_only_trajectory():
     assert "g++ emitted li4_udl" in trajectory_results[0]
 
 
+def test_clean_review_receives_evidence_checkpoint_and_untrusted_summary():
+    config = build_config([
+        'agent.submission_review_prompt="Find an independent oracle."',
+        "agent.submission_review_reset_context=true",
+        "agent.submission_review_checkpoint_context=true",
+    ])
+    responses = iter([
+        _make_response(
+            content="Author theory that must not survive verbatim.",
+            tool_calls=[
+                _make_tool_call("check", "bash", {"command": "pytest tests/test_fix.py"})
+            ],
+        ),
+        _make_response(
+            content="Draft based on the author theory.",
+            tool_calls=[_make_tool_call("draft", "submit", {"output": "large draft diff"})],
+        ),
+        _make_response(content="Structured but lossy author progress summary."),
+        _make_response(
+            content="Independent review complete.",
+            tool_calls=[_make_tool_call("final", "submit", {"output": "reviewed diff"})],
+        ),
+    ])
+    seen_calls: list[tuple[list[dict], object]] = []
+    model = MagicMock()
+
+    def query(messages, tools=None):
+        seen_calls.append(([dict(message) for message in messages], tools))
+        return next(responses)
+
+    model.query.side_effect = query
+    env = MagicMock()
+    env.execute.return_value = {
+        "output": "1 passed",
+        "returncode": 0,
+        "exception_info": "",
+    }
+
+    agent = Agent(model, env, config=config)
+    result = agent.run("fix a bug")
+
+    assert result["exit_status"] == "submitted"
+    assert result["submission"] == "reviewed diff"
+    assert agent._steps == 3
+    assert agent.n_calls == 4
+    assert len(seen_calls) == 4
+
+    summary_prompt = seen_calls[2][0][0]["content"]
+    assert seen_calls[2][1] is None
+    assert "pytest tests/test_fix.py" in summary_prompt
+    assert "1 passed" in summary_prompt
+    assert "large draft diff" not in summary_prompt
+
+    review_context = seen_calls[3][0]
+    assert [message["role"] for message in review_context] == ["system", "user", "user"]
+    review_prompt = review_context[-1]["content"]
+    assert "<author_evidence_checkpoint>" in review_prompt
+    assert "command: `pytest tests/test_fix.py`" in review_prompt
+    assert "returncode=0" in review_prompt
+    assert "<untrusted_author_working_memory>" in review_prompt
+    assert "Structured but lossy author progress summary." in review_prompt
+    assert "Author theory that must not survive verbatim." not in review_prompt
+    assert "<candidate_patch>\nlarge draft diff" in review_prompt
+    assert any(
+        event["type"] == "submission_review_checkpoint"
+        and event["summary_status"] == "generated"
+        for event in agent.events
+    )
+
+
+def test_clean_review_falls_back_to_machine_checkpoint_when_summary_fails():
+    config = build_config([
+        'agent.submission_review_prompt="Audit independently."',
+        "agent.submission_review_reset_context=true",
+        "agent.submission_review_checkpoint_context=true",
+    ])
+    agent_responses = iter([
+        _make_response(
+            content="Collect evidence.",
+            tool_calls=[_make_tool_call("check", "bash", {"command": "pytest -q"})],
+        ),
+        _make_response(
+            content="Submit draft.",
+            tool_calls=[_make_tool_call("draft", "submit", {"output": "draft"})],
+        ),
+        _make_response(
+            content="Review done.",
+            tool_calls=[_make_tool_call("final", "submit", {"output": "final"})],
+        ),
+    ])
+    review_contexts: list[list[dict]] = []
+    model = MagicMock()
+
+    def query(messages, tools=None):
+        if tools is None:
+            raise RuntimeError("summary provider unavailable")
+        review_contexts.append([dict(message) for message in messages])
+        return next(agent_responses)
+
+    model.query.side_effect = query
+    env = MagicMock()
+    env.execute.return_value = "test output"
+    agent = Agent(model, env, config=config)
+
+    result = agent.run("fix a bug")
+
+    assert result["exit_status"] == "submitted"
+    review_prompt = review_contexts[-1][-1]["content"]
+    assert "<author_evidence_checkpoint>" in review_prompt
+    assert "command: `pytest -q`" in review_prompt
+    assert "<untrusted_author_working_memory>" not in review_prompt
+    assert any(
+        event["type"] == "submission_review_checkpoint"
+        and event["summary_status"] == "error"
+        and "summary provider unavailable" in event["summary_error"]
+        for event in agent.events
+    )
+
+
 def test_submit_with_patch():
     """SWE-bench 风格：模型生成 git diff patch 后提交。"""
     patch = (

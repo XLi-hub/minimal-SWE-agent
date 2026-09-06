@@ -43,6 +43,7 @@ agent:
   cost_limit: 3.0
   no_tool_call_retries: 2
   submission_review_reset_context: true
+  submission_review_checkpoint_context: true
   submission_review_prompt: |
     Audit the candidate using only the issue, repository, and locally available
     tests; no hidden evaluator result is available.

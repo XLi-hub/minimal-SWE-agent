@@ -108,8 +108,10 @@ runner 会验证提交看起来像 unified diff。如果模型错误地提交了
 - 镜像拉取超时 300 秒；
 - 第一次 `submit` 只捕获候选 diff，不结束运行；随后 Agent 会收到一次不包含 hidden test
   结果的证据审计；review 从原始 issue 和候选 patch 的干净 context 开始，避免继续被作者阶段
-  的既有解释锚定，完整作者轨迹仍保存在 `.events.jsonl`；review 可按需用只读 `trajectory`
-  工具找回精确命令/输出，并继续把作者结论视为未验证；
+  的既有解释锚定；交接中保留确定性的命令/返回码/文件事件索引，以及一份明确标为不可信的
+  working-memory 摘要。完整作者轨迹仍保存在 `.events.jsonl`，review 可按需用只读
+  `trajectory` 工具找回精确命令/输出，并继续把作者结论视为未验证；若摘要请求失败，机器
+  证据索引仍会保留；
 - 审计检查底层契约、状态 API 的参数/生命周期行为矩阵，以及 identity、serialization、
   mangling 等行为在仓库内的独立类比或 canonical oracle；同一个新表示派生出的多个方法彼此
   一致，只能证明内部自洽，不能证明外部契约正确；
@@ -123,7 +125,8 @@ ID 并标记为 non-comparable，不能混入一次通过率。
 
 高难实例建议单并发运行，并使用 400 步、2400 秒的 Agent 预算。SWE-bench 配置还把
 Agent 压缩预算设为 128K、为下一轮保留 8K token，并保留最近 8 轮；这些都是当前
-benchmark 配置的默认值。必要时可以显式覆盖：
+benchmark 配置的默认值。review checkpoint 的摘要请求计入 API 调用、费用与墙钟时间，
+但不消耗 `max_steps` 的主循环步数。必要时可以显式覆盖：
 
 ```bash
 minimal-swebench \

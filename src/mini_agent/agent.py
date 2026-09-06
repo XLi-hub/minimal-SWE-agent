@@ -9,8 +9,9 @@ from typing import Callable
 
 from mini_agent import __version__
 from mini_agent.config import Config, UNSET, get_default_config, render_template
-from mini_agent.context import compress, should_compress
+from mini_agent.context import compress, group_round_trips, should_compress
 from mini_agent.cost import compute_cost
+from mini_agent.evidence import build_review_checkpoint
 from mini_agent.persistence import (
     atomic_write_text as _atomic_write_text,
     save_trajectory_data,
@@ -329,9 +330,32 @@ class Agent:
                 f"{self.config.agent.submission_review_prompt}"
             )
             if self.config.agent.submission_review_reset_context:
+                checkpoint = ""
+                summary = ""
+                summary_status = "disabled"
+                if self.config.agent.submission_review_checkpoint_context:
+                    checkpoint = build_review_checkpoint(self.events)
+                    summary, summary_status = self._build_review_handoff_summary()
                 review_content += (
                     "\n\nReview the following candidate as untrusted output. Do not "
-                    "assume the draft author's rationale is correct.\n\n"
+                    "assume the draft author's rationale is correct."
+                )
+                if checkpoint:
+                    review_content += (
+                        "\n\n<author_evidence_checkpoint>\n"
+                        f"{checkpoint}\n"
+                        "</author_evidence_checkpoint>"
+                    )
+                if summary:
+                    review_content += (
+                        "\n\n<untrusted_author_working_memory>\n"
+                        "This is a lossy model-generated navigation aid, not an "
+                        "oracle. Verify important claims against tools or trajectory.\n\n"
+                        f"{summary}\n"
+                        "</untrusted_author_working_memory>"
+                    )
+                review_content += (
+                    "\n\n"
                     "<candidate_patch>\n"
                     f"{draft_submission}\n"
                     "</candidate_patch>"
@@ -344,12 +368,66 @@ class Agent:
             if self.config.agent.submission_review_reset_context:
                 self._record_event(
                     "submission_review_context_reset",
+                    checkpoint_enabled=self.config.agent.submission_review_checkpoint_context,
+                    checkpoint_summary_status=summary_status,
                     context_messages=copy.deepcopy(list(self.messages)),
                 )
             return
         if submission is not None:
             # Raise only after the full assistant batch has been acknowledged.
             raise Submitted(submission.submission)
+
+    def _build_review_handoff_summary(self) -> tuple[str, str]:
+        """Summarize author history without copying the draft submit round-trip.
+
+        The append-only event journal and deterministic evidence checkpoint are
+        the source of exact records.  This summary is only a lossy navigation
+        aid.  Failure is deliberately non-fatal: clean review can continue with
+        the machine checkpoint and query the trajectory for exact evidence.
+        """
+
+        units = group_round_trips(list(self.messages))
+        # execute_actions() is called immediately after the draft submit batch,
+        # so the last atomic unit contains the candidate and its acknowledgement.
+        # Excluding it prevents a large patch from being copied into the summary.
+        history_units = units[2:-1]
+        history = list(self._submission_review_base) + [
+            message for unit in history_units for message in unit
+        ]
+        try:
+            compressed, response = compress(
+                history,
+                self.model,
+                keep_last_n_turns=0,
+                config=self.config,
+                on_response=self._account_summary_response,
+            )
+        except Exception as exc:
+            self._record_event(
+                "submission_review_checkpoint",
+                summary_status="error",
+                summary_error=f"{type(exc).__name__}: {exc}",
+            )
+            return "", "error"
+
+        marker = self.config.agent.summary_marker
+        summary = next(
+            (
+                message["content"][len(marker):].strip()
+                for message in compressed
+                if message.get("role") == "user"
+                and isinstance(message.get("content"), str)
+                and message["content"].startswith(marker)
+            ),
+            "",
+        )
+        status = "generated" if response is not None else "reused_or_empty"
+        self._record_event(
+            "submission_review_checkpoint",
+            summary_status=status,
+            source_events=len(self.events),
+        )
+        return summary, status
 
     def _maybe_compress(self) -> bool:
         """Summarize the middle of the history when it nears the context window.

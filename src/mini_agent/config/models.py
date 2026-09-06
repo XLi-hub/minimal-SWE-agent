@@ -92,6 +92,9 @@ class AgentConfig(BaseModel):
     # A clean review context reduces anchoring on the draft author's prior
     # rationale while the append-only event journal retains the full history.
     submission_review_reset_context: bool = False
+    # Preserve a compact evidence checkpoint across the clean-context boundary.
+    # This intentionally adds one summarizer request when author history exists.
+    submission_review_checkpoint_context: bool = False
 
     @field_validator("submission_review_prompt")
     @classmethod
@@ -104,6 +107,17 @@ class AgentConfig(BaseModel):
     def reserve_fits_context_window(self) -> "AgentConfig":
         if self.reserve_tokens >= self.context_window:
             raise ValueError("reserve_tokens must be less than context_window")
+        if self.submission_review_checkpoint_context:
+            if not self.submission_review_prompt:
+                raise ValueError(
+                    "submission_review_checkpoint_context requires "
+                    "submission_review_prompt"
+                )
+            if not self.submission_review_reset_context:
+                raise ValueError(
+                    "submission_review_checkpoint_context requires "
+                    "submission_review_reset_context=true"
+                )
         return self
 
 

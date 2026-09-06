@@ -91,6 +91,7 @@ def test_env_var_overrides_ignores_non_prefixed_secrets(monkeypatch):
 
 def test_build_config_defaults():
     assert build_config().agent.max_steps == 250
+    assert build_config().agent.submission_review_checkpoint_context is False
 
 
 def test_summary_prompt_preserves_evidence_and_open_gaps():
@@ -114,6 +115,7 @@ def test_benchmark_config_is_discoverable_and_valid():
     assert config.environment.block_network_commands is True
     assert config.agent.submission_review_prompt is not None
     assert config.agent.submission_review_reset_context is True
+    assert config.agent.submission_review_checkpoint_context is True
     assert "underlying invariant or public contract" in config.agent.submission_review_prompt
     assert "circular evidence" in config.agent.submission_review_prompt
     assert "behavior matrix" in config.agent.submission_review_prompt
@@ -284,6 +286,27 @@ def test_build_config_accepts_explicit_disabled_or_boundary_values(spec):
 def test_build_config_requires_reserve_below_context_window(reserve):
     with pytest.raises(ValidationError, match="reserve_tokens"):
         build_config([f"agent.reserve_tokens={reserve}"])
+
+
+@pytest.mark.parametrize(
+    "specs, message",
+    [
+        (
+            ["agent.submission_review_checkpoint_context=true"],
+            "submission_review_prompt",
+        ),
+        (
+            [
+                'agent.submission_review_prompt="Audit."',
+                "agent.submission_review_checkpoint_context=true",
+            ],
+            "submission_review_reset_context",
+        ),
+    ],
+)
+def test_review_checkpoint_requires_clean_review_gate(specs, message):
+    with pytest.raises(ValidationError, match=message):
+        build_config(specs)
 
 
 def test_model_identifiers_must_not_be_blank():
