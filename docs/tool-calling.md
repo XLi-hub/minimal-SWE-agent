@@ -197,6 +197,14 @@ reviewer 可以按需找回精确命令、返回码和输出，同时仍把作�
 - `query`：不区分大小写的事件文本搜索；省略时按序读取。
 - `start`：从指定事件序号开始，便于继续分页。
 - `events`：单次返回 1–50 个事件，默认 20。
+- `event_type` / `role`：按事件类型或消息角色精确筛选（不区分大小写）。
+- `tool_name`：按工具名精确筛选；工具结果会通过 `tool_call_id` 关联回原调用，因此
+  `tool_name=bash` 同时覆盖 bash call 和对应 observation。
+- `returncode`：只返回具有指定命令返回码的 observation，例如 `returncode=1`。
+
+所有已提供条件使用 AND 组合。典型 review 可以先用
+`trajectory(tool_name="bash", returncode=1)` 找失败证据，再根据结果中的事件序号和关键词
+缩小回查范围；不需要把整段作者对话重新放进上下文。
 
 返回内容继续受 `tools.default_max_chars` 约束。普通 Agent 不默认启用这个工具：它主要解决
 独立 review 的取舍——保留去锚定的干净上下文，同时不丢掉作者阶段已经付费获得的原始证据。

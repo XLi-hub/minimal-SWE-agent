@@ -9,11 +9,13 @@ import json
 import re
 import shlex
 import subprocess
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from mini_agent.config import Config, get_default_config
+from mini_agent.evidence import EventFact, extract_event_evidence
 from mini_agent.exceptions import Submitted
 
 
@@ -278,6 +280,25 @@ TRAJECTORY_SCHEMA = {
                     "maximum": 50,
                     "description": "Maximum matching events to return (default 20).",
                 },
+                "event_type": {
+                    "type": "string",
+                    "description": "Optional exact event type filter, case-insensitive.",
+                },
+                "role": {
+                    "type": "string",
+                    "description": "Optional exact message role filter, case-insensitive.",
+                },
+                "tool_name": {
+                    "type": "string",
+                    "description": (
+                        "Optional exact tool-name filter. Correlated tool results "
+                        "match the tool that produced them."
+                    ),
+                },
+                "returncode": {
+                    "type": "integer",
+                    "description": "Optional exact command return-code filter.",
+                },
             },
         },
     },
@@ -454,8 +475,25 @@ def _handle_trajectory(args: dict[str, Any], context: ToolContext) -> ToolResult
     query = args.get("query")
     start = args.get("start", 0)
     limit = args.get("events", 20)
+    event_type = args.get("event_type")
+    role = args.get("role")
+    tool_name = args.get("tool_name")
+    returncode = args.get("returncode", None)
     if query is not None and not isinstance(query, str):
         return ToolResult("Error: 'trajectory' 'query' must be a string.")
+    for name, value in (
+        ("event_type", event_type),
+        ("role", role),
+        ("tool_name", tool_name),
+    ):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            return ToolResult(
+                f"Error: 'trajectory' '{name}' must be a non-empty string."
+            )
+    if returncode is not None and (
+        isinstance(returncode, bool) or not isinstance(returncode, int)
+    ):
+        return ToolResult("Error: 'trajectory' 'returncode' must be an integer.")
     if isinstance(start, bool) or not isinstance(start, int) or start < 0:
         return ToolResult("Error: 'trajectory' 'start' must be an integer >= 0.")
     if (
@@ -469,6 +507,10 @@ def _handle_trajectory(args: dict[str, Any], context: ToolContext) -> ToolResult
         )
 
     needle = query.casefold() if query else None
+    normalized = extract_event_evidence(context.event_log)
+    facts_by_sequence: dict[str, list[EventFact]] = defaultdict(list)
+    for fact in normalized.facts:
+        facts_by_sequence[fact.sequence].append(fact)
     matches: list[tuple[int, str]] = []
     for index, event in enumerate(context.event_log):
         sequence = event.get("sequence", index)
@@ -476,6 +518,23 @@ def _handle_trajectory(args: dict[str, Any], context: ToolContext) -> ToolResult
             continue
         serialized = json.dumps(event, ensure_ascii=False, default=repr)
         if needle is not None and needle not in serialized.casefold():
+            continue
+        facts = facts_by_sequence.get(str(sequence), [])
+        message = event.get("message")
+        source = message if isinstance(message, Mapping) else event
+        raw_event_type = str(event.get("type", ""))
+        raw_role = str(source.get("role", ""))
+        if event_type is not None and raw_event_type.casefold() != event_type.casefold():
+            continue
+        if role is not None and raw_role.casefold() != role.casefold():
+            continue
+        if tool_name is not None and not any(
+            fact.tool_name.casefold() == tool_name.casefold() for fact in facts
+        ):
+            continue
+        if returncode is not None and not any(
+            fact.has_returncode and fact.returncode == returncode for fact in facts
+        ):
             continue
         matches.append((sequence, serialized))
 
