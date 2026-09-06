@@ -6,11 +6,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import mini_agent.tools as tools_module
 from mini_agent.config import build_config, get_default_config
 from mini_agent.tools import (
     DEFAULT_MAX_CHARS,
     EditError,
     TOOL_REGISTRY,
+    decode_timeout_output,
     apply_edit,
     execute_tool_call,
     find_network_command,
@@ -18,6 +20,32 @@ from mini_agent.tools import (
     format_read_output,
     get_enabled_tool_schemas,
     truncate_output,
+)
+from mini_agent.tooling.files import (
+    EditError as ExtractedEditError,
+    apply_edit as extracted_apply_edit,
+    format_read_output as extracted_format_read_output,
+)
+from mini_agent.tooling.network import find_network_command as extracted_find_network_command
+from mini_agent.tooling.output import (
+    DEFAULT_MAX_CHARS as EXTRACTED_DEFAULT_MAX_CHARS,
+    decode_timeout_output as extracted_decode_timeout_output,
+    format_execution_observation as extracted_format_execution_observation,
+    truncate_output as extracted_truncate_output,
+)
+from mini_agent.tooling.schemas import (
+    BASH_SCHEMA as EXTRACTED_BASH_SCHEMA,
+    EDIT_SCHEMA as EXTRACTED_EDIT_SCHEMA,
+    READ_SCHEMA as EXTRACTED_READ_SCHEMA,
+    SUBMIT_SCHEMA as EXTRACTED_SUBMIT_SCHEMA,
+    TRAJECTORY_SCHEMA as EXTRACTED_TRAJECTORY_SCHEMA,
+    WRITE_SCHEMA as EXTRACTED_WRITE_SCHEMA,
+)
+from mini_agent.tooling.types import (
+    ToolContext as ExtractedToolContext,
+    ToolDefinition as ExtractedToolDefinition,
+    ToolHandler as ExtractedToolHandler,
+    ToolResult as ExtractedToolResult,
 )
 
 
@@ -49,6 +77,37 @@ class FakeEnv:
 
     def execute(self, command, **kwargs):
         return f"output of {command}"
+
+
+def test_tools_keeps_legacy_exports_and_handler_patch_surface(monkeypatch):
+    """Extracted helpers remain available at the historical module path."""
+    assert DEFAULT_MAX_CHARS is EXTRACTED_DEFAULT_MAX_CHARS
+    assert EditError is ExtractedEditError
+    assert apply_edit is extracted_apply_edit
+    assert format_read_output is extracted_format_read_output
+    assert find_network_command is extracted_find_network_command
+    assert format_execution_observation is extracted_format_execution_observation
+    assert truncate_output is extracted_truncate_output
+    assert decode_timeout_output is extracted_decode_timeout_output
+    assert tools_module.ToolContext is ExtractedToolContext
+    assert tools_module.ToolResult is ExtractedToolResult
+    assert tools_module.ToolDefinition is ExtractedToolDefinition
+    assert tools_module.ToolHandler is ExtractedToolHandler
+    assert tools_module.BASH_SCHEMA is EXTRACTED_BASH_SCHEMA
+    assert tools_module.SUBMIT_SCHEMA is EXTRACTED_SUBMIT_SCHEMA
+    assert tools_module.READ_SCHEMA is EXTRACTED_READ_SCHEMA
+    assert tools_module.EDIT_SCHEMA is EXTRACTED_EDIT_SCHEMA
+    assert tools_module.WRITE_SCHEMA is EXTRACTED_WRITE_SCHEMA
+    assert tools_module.TRAJECTORY_SCHEMA is EXTRACTED_TRAJECTORY_SCHEMA
+
+    monkeypatch.setattr(
+        tools_module,
+        "format_execution_observation",
+        lambda result, max_lines, max_chars: "patched observation",
+    )
+    messages: list = []
+    execute_tool_call(_tc("patch", "bash", {"command": "echo hi"}), messages, FakeEnv())
+    assert messages[0]["content"] == "patched observation"
 
 
 # --- apply_edit (pure) ---
