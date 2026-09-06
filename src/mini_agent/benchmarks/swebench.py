@@ -24,33 +24,33 @@ from __future__ import annotations
 import concurrent.futures
 import inspect
 import json
-import random
-import re
 import threading
 import traceback
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from mini_agent.benchmarks._swebench.dataset import (
+    DATASET_MAPPING,
+    filter_instances,
+    get_swebench_docker_image_name,
+    load_dataset,
+    load_swebench_dataset,
+    resolve_swebench_docker_image,
+)
+from mini_agent.benchmarks._swebench.storage import (
+    PredictionStore,
+    _json_default,
+    _standard_prediction,
+    remove_from_preds_file,
+    update_preds_file,
+)
 # Environment construction itself remains lazy (no container is started by
 # this import), while exposing the symbol keeps the compatibility helper easy
 # to monkeypatch in tests.
 from mini_agent.environments import get_environment
 from mini_agent.persistence import atomic_write_text, save_trajectory_data
 
-
-# Keep this mapping in the runner, rather than in the CLI, so Python callers
-# can use exactly the same dataset aliases as command-line callers.
-DATASET_MAPPING: dict[str, str] = {
-    "full": "SWE-bench/SWE-bench",
-    "verified": "SWE-bench/SWE-bench_Verified",
-    "lite": "SWE-bench/SWE-bench_Lite",
-    "multimodal": "SWE-bench/SWE-bench_Multimodal",
-    "multilingual": "SWE-bench/SWE-bench_Multilingual",
-    "smith": "SWE-bench/SWE-smith",
-    "_test": "klieret/swe-bench-dummy-test-dataset",
-    "rebench": "nebius/SWE-rebench",
-}
 
 # Trajectories are routinely browsed, shared, and reused for analysis.  Keep
 # only public task/setup metadata; copying the dataset row wholesale would
@@ -70,256 +70,6 @@ TRAJECTORY_INSTANCE_FIELDS: tuple[str, ...] = (
     "image_name",
     "docker_image",
 )
-
-
-def get_swebench_docker_image_name(instance: Mapping[str, Any]) -> str:
-    """Return the Docker image associated with a SWE-bench instance.
-
-    Dataset revisions have used ``image``, ``image_name``, and
-    ``docker_image``.  When none is present, the conventional SWE-bench image
-    name is derived from ``instance_id``.  Docker rejects double underscores
-    in some image-name components, so SWE-bench uses ``_1776_`` as its
-    replacement.
-    """
-
-    image_name = (
-        instance.get("image")
-        or instance.get("image_name")
-        or instance.get("docker_image")
-    )
-    if image_name:
-        return str(image_name)
-    instance_id = str(instance["instance_id"])
-    docker_id = instance_id.replace("__", "_1776_")
-    return f"docker.io/swebench/sweb.eval.x86_64.{docker_id}:latest".lower()
-
-
-# A descriptive alias is useful to callers that do not know the historical
-# upstream function name.
-resolve_swebench_docker_image = get_swebench_docker_image_name
-
-
-def _parse_slice_spec(slice_spec: str | slice | None) -> slice | None:
-    """Parse a Python-style ``start:stop:step`` slice specification."""
-
-    if slice_spec is None or slice_spec == "":
-        return None
-    if isinstance(slice_spec, slice):
-        return slice_spec
-    if not isinstance(slice_spec, str):
-        raise TypeError("slice_spec must be a string, slice, or None")
-    values = slice_spec.strip().split(":")
-    if len(values) > 3:
-        raise ValueError(f"invalid slice specification: {slice_spec!r}")
-
-    def parse(value: str) -> int | None:
-        value = value.strip()
-        return None if value == "" else int(value)
-
-    parsed = [parse(value) for value in values]
-    # ``slice(5)`` means ``[5:]`` and is useful for a quick resume selection.
-    if len(parsed) == 1:
-        return slice(parsed[0], None, None)
-    return slice(*parsed)
-
-
-def filter_instances(
-    instances: Iterable[Mapping[str, Any]],
-    *,
-    filter_spec: str = "",
-    slice_spec: str | slice | None = "",
-    shuffle: bool = False,
-    seed: int = 42,
-) -> list[dict[str, Any]]:
-    """Filter, slice, and optionally deterministically shuffle instances.
-
-    Shuffling starts from an instance-id-sorted copy.  This makes the result
-    independent of dataset iteration order while retaining the ordering used
-    by the upstream mini-SWE-agent runner.  The input objects are copied into
-    a new list and are never mutated.
-    """
-
-    selected = [dict(instance) for instance in instances]
-    if shuffle:
-        selected.sort(key=lambda item: str(item["instance_id"]))
-        random.Random(seed).shuffle(selected)
-
-    if filter_spec:
-        pattern = re.compile(filter_spec)
-        selected = [
-            instance
-            for instance in selected
-            if pattern.match(str(instance["instance_id"]))
-        ]
-
-    parsed_slice = _parse_slice_spec(slice_spec)
-    if parsed_slice is not None:
-        selected = selected[parsed_slice]
-    return selected
-
-
-def _default_dataset_loader(dataset_path: str, *, split: str) -> Iterable[Mapping[str, Any]]:
-    """Load a dataset lazily, keeping ``datasets`` an optional dependency."""
-
-    try:
-        from datasets import load_dataset
-    except ImportError as exc:  # pragma: no cover - exercised by integration users
-        raise ImportError(
-            "Loading SWE-bench datasets requires the optional 'datasets' package; "
-            "pass dataset_loader=... to use a custom loader"
-        ) from exc
-    return load_dataset(dataset_path, split=split)
-
-
-def load_swebench_dataset(
-    subset: str = "lite",
-    split: str = "dev",
-    *,
-    dataset_loader: Callable[..., Iterable[Mapping[str, Any]]] | None = None,
-    dataset_mapping: Mapping[str, str] | None = None,
-) -> list[dict[str, Any]]:
-    """Load one SWE-bench subset using an injectable dataset loader.
-
-    ``subset`` may be an alias in :data:`DATASET_MAPPING` or a Hugging Face
-    dataset path.  The loader receives ``(dataset_path, split=split)`` and may
-    return a Hugging Face Dataset, a list, or any other iterable of mappings.
-    """
-
-    mapping = DATASET_MAPPING if dataset_mapping is None else dataset_mapping
-    dataset_path = mapping.get(subset, subset)
-    loader = dataset_loader or _default_dataset_loader
-    return [dict(instance) for instance in loader(dataset_path, split=split)]
-
-
-# Backwards/forwards-friendly aliases for callers that prefer an explicit
-# ``load_dataset`` name.  They are intentionally lazy in the same way.
-load_dataset = load_swebench_dataset
-
-
-def update_preds_file(
-    output_path: str | Path,
-    instance_id: str,
-    model_name: str,
-    result: Any,
-) -> dict[str, str]:
-    """Compatibility helper that atomically updates a keyed predictions file."""
-
-    prediction = _standard_prediction(instance_id, result, model_name)
-    PredictionStore(output_path).update(prediction)
-    return prediction
-
-
-def remove_from_preds_file(output_path: str | Path, instance_id: str) -> None:
-    """Compatibility helper that removes one prediction if present."""
-
-    PredictionStore(output_path).remove(instance_id)
-
-
-def _json_default(value: Any) -> str:
-    """Best-effort serializer for provider-specific trajectory objects."""
-
-    return repr(value)
-
-
-class PredictionStore:
-    """Thread-safe, atomically persisted SWE-bench predictions.
-
-    A store always uses a keyed JSON file as its canonical source.  The
-    ``export_jsonl`` method writes a JSONL representation on demand, allowing
-    the same run to feed either the standard harness or line-oriented tools.
-    Separate ``PredictionStore`` instances pointing at the same path share a
-    process-local lock, which is important when callers construct one store
-    in each worker.
-    """
-
-    _locks_guard = threading.Lock()
-    _locks: dict[str, threading.RLock] = {}
-
-    def __init__(self, path: str | Path):
-        self.path = Path(path)
-        key = str(self.path.expanduser().resolve())
-        with self._locks_guard:
-            self._lock = self._locks.setdefault(key, threading.RLock())
-
-    def read(self) -> dict[str, dict[str, Any]]:
-        """Read the current keyed predictions, returning a defensive copy."""
-
-        with self._lock:
-            if not self.path.exists():
-                return {}
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(raw, Mapping):
-                return {str(key): dict(value) for key, value in raw.items()}
-            # Being permissive here makes it possible to resume from a JSONL
-            # conversion that was accidentally written as a JSON array.
-            if isinstance(raw, list):
-                result: dict[str, dict[str, Any]] = {}
-                for value in raw:
-                    if isinstance(value, Mapping) and value.get("instance_id") is not None:
-                        result[str(value["instance_id"])] = dict(value)
-                return result
-            raise ValueError(f"prediction file must contain an object: {self.path}")
-
-    def get(self, instance_id: str) -> dict[str, Any] | None:
-        return self.read().get(str(instance_id))
-
-    def __contains__(self, instance_id: object) -> bool:
-        return str(instance_id) in self.read()
-
-    def update(self, prediction: Mapping[str, Any]) -> dict[str, Any]:
-        """Atomically upsert one standard prediction and return it."""
-
-        if prediction.get("instance_id") is None:
-            raise ValueError("prediction must include instance_id")
-        value = dict(prediction)
-        instance_id = str(value["instance_id"])
-        value["instance_id"] = instance_id
-        with self._lock:
-            data = self.read()
-            data[instance_id] = value
-            atomic_write_text(
-                self.path,
-                json.dumps(data, indent=2, ensure_ascii=False, default=_json_default) + "\n",
-            )
-        return value
-
-    def remove(self, instance_id: str) -> None:
-        """Atomically remove one prediction if it exists."""
-
-        with self._lock:
-            data = self.read()
-            if str(instance_id) not in data:
-                return
-            del data[str(instance_id)]
-            atomic_write_text(
-                self.path,
-                json.dumps(data, indent=2, ensure_ascii=False, default=_json_default) + "\n",
-            )
-
-    def export_json(self, path: str | Path | None = None) -> Path:
-        """Export keyed JSON to *path* (or rewrite the canonical path)."""
-
-        target = self.path if path is None else Path(path)
-        with self._lock:
-            data = self.read()
-            atomic_write_text(
-                target,
-                json.dumps(data, indent=2, ensure_ascii=False, default=_json_default) + "\n",
-            )
-        return target
-
-    def export_jsonl(self, path: str | Path) -> Path:
-        """Export current predictions as one standard JSON object per line."""
-
-        target = Path(path)
-        with self._lock:
-            data = self.read()
-            text = "".join(
-                json.dumps(value, ensure_ascii=False, default=_json_default) + "\n"
-                for value in data.values()
-            )
-            atomic_write_text(target, text)
-        return target
 
 
 def _section(config: Any, name: str, default: Any = None) -> Any:
@@ -648,18 +398,6 @@ def _run_agent(agent: Any, task: str, trajectory: Path) -> Any:
     if accepts_output:
         return run_method(task, output=trajectory)
     return run_method(task)
-
-
-def _standard_prediction(
-    instance_id: str,
-    submission: Any,
-    model_name: str,
-) -> dict[str, str]:
-    return {
-        "model_name_or_path": str(model_name),
-        "instance_id": instance_id,
-        "model_patch": "" if submission is None else str(submission),
-    }
 
 
 def _looks_like_unified_diff(value: str) -> bool:

@@ -4,7 +4,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from mini_agent.config import build_config
+from mini_agent.benchmarks import swebench
+from mini_agent.benchmarks._swebench import dataset as dataset_support
+from mini_agent.benchmarks._swebench import storage as storage_support
 from mini_agent.benchmarks.swebench import (
     DATASET_MAPPING,
     PredictionStore,
@@ -16,7 +18,9 @@ from mini_agent.benchmarks.swebench import (
     get_swebench_docker_image_name,
     load_swebench_dataset,
     process_instance,
+    resolve_swebench_docker_image,
 )
+from mini_agent.config import build_config
 
 
 def _instances():
@@ -38,6 +42,35 @@ def test_dataset_loader_uses_alias_and_split():
 
     assert calls == [(DATASET_MAPPING["lite"], "test")]
     assert result == [{"instance_id": "x", "problem_statement": "task"}]
+
+
+def test_split_support_keeps_legacy_exports_and_aliases():
+    assert swebench.DATASET_MAPPING is dataset_support.DATASET_MAPPING
+    assert swebench.filter_instances is dataset_support.filter_instances
+    assert swebench.load_swebench_dataset is dataset_support.load_swebench_dataset
+    assert swebench.load_dataset is swebench.load_swebench_dataset
+    assert resolve_swebench_docker_image is get_swebench_docker_image_name
+    assert swebench.PredictionStore is storage_support.PredictionStore
+    assert swebench.update_preds_file is storage_support.update_preds_file
+    assert swebench.remove_from_preds_file is storage_support.remove_from_preds_file
+
+
+def test_split_dataset_loader_accepts_explicit_mapping_without_optional_dependency():
+    calls = []
+
+    def loader(path, *, split):
+        calls.append((path, split))
+        return ({"instance_id": "custom", "problem_statement": "task"},)
+
+    result = dataset_support.load_swebench_dataset(
+        "local",
+        "validation",
+        dataset_loader=loader,
+        dataset_mapping={"local": "owner/dataset"},
+    )
+
+    assert calls == [("owner/dataset", "validation")]
+    assert result == [{"instance_id": "custom", "problem_statement": "task"}]
 
 
 @pytest.mark.parametrize(
@@ -163,6 +196,13 @@ def test_prediction_store_atomic_updates_and_jsonl(tmp_path):
     lines = (tmp_path / "preds.jsonl").read_text().splitlines()
     assert len(lines) == 8
     assert {json.loads(line)["instance_id"] for line in lines} == set(data)
+
+
+def test_prediction_store_lock_is_shared_across_legacy_and_split_imports(tmp_path):
+    legacy_store = PredictionStore(tmp_path / "preds.json")
+    split_store = storage_support.PredictionStore(tmp_path / "." / "preds.json")
+
+    assert legacy_store._lock is split_store._lock
 
 
 class FakeEnvironment:
