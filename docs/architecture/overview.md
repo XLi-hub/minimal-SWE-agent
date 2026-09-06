@@ -3,6 +3,11 @@
 minimal-SWE-agent 的核心不是某个模型，而是一条可替换依赖之间的控制流。入口构造
 `Config`、模型和环境，`Agent` 只编排消息与工具，持久化和 benchmark 作为边界层复用核心。
 
+![minimal-SWE-agent 系统架构总览](../diagrams/system-overview.svg)
+
+源图可在 draw.io 中编辑：[system-overview.drawio](../diagrams/system-overview.drawio)。图用于快速
+建立整体心智模型；模块职责、约束和例外仍以本页文字为准。
+
 ## 七个部分
 
 | 部分 | 子模块 | 职责 |
@@ -21,20 +26,22 @@ minimal-SWE-agent 的核心不是某个模型，而是一条可替换依赖之�
 
 ## 依赖方向
 
-```text
-cli ──► config
- │       │
- ├──► model ──► cost/config
- ├──► environments ──► config
- └──► agent ──► config, context, cost, evidence, persistence, tools
-                                      │
-tools ──► tooling, environment protocol, evidence
-
-benchmarks/cli ──► config, benchmarks/swebench
-benchmarks/swebench ──► Agent/Model/Environment factories
-                     ├──► persistence
-                     └──► benchmarks/_swebench
-evaluation ──► official SWE-bench harness subprocess
+```mermaid
+flowchart LR
+    CLI[CLI] --> Config[Config]
+    Config --> Agent[Agent]
+    Config --> Model[Model + Cost]
+    Config --> Env[Environment]
+    Agent --> Model
+    Agent --> Tools[Tool Registry]
+    Tools --> Tooling[tooling helpers]
+    Tools --> Env
+    Agent --> Records[Context + Evidence + Persistence]
+    Bench[Benchmark Runner] --> Config
+    Bench --> Agent
+    Bench --> Env
+    Bench --> Storage[Predictions + Status]
+    Eval[Evaluation Adapter] --> Harness[Official Harness]
 ```
 
 底层模块不应反向 import CLI。`config` 不依赖 Agent、Model 或 Environment，因此可先完成
@@ -42,22 +49,19 @@ evaluation ──► official SWE-bench harness subprocess
 
 ## 普通运行流程
 
-```text
-CLI args + env + YAML
-        │
-        ▼
-build_config() ──► get_environment() + Model()
-        │
-        ▼
-Agent.run(task)
-  ├─ 检查步数/时间/成本
-  ├─ 必要时压缩 model-facing messages
-  ├─ model.query(messages, enabled schemas)
-  ├─ 顺序执行 tool calls，并逐个追加 observation
-  └─ submit 或限制/错误 ──► serialize/save
-        │
-        ├─ *.traj.json：最终 context view + 运行 metadata
-        └─ *.events.jsonl：完整 append-only event journal
+```mermaid
+flowchart TD
+    Input[CLI args + env + YAML] --> Build[build_config]
+    Build --> Dependencies[Model + Environment]
+    Dependencies --> Run[Agent.run task]
+    Run --> Limits[检查步数 / 时间 / 成本]
+    Limits --> Compress[必要时压缩 messages]
+    Compress --> Query[model.query]
+    Query --> Dispatch[顺序执行 tool calls]
+    Dispatch --> Terminal{submit / 限制 / 错误}
+    Terminal --> Save[serialize + save]
+    Save --> Traj[*.traj.json]
+    Save --> Events[*.events.jsonl]
 ```
 
 CLI 拥有它创建的资源。无论成功、Agent 错误还是输入异常，都在 `finally` 中先关闭 Model，
@@ -65,18 +69,21 @@ CLI 拥有它创建的资源。无论成功、Agent 错误还是输入异常，�
 
 ## SWE-bench 流程
 
-```text
-benchmark CLI
-  ├─ 在 default.yaml 上叠加 benchmarks/swebench.yaml
-  ├─ _swebench.dataset：加载、过滤、解析官方镜像
-  └─ SWEbenchRunner：每个实例各建 Model + Docker Environment + Agent
-       ├─ /testbed 中运行，容器断网，shell 开 pipefail
-       ├─ 保存逐实例 trajectory/events
-       ├─ 收集 unified diff
-       ├─ _swebench.storage：原子更新 predictions
-       └─ runner：更新 statuses
-
-preds.jsonl ──► evaluation adapter ──► 官方 harness ──► reports
+```mermaid
+flowchart TD
+    BCLI[Benchmark CLI] --> Profile[default + swebench profile]
+    BCLI --> Dataset[Dataset load + filter + image]
+    Profile --> Runner[SWEbenchRunner]
+    Dataset --> Runner
+    Runner --> Instance[Per-instance Model + Docker + Agent]
+    Instance --> RunTestbed[Run in offline /testbed]
+    RunTestbed --> Record[Trajectory + Events]
+    RunTestbed --> Patch[Collect unified diff]
+    Patch --> Predictions[Atomic predictions update]
+    Runner --> Status[Update statuses]
+    Predictions --> Adapter[Evaluation adapter]
+    Adapter --> Harness[Official harness]
+    Harness --> Reports[Reports]
 ```
 
 runner 的并发只协调实例；单实例仍走同一个 Agent 循环。环境创建或运行失败时，runner 会

@@ -67,17 +67,7 @@ Bash `pipefail`；这些是评测策略，不会自动保护普通本地任务�
 
 ## 极简架构
 
-```text
-CLI / benchmark runner
-        │ build Config and dependencies
-        ▼
-Agent ──query──► Model ──► OpenAI-compatible Chat Completions
-  │
-  ├──dispatch──► tool registry ──► tooling helpers
-  │                              └──► Environment ABC
-  ├──compress──► context
-  └──record────► evidence + persistence
-```
+![minimal-SWE-agent 系统架构总览](docs/diagrams/system-overview.svg)
 
 核心运行以依赖注入组装：`Agent(model, environment, config)`。`Model` 是仓库提供的一个
 具体 OpenAI-compatible adapter；Agent 只按 `.query(messages, tools)` 进行鸭子类型调用，
@@ -95,7 +85,8 @@ Agent ──query──► Model ──► OpenAI-compatible Chat Completions
 7. Benchmark 层：`benchmarks/`，其中 `_swebench/` 只承接数据集和存储细节。
 
 完整依赖方向、普通流程与 SWE-bench 流程见
-[架构总览](docs/architecture/overview.md)。
+[架构总览](docs/architecture/overview.md)。可编辑源图和导出约定见
+[架构图维护](docs/diagrams/README.md)。
 
 ## 配置与测试
 

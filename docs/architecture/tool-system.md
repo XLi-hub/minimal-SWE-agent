@@ -32,14 +32,24 @@ schemas 时失败；模型臆造的未知或禁用工具则得到结构化 error
 
 ## 分发流程
 
-```text
-ToolCall(id, function.name, function.arguments)
-  ├─ 查 registry
-  ├─ 查 tools.enabled
-  ├─ JSON decode，且顶层必须为 object
-  ├─ 构造 ToolContext(environment, config, event_log)
-  ├─ 调用 handler
-  └─ append role=tool + 同一个 tool_call_id
+```mermaid
+sequenceDiagram
+    participant M as Model
+    participant A as Agent / Dispatcher
+    participant R as Tool Registry
+    participant H as Handler
+    participant E as Environment
+    M->>A: ToolCall(id, name, arguments)
+    A->>R: 查询 definition 与 enabled 权限
+    R-->>A: schema + handler / error
+    A->>A: JSON decode，顶层必须为 object
+    A->>H: args + ToolContext
+    opt 命令或文件工具
+        H->>E: execute / read / write
+        E-->>H: 结构化结果
+    end
+    H-->>A: ToolResult
+    A-->>M: role=tool，使用同一 tool_call_id
 ```
 
 handler 返回 `ToolResult(content, submission=None)`。submit 通过 `submission` 字段表达终局，

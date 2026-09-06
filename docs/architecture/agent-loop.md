@@ -20,16 +20,21 @@ Environment 则实现统一接口。构造阶段读取 context 参数；`run()` 
 
 ## 一轮 step
 
-```text
-_check_limits()
-      │
-      ├─► _maybe_compress() ──可能调用一次无工具摘要
-      │          └─► 再检查时间/成本
-      ▼
-query() ──► model.query(messages, tools)
-      │     记录 usage、assistant message
-      ├─► 再检查时间/成本
-      └─► execute_actions(message)
+```mermaid
+flowchart TD
+    Start[开始一轮 step] --> Pre{_check_limits}
+    Pre -->|已超限| Exit[以对应状态退出]
+    Pre -->|允许继续| Need{需要压缩?}
+    Need -->|是| Summary[无工具摘要请求]
+    Need -->|否| Query[model.query]
+    Summary --> Recheck{复查时间 / 成本}
+    Recheck -->|已超限| Exit
+    Recheck -->|允许继续| Query
+    Query --> Record[记录 usage + assistant message]
+    Record --> Post{再次检查时间 / 成本}
+    Post -->|已超限| Skip[为全部 calls 追加 Skipped]
+    Post -->|允许继续| Actions[顺序 execute_actions]
+    Skip --> Exit
 ```
 
 步数只在新决策轮开始时检查；刚完成的模型查询仍属于当前合法步骤。时间或成本可能在

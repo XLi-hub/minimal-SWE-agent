@@ -15,6 +15,7 @@
 6. [Benchmark 层](architecture/benchmark-layer.md)：runner 与 `_swebench/` 的边界。
 
 读完后，可用[术语表](reference/glossary.md)补齐 ABC、依赖注入、mock、round-trip 等概念。
+架构页中的 draw.io 源图及更新约定见[架构图维护](diagrams/README.md)。
 
 ## 路径二：运行与修改
 
@@ -48,6 +49,7 @@ return code、文件操作和 harness 报告才是可独立核对的证据。
 
 ```text
 architecture/  系统为何这样拆、运行时如何流动
+diagrams/      跨模块 draw.io 源图与发布用 SVG
 guides/        怎样配置、测试和运行 benchmark
 reference/     字段、工具、文件格式和术语的查表页
 decisions/     历史演进与明确接受的取舍
@@ -75,6 +77,7 @@ experiments/   有时间背景的实验记录，不充当当前行为规范
 - 行为说明优先链接源码或权威 YAML，不复制完整默认配置；
 - experiments 记录当时观察，不反向定义当前架构；
 - 新模块需要更新架构地图，新字段/工具/格式需要更新对应 reference；
+- 跨模块结构图维护 `.drawio` 与 `.svg`，页内短流程使用 Mermaid；
 - README 和所有 docs 的本地 Markdown 链接由 `tests/test_docs.py` 检查；
 - 不校验标题 slug anchor，重命名标题时仍需人工检查跨页 anchor。
 

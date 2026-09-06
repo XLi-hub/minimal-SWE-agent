@@ -15,6 +15,11 @@
 模型生成的 summary 仍是声明，不是证据。evidence checkpoint 则刻意忽略无工具的 assistant
 叙述，并保留原事件序号，供 reviewer 回查。
 
+![上下文与记录边界](../diagrams/context-records.svg)
+
+源图可在 draw.io 中编辑：[context-records.drawio](../diagrams/context-records.drawio)。图中上半部
+是会变化的模型工作视图，下半部是追加式审计事实面；两者不能互相替代。
+
 ## messages：模型工作上下文
 
 初始为 system prompt 与渲染后的任务，随后追加 assistant(tool calls) 和 tool observations。

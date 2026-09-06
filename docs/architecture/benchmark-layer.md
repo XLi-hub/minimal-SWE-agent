@@ -42,15 +42,26 @@ trajectory 工具和两阶段 submit review。不要把这些差异硬编码到 
 
 ## 单实例生命周期
 
-```text
-instance
-  ├─ model_factory(config, instance)
-  ├─ environment_factory(instance, image, config)
-  │    └─ optional run.env_startup_command
-  ├─ agent_factory(model, environment, config, instance)
-  ├─ Agent.run(problem_statement, trajectory path)
-  ├─ collect_model_patch(submission or git diff)
-  └─ finally: close model + cleanup environment
+```mermaid
+sequenceDiagram
+    participant R as SWEbenchRunner
+    participant M as Model
+    participant E as Docker Environment
+    participant A as Agent
+    participant S as Storage
+    R->>M: model_factory(config, instance)
+    R->>E: environment_factory(instance, image, config)
+    opt 配置了 startup command
+        R->>E: execute startup command
+    end
+    R->>A: agent_factory(model, environment, config, instance)
+    R->>A: run(problem_statement, trajectory path)
+    A-->>R: exit status + submission
+    R->>E: collect submission or git diff
+    E-->>R: model_patch
+    R->>S: atomic prediction + status update
+    R->>M: close()
+    R->>E: cleanup()
 ```
 
 factories 支持命名参数，也兼容小型测试 lambda 的常见位置签名。默认 factory 延迟 import

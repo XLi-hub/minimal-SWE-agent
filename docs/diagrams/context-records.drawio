@@ -1,0 +1,98 @@
+<mxfile host="Electron" modified="2026-09-07T00:00:00.000Z" agent="Codex" version="31.4.4">
+  <diagram id="context-records" name="上下文与记录边界">
+    <mxGraphModel dx="1400" dy="850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="850" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="上下文、事件、证据与持久化" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#172B4D;" vertex="1" parent="1">
+          <mxGeometry x="50" y="30" width="520" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="messages 是可压缩工作视图；events 是不可被压缩覆盖的事实账本。" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=13;fontColor=#5E6C84;" vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="700" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="agent" value="&lt;b&gt;Agent 运行时&lt;/b&gt;&lt;br&gt;模型响应 · 工具结果 · 控制边界" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#DEEBFF;strokeColor=#4C9AFF;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="300" width="220" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="recorder" value="&lt;b&gt;_RecordedMessageList&lt;/b&gt;&lt;br&gt;append 时深拷贝记录" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#EAE6FF;strokeColor=#8777D9;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="360" y="300" width="230" height="95" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="working-bg" value="模型工作视图（可变 / 可压缩）" style="swimlane;html=1;rounded=1;horizontal=1;startSize=34;fillColor=#F8FAFD;strokeColor=#4C9AFF;fontColor=#42526E;fontStyle=1;fontSize=14;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="690" y="120" width="620" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="messages" value="&lt;b&gt;messages&lt;/b&gt;&lt;br&gt;system + task + 最近 round-trips&lt;br&gt;下一次 query 的实际输入" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#DEEBFF;strokeColor=#4C9AFF;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="735" y="185" width="230" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="compression" value="&lt;b&gt;context compression&lt;/b&gt;&lt;br&gt;旧历史 → summary&lt;br&gt;保留最近完整 round-trips" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFF0B3;strokeColor=#FFAB00;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="185" width="230" height="105" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="audit-bg" value="审计事实面（append-only）" style="swimlane;html=1;rounded=1;horizontal=1;startSize=34;fillColor=#F8FAFD;strokeColor=#36B37E;fontColor=#42526E;fontStyle=1;fontSize=14;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="690" y="440" width="620" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="events" value="&lt;b&gt;events&lt;/b&gt;&lt;br&gt;message / compression / review 边界&lt;br&gt;递增 sequence，不因压缩删除" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E3FCEF;strokeColor=#36B37E;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="735" y="505" width="245" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="evidence" value="&lt;b&gt;evidence&lt;/b&gt;&lt;br&gt;确定性抽取 tool、command、rc、path&lt;br&gt;忽略 assistant-only claims" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E3FCEF;strokeColor=#36B37E;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1035" y="505" width="235" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="trajectory" value="&lt;b&gt;*.traj.json&lt;/b&gt;&lt;br&gt;最终 messages + metadata&lt;br&gt;引用 event sidecar" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F4F5F7;strokeColor=#7A869A;fontColor=#172B4D;fontSize=13;spacing=9;" vertex="1" parent="1">
+          <mxGeometry x="355" y="155" width="235" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="sidecar" value="&lt;b&gt;*.events.jsonl&lt;/b&gt;&lt;br&gt;完整事件 sidecar&lt;br&gt;可分页回查" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F4F5F7;strokeColor=#7A869A;fontColor=#172B4D;fontSize=13;spacing=9;" vertex="1" parent="1">
+          <mxGeometry x="355" y="505" width="235" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="reviewer" value="&lt;b&gt;submit reviewer&lt;/b&gt;&lt;br&gt;checkpoint + trajectory 回查" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFEBE6;strokeColor=#FF5630;fontColor=#172B4D;fontSize=13;spacing=9;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="735" width="225" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-agent-recorder" value="append(message)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#8777D9;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="agent" target="recorder">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-recorder-messages" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#4C9AFF;fontColor=#42526E;fontSize=12;exitX=1;exitY=0.35;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="recorder" target="messages">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="640" y="333"/><mxPoint x="640" y="238"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-recorder-events" value="深拷贝追加" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="recorder" target="events">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="640" y="367"/><mxPoint x="640" y="533"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-messages-compression" value="达到阈值" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FFAB00;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="messages" target="compression">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-compression-messages" value="summary 写回" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FFAB00;fontColor=#42526E;fontSize=12;dashed=1;" edge="1" parent="1" source="compression" target="messages">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1145" y="330"/><mxPoint x="850" y="330"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-compression-events" value="记录边界和 snapshot" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="compression" target="events">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1145" y="420"/><mxPoint x="1005" y="420"/><mxPoint x="1005" y="533"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-events-evidence" value="确定性归一化" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="events" target="evidence">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-messages-trajectory" value="最终视图" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#7A869A;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="messages" target="trajectory">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-events-sidecar" value="原子覆盖" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#7A869A;fontColor=#42526E;fontSize=12;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="events" target="sidecar">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-trajectory-sidecar" value="相对路径 + event_count" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=open;endFill=0;strokeWidth=2;strokeColor=#7A869A;fontColor=#42526E;fontSize=12;dashed=1;" edge="1" parent="1" source="trajectory" target="sidecar">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-evidence-review" value="有界 checkpoint" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FF5630;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="evidence" target="reviewer">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="rule" value="&lt;b&gt;信任边界：&lt;/b&gt;assistant 文本和 summary 是声明；工具结果、return code、文件操作与 harness report 才能独立核对。" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFF0B3;strokeColor=#FFAB00;fontColor=#42526E;fontSize=12;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="730" width="810" height="70" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

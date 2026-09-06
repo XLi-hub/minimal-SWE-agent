@@ -1,0 +1,91 @@
+<mxfile host="Electron" modified="2026-09-07T00:00:00.000Z" agent="Codex" version="31.4.4">
+  <diagram id="system-overview" name="系统架构总览">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="minimal-SWE-agent 系统架构总览" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#172B4D;" vertex="1" parent="1">
+          <mxGeometry x="50" y="30" width="520" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="核心运行时通过依赖注入连接；Benchmark 复用同一 Agent 循环，不反向侵入核心层。" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=13;fontColor=#5E6C84;" vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="760" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="runtime-bg" value="核心运行时" style="swimlane;html=1;rounded=1;horizontal=1;startSize=34;fillColor=#F8FAFD;strokeColor=#B3C2D4;fontColor=#42526E;fontStyle=1;fontSize=14;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="350" y="120" width="980" height="570" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="entry" value="&lt;b&gt;1. 入口与配置&lt;/b&gt;&lt;br&gt;&lt;font color='#5E6C84'&gt;cli.py · config/ · YAML&lt;/font&gt;&lt;br&gt;合并、校验并构造依赖" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F4F5F7;strokeColor=#7A869A;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="50" y="145" width="240" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="agent" value="&lt;b&gt;2. Agent 控制流&lt;/b&gt;&lt;br&gt;&lt;font color='#5E6C84'&gt;agent.py · exceptions.py&lt;/font&gt;&lt;br&gt;预算、查询、工具批次、review、退出" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#DEEBFF;strokeColor=#4C9AFF;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="410" y="190" width="270" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="model" value="&lt;b&gt;3. 模型与成本&lt;/b&gt;&lt;br&gt;&lt;font color='#5E6C84'&gt;model.py · cost.py&lt;/font&gt;&lt;br&gt;Provider 调用与 usage 计费" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#EAE6FF;strokeColor=#8777D9;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="790" y="170" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="provider" value="OpenAI-compatible&lt;br&gt;Provider" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E3FCEF;strokeColor=#36B37E;fontColor=#172B4D;fontSize=13;dashed=1;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="180" width="170" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tools" value="&lt;b&gt;5. 工具系统&lt;/b&gt;&lt;br&gt;&lt;font color='#5E6C84'&gt;tools.py · tooling/&lt;/font&gt;&lt;br&gt;registry、授权、分发、输出规范化" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#DEEBFF;strokeColor=#4C9AFF;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="770" y="350" width="270" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="environment" value="&lt;b&gt;4. 执行环境&lt;/b&gt;&lt;br&gt;&lt;font color='#5E6C84'&gt;environments/&lt;/font&gt;&lt;br&gt;Local / Docker 命令与文件 I/O" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E3FCEF;strokeColor=#36B37E;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="350" width="210" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="context" value="&lt;b&gt;6. 上下文与记录&lt;/b&gt;&lt;br&gt;&lt;font color='#5E6C84'&gt;context.py · evidence.py · persistence.py&lt;/font&gt;&lt;br&gt;压缩、事实抽取、trajectory / events" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFF0B3;strokeColor=#FFAB00;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="505" y="520" width="310" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="benchmark" value="&lt;b&gt;7. Benchmark 层&lt;/b&gt;&lt;br&gt;&lt;font color='#5E6C84'&gt;benchmarks/ · _swebench/&lt;/font&gt;&lt;br&gt;数据选择、并发 runner、prediction、评分" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFEBE6;strokeColor=#FF5630;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="50" y="440" width="250" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="artifacts" value="&lt;b&gt;运行产物&lt;/b&gt;&lt;br&gt;.traj.json · .events.jsonl&lt;br&gt;preds.jsonl · harness reports" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F4F5F7;strokeColor=#7A869A;fontColor=#172B4D;fontSize=13;spacing=9;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="550" width="250" height="95" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-entry-agent" value="构造依赖" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#4C9AFF;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="entry" target="agent">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-agent-model" value="query" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#8777D9;fontColor=#42526E;fontSize=12;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="agent" target="model">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-model-provider" value="Chat Completions" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="model" target="provider">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-agent-tools" value="dispatch" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#4C9AFF;fontColor=#42526E;fontSize=12;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="agent" target="tools">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="720" y="273"/><mxPoint x="720" y="405"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-tools-env" value="统一接口" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="tools" target="environment">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-agent-context" value="压缩 / 记录" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FFAB00;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="agent" target="context">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-context-artifacts" value="原子保存" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#7A869A;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="context" target="artifacts">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-benchmark-entry" value="叠加 profile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FF5630;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="benchmark" target="entry">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-benchmark-agent" value="每实例复用" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FF5630;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="benchmark" target="agent">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-benchmark-artifacts" value="prediction / report" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FF5630;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="benchmark" target="artifacts">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="175" y="735"/>
+              <mxPoint x="1135" y="735"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="legend" value="&lt;b&gt;图例&lt;/b&gt;　蓝：编排　紫：模型适配　绿：外部执行边界　黄：记录边界　红：Benchmark 边界" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#DFE1E6;fontColor=#42526E;fontSize=12;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="350" y="770" width="710" height="45" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

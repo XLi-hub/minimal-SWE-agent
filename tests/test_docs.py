@@ -1,7 +1,9 @@
 """Documentation structure checks that require only the Python standard library."""
 
-from pathlib import Path
 import re
+import xml.etree.ElementTree as ET
+from html import unescape
+from pathlib import Path
 from urllib.parse import unquote
 
 
@@ -48,3 +50,26 @@ def test_local_markdown_links_exist() -> None:
                     missing.append(f"{source}:{line_number}: {target}")
 
     assert not missing, "Missing local Markdown link targets:\n" + "\n".join(missing)
+
+
+def test_drawio_sources_have_embedded_svg_exports() -> None:
+    """Keep editable sources and reviewable documentation renders together."""
+
+    diagram_dir = ROOT / "docs" / "diagrams"
+    sources = sorted(diagram_dir.glob("*.drawio"))
+    assert sources, "Expected at least one editable draw.io architecture diagram"
+
+    errors: list[str] = []
+    for source in sources:
+        ET.parse(source)
+        exported = source.with_suffix(".svg")
+        if not exported.exists():
+            errors.append(f"{source.name}: missing {exported.name}")
+            continue
+
+        svg_root = ET.parse(exported).getroot()
+        embedded = unescape(svg_root.attrib.get("content", ""))
+        if "<mxfile" not in embedded:
+            errors.append(f"{exported.name}: draw.io source is not embedded")
+
+    assert not errors, "Invalid draw.io exports:\n" + "\n".join(errors)
