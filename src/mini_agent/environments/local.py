@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from mini_agent.config import EnvironmentConfig, get_default_config
-from mini_agent.environments import Environment, ExecutionResult
+from mini_agent.environments.base import Environment, ExecutionResult
 
 
 class LocalEnvironment(Environment):
