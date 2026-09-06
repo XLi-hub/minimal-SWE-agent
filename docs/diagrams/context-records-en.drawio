@@ -1,0 +1,98 @@
+<mxfile host="Electron" modified="2026-09-07T00:00:00.000Z" agent="Codex" version="31.4.4">
+  <diagram id="context-records-en" name="Context and Record Boundaries">
+    <mxGraphModel dx="1400" dy="850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="850" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="Context, Events, Evidence, and Persistence" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#172B4D;" vertex="1" parent="1">
+          <mxGeometry x="50" y="30" width="520" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="messages are a compressible working view; events are the immutable factual journal." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=13;fontColor=#5E6C84;" vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="700" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="agent" value="&lt;b&gt;Agent Runtime&lt;/b&gt;&lt;br&gt;Model response · tool result · control boundary" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#DEEBFF;strokeColor=#4C9AFF;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="300" width="220" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="recorder" value="&lt;b&gt;_RecordedMessageList&lt;/b&gt;&lt;br&gt;Deep-copy on append" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#EAE6FF;strokeColor=#8777D9;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="360" y="300" width="230" height="95" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="working-bg" value="Model Working View (mutable / compressible)" style="swimlane;html=1;rounded=1;horizontal=1;startSize=34;fillColor=#F8FAFD;strokeColor=#4C9AFF;fontColor=#42526E;fontStyle=1;fontSize=14;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="690" y="120" width="620" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="messages" value="&lt;b&gt;messages&lt;/b&gt;&lt;br&gt;system + task + recent round-trips&lt;br&gt;Actual input to the next query" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#DEEBFF;strokeColor=#4C9AFF;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="735" y="185" width="230" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="compression" value="&lt;b&gt;context compression&lt;/b&gt;&lt;br&gt;Older history → summary&lt;br&gt;Keep recent round-trips intact" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFF0B3;strokeColor=#FFAB00;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="185" width="230" height="105" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="audit-bg" value="Audit Fact Plane (append-only)" style="swimlane;html=1;rounded=1;horizontal=1;startSize=34;fillColor=#F8FAFD;strokeColor=#36B37E;fontColor=#42526E;fontStyle=1;fontSize=14;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="690" y="440" width="620" height="260" as="geometry"/>
+        </mxCell>
+        <mxCell id="events" value="&lt;b&gt;events&lt;/b&gt;&lt;br&gt;message / compression / review boundaries&lt;br&gt;Increasing sequence; never removed by compression" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E3FCEF;strokeColor=#36B37E;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="735" y="505" width="245" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="evidence" value="&lt;b&gt;evidence&lt;/b&gt;&lt;br&gt;Deterministically extract tool, command, rc, path&lt;br&gt;Ignore assistant-only claims" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E3FCEF;strokeColor=#36B37E;fontColor=#172B4D;fontSize=14;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="1035" y="505" width="235" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="trajectory" value="&lt;b&gt;*.traj.json&lt;/b&gt;&lt;br&gt;Final messages + metadata&lt;br&gt;Reference the event sidecar" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F4F5F7;strokeColor=#7A869A;fontColor=#172B4D;fontSize=13;spacing=9;" vertex="1" parent="1">
+          <mxGeometry x="355" y="155" width="235" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="sidecar" value="&lt;b&gt;*.events.jsonl&lt;/b&gt;&lt;br&gt;Complete event sidecar&lt;br&gt;Queryable by page" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F4F5F7;strokeColor=#7A869A;fontColor=#172B4D;fontSize=13;spacing=9;" vertex="1" parent="1">
+          <mxGeometry x="355" y="505" width="235" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="reviewer" value="&lt;b&gt;submit reviewer&lt;/b&gt;&lt;br&gt;checkpoint + trajectory lookup" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFEBE6;strokeColor=#FF5630;fontColor=#172B4D;fontSize=13;spacing=9;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="735" width="225" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-agent-recorder" value="append(message)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#8777D9;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="agent" target="recorder">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-recorder-messages" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#4C9AFF;fontColor=#42526E;fontSize=12;exitX=1;exitY=0.35;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="recorder" target="messages">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="640" y="333"/><mxPoint x="640" y="238"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-recorder-events" value="deep-copy append" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="recorder" target="events">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="640" y="367"/><mxPoint x="640" y="533"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-messages-compression" value="threshold" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FFAB00;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="messages" target="compression">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-compression-messages" value="write summary back" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FFAB00;fontColor=#42526E;fontSize=12;dashed=1;" edge="1" parent="1" source="compression" target="messages">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1145" y="330"/><mxPoint x="850" y="330"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-compression-events" value="record boundary and snapshot" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="compression" target="events">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1145" y="420"/><mxPoint x="1005" y="420"/><mxPoint x="1005" y="533"/></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-events-evidence" value="normalize facts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#36B37E;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="events" target="evidence">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-messages-trajectory" value="final view" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#7A869A;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="messages" target="trajectory">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-events-sidecar" value="atomic replace" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#7A869A;fontColor=#42526E;fontSize=12;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="events" target="sidecar">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-trajectory-sidecar" value="relative path + event_count" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=open;endFill=0;strokeWidth=2;strokeColor=#7A869A;fontColor=#42526E;fontSize=12;dashed=1;" edge="1" parent="1" source="trajectory" target="sidecar">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-evidence-review" value="bounded checkpoint" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#FF5630;fontColor=#42526E;fontSize=12;" edge="1" parent="1" source="evidence" target="reviewer">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="rule" value="&lt;b&gt;Trust boundary:&lt;/b&gt; Assistant text and summaries are claims; tool results, return codes, file operations, and harness reports are independently verifiable." style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFF0B3;strokeColor=#FFAB00;fontColor=#42526E;fontSize=12;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="730" width="810" height="70" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
