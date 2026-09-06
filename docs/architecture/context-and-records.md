@@ -1,33 +1,35 @@
-# 上下文与记录
+# Context and records
 
-一次运行同时维护工作记忆、原始事件、抽取证据和落盘产物。把它们混称为“trajectory”会
-掩盖重要差异：模型实际看到的内容可以压缩，审计账本不能被压缩覆盖。
+A run maintains working memory, raw events, extracted evidence, and persisted artifacts at the same
+time. Calling all of them a "trajectory" hides an important distinction: the content actually seen
+by the model can be compressed, while the audit ledger cannot be overwritten by compression.
 
-## 四种对象
+## Four objects
 
-| 对象 | 位置 | 是否有损 | 用途 |
+| Object | Location | Lossy? | Purpose |
 |---|---|---|---|
-| `messages` | `Agent.messages` / `.traj.json` | 会被上下文压缩 | 下一次模型查询的工作 context |
-| `events` | `Agent.events` / `.events.jsonl` | append-only | 重建实际消息、压缩与 review 边界 |
-| `evidence` | 从 events 确定性抽取 | 有选择但非模型生成 | 命令、return code、文件、错误和序号索引 |
-| persistence | `persistence.py` | 不解释内容 | 原子写 trajectory，分离事件 sidecar |
+| `messages` | `Agent.messages` / `.traj.json` | Context-compressed | Working context for the next model query |
+| `events` | `Agent.events` / `.events.jsonl` | Append-only | Reconstruct actual messages, compression, and review boundaries |
+| `evidence` | Deterministically extracted from events | Selective but not model-generated | Commands, return codes, files, errors, and sequence indexes |
+| persistence | `persistence.py` | Does not interpret content | Atomically write the trajectory and separate the event sidecar |
 
-模型生成的 summary 仍是声明，不是证据。evidence checkpoint 则刻意忽略无工具的 assistant
-叙述，并保留原事件序号，供 reviewer 回查。
+Model-generated summaries remain claims, not evidence. An evidence checkpoint deliberately ignores
+tool-free assistant narration while preserving original event sequences for reviewer lookups.
 
-## messages：模型工作上下文
+## messages: model working context
 
-初始为 system prompt 与渲染后的任务，随后追加 assistant(tool calls) 和 tool observations。
-`_RecordedMessageList` 在 append 时把深拷贝写入事件；上下文压缩用切片替换 messages，
-不会把原始事件删除。
+It starts with the system prompt and rendered task, then appends assistant(tool calls) and tool
+observations. `_RecordedMessageList` deep-copies each append into an event; context compression
+replaces messages by slicing and does not delete raw events.
 
-OpenAI-compatible 协议要求 assistant 声明的每个 call 紧随匹配的 tool response。压缩因此
-先用 `group_round_trips()` 把 assistant + 全部 tool responses 组成原子单元，绝不从中切断。
+The OpenAI-compatible protocol requires each call declared by an assistant to be immediately
+followed by its matching tool response. Compression therefore first uses `group_round_trips()` to
+make each assistant + all tool responses an atomic unit and never cuts through one.
 
-## 自动压缩
+## Automatic compression
 
-`context.py` 用供应商无关的字符近似估算 token，并把工具 schemas 计入预算。当估算量达到
-`threshold × (context_window - reserve)` 时：
+`context.py` uses a provider-independent character approximation to estimate tokens and includes tool
+schemas in the budget. When the estimate reaches `threshold × (context_window - reserve)`:
 
 ```text
 [system, original task] + middle history + recent units
@@ -36,72 +38,79 @@ OpenAI-compatible 协议要求 assistant 声明的每个 call 紧随匹配的 to
 [system, original task] + [CONTEXT SUMMARY] + recent units
 ```
 
-旧 summary 会与新增的中间历史 fold-in，而不是层层嵌套。最近 N 个 round-trip 原样保留。
-summary 是无工具模型请求，计入 API calls、费用和时间，但不计主循环 step。
+The old summary is folded in with newly summarized middle history rather than nested layer by layer.
+The most recent N round trips are preserved unchanged. A summary is a tool-free model request, so it
+counts toward API calls, cost, and time, but not the main-loop step.
 
-摘要失败是非致命的：保留完整 messages 继续。不过请求可能已经发生，因此 Agent 会在继续
-主查询前复查费用和墙钟。成功压缩会记录 `context_compression` 事件以及当时的精确
-`context_messages` snapshot。
+Summary failure is non-fatal: the complete messages are retained and the run continues. However,
+the request may already have occurred, so Agent rechecks cost and wall-clock limits before the main
+query continues. Successful compression records a `context_compression` event and the exact
+`context_messages` snapshot from that time.
 
-参数默认值不要从本文复制，见
-[`default.yaml`](../../src/mini_agent/config/default.yaml) 的 `agent` section。
+Do not copy parameter defaults from this page; see the `agent` section of
+[`default.yaml`](../../src/mini_agent/config/default.yaml).
 
-## events：追加式事件账本
+## events: append-only event ledger
 
-真实 system/user/assistant/tool 消息以 `type=message` 事件记录。压缩和 review reset 等控制
-边界使用专门事件类型。每项有递增 `sequence`，在配置 output 时还会边运行边追加 sidecar；
-最终保存再以完整内存事件进行原子覆盖。
+Actual system/user/assistant/tool messages are recorded as events with `type=message`. Control
+boundaries such as compression and review reset use dedicated event types. Each item has an
+increasing `sequence`; when output is configured, events are also appended to the sidecar as the run
+proceeds. The final save atomically overwrites it with the complete in-memory events.
 
-流式 event 写入失败不会中断 Agent，错误会进入 trajectory metadata，最终保存仍再尝试。
-这是一种 observability 取舍，不是事务系统。
+Failure to write a streaming event does not interrupt Agent; the error is added to trajectory
+metadata, and the final save tries again. This is an observability trade-off, not a transaction
+system.
 
-## evidence：机器事实索引
+## evidence: machine-fact index
 
-`evidence.py` 将 provider 形态不同的事件归一为 `EventFact`，抽取：
+`evidence.py` normalizes events with different provider shapes into `EventFact` and extracts:
 
-- tool name、call id 和关联 sequence；
-- bash command 与 return code；
-- read/edit/write 的文件路径；
-- execution error 与有限输出；
-- context compression 和 draft review 边界；
-- 被省略的 assistant-only claims 与畸形事件计数。
+- tool name, call ID, and associated sequence;
+- bash command and return code;
+- file paths for read/edit/write;
+- execution errors and bounded output;
+- context-compression and draft-review boundaries;
+- omitted assistant-only claims and malformed-event counts.
 
-`build_review_checkpoint()` 对条数和字符数设界，并在头尾之间插入遗漏标记。它不会判断
-patch 是否正确，也不会把作者叙述当作独立证明。
+`build_review_checkpoint()` bounds both item and character counts and inserts an omission marker
+between the beginning and end. It does not judge whether a patch is correct or treat author
+narration as independent proof.
 
-## submit review 的交接
+## Handoff for submit review
 
-启用 clean-context review 时，首次 submit 是 draft。Agent 可把 messages 重置为原始
-system + task，再附上：
+With clean-context review enabled, the first submit is a draft. Agent can reset messages to the
+original system + task and append:
 
-1. 确定性的 author evidence checkpoint；
-2. 明确标记为不可信导航信息的模型摘要；
-3. candidate patch；
-4. review prompt。
+1. a deterministic author-evidence checkpoint;
+2. a model summary explicitly marked as untrusted navigation information;
+3. the candidate patch;
+4. the review prompt.
 
-候选 patch 所在的最后一个 submit round-trip 不送进 summarizer，避免大 diff 重复占窗口。
-reviewer 可使用 `trajectory` 工具按 query、sequence、event type、role、tool 或 return code
-分页查询原始事件。
+The final submit round trip containing the candidate patch is not sent to the summarizer, avoiding a
+large diff taking up the context window twice. The reviewer can use the `trajectory` tool to paginate
+raw-event queries by query, sequence, event type, role, tool, or return code.
 
-## persistence：两个文件
+## persistence: two files
 
-`Agent.serialize()` 生成 `mini-agent-0.2` 数据，包含最终 messages、运行 metadata 和内存
-events。`save_trajectory_data()` 将 events 移到相邻 JSONL，并在主文件写入：
+`Agent.serialize()` generates `mini-agent-0.2` data containing final messages, run metadata, and
+in-memory events. `save_trajectory_data()` moves events to the adjacent JSONL and writes this to the
+main file:
 
 ```json
 {"event_log": {"path": "run.events.jsonl", "format": "mini-agent-events-0.1", "event_count": 42}}
 ```
 
-两个文件分别原子替换，但不是跨文件事务；突然断电仍可能得到不一致的一对。消费端应检查
-format、event_count 和相对路径，而不是仅凭文件名假定完整。
+The two files are replaced atomically separately, but this is not a cross-file transaction; a sudden
+power loss can still leave an inconsistent pair. Consumers should check the format, event_count, and
+relative path instead of assuming completeness from the filename alone.
 
-## 审计顺序
+## Audit order
 
-1. 先看 `info.exit_status`、error、submission、API calls 和 cost；
-2. 判断 `.traj.json.messages` 是否含 summary，它只代表最终 context；
-3. 按 `event_log.path` 打开 sidecar，并核对 event_count；
-4. 用 tool call/result、return code 与文件事实验证 assistant 声明；
-5. benchmark 结果另查 harness report，不把成功 submit 等同于 issue resolved。
+1. first inspect `info.exit_status`, error, submission, API calls, and cost;
+2. determine whether `.traj.json.messages` contains a summary; it represents only the final context;
+3. open the sidecar at `event_log.path` and verify event_count;
+4. verify assistant claims using tool call/result pairs, return codes, and file facts;
+5. check the harness report separately for benchmark results; do not equate a successful submit with an issue being resolved.
 
-完整字段见[轨迹格式](../reference/trajectory-format.md)。设计来由见
-[设计取舍](../decisions/design-tradeoffs.md)。
+See the [trajectory format](../reference/trajectory-format.md) for all fields. See [design
+trade-offs](../decisions/design-tradeoffs.md) for the rationale behind the design.

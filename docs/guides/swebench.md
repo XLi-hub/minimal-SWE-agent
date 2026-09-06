@@ -1,26 +1,27 @@
-# SWE-bench 指南
+# SWE-bench Guide
 
-SWE-bench workflow 分为 generation 与官方 evaluation 两阶段。先用单实例确认环境和费用，
-再扩大 slice 与 workers；提交成功不等于官方 resolved。
+The SWE-bench workflow has two stages: generation and official evaluation. Confirm the environment
+and cost with a single instance first, then expand the slice and worker count; a successful submission
+does not mean that the official harness resolves it.
 
-## 安装
+## Installation
 
-数据集 generation 使用可选依赖：
+Dataset generation uses the optional dependency set:
 
 ```bash
 conda run -n minimal-SWE-agent pip install -e ".[bench]"
 ```
 
-官方评分再安装独立 eval extra：
+Install the separate evaluation extra for official scoring:
 
 ```bash
 conda run -n minimal-SWE-agent pip install -e ".[eval]"
 ```
 
-不要把依赖装进 base conda 环境。运行前还需要 Docker daemon、足够磁盘，以及目标 provider
-的 API key。
+Do not install dependencies into the base conda environment. Before running, you also need a Docker
+daemon, enough disk space, and an API key for the target provider.
 
-## 单实例冒烟
+## Single-Instance Smoke Test
 
 ```bash
 conda run -n minimal-SWE-agent minimal-swebench \
@@ -30,15 +31,18 @@ conda run -n minimal-SWE-agent minimal-swebench \
   --output runs/verified-smoke
 ```
 
-`--instance` 可以是精确 instance id，也可以是按 id 排序后的数字索引。先检查：容器成功
-启动、工作目录是 `/testbed`、轨迹/事件已保存、prediction 是 unified diff、资源已清理。
+`--instance` can be an exact instance ID or a numeric index after sorting IDs. First check that the
+container starts successfully, the working directory is `/testbed`, the trajectory/events are saved,
+the prediction is a unified diff, and resources are cleaned up.
 
-默认 token 单价为零时，CLI 会警告 cost limit 无法按美元生效。正式批量前通过配置文件或
-`-c cost...` 设置当前 provider 的真实单价。
+When the default token prices are zero, the CLI warns that the cost limit cannot take effect in
+dollars. Before a full batch run, set the current provider's real prices through a configuration file
+or `-c cost...`.
 
-## 选择任务
+## Selecting Tasks
 
-内置 alias 包括 `full`、`verified`、`lite`、`multimodal`、`multilingual`。可组合：
+Built-in aliases include `full`, `verified`, `lite`, `multimodal`, and `multilingual`. They can be
+combined:
 
 ```bash
 minimal-swebench \
@@ -48,10 +52,10 @@ minimal-swebench \
   --output runs/django-20
 ```
 
-`--shuffle --seed 42` 在 slice 前进行确定性 shuffle。记录 alias、实际 dataset、split、filter、
-slice、seed 和 instance ids，实验才可复现。
+`--shuffle --seed 42` performs a deterministic shuffle before slicing. Record the alias, actual
+dataset, split, filter, slice, seed, and instance IDs so the experiment can be reproduced.
 
-## 并发 generation
+## Parallel Generation
 
 ```bash
 conda run -n minimal-SWE-agent minimal-swebench \
@@ -61,26 +65,27 @@ conda run -n minimal-SWE-agent minimal-swebench \
   --output runs/verified-20
 ```
 
-每个 worker 会建立自己的模型、Docker 容器、Agent 和轨迹。增加并发前评估 API rate limit、
-费用、Docker CPU/内存、镜像存储和磁盘写入压力。
+Each worker creates its own model, Docker container, Agent, and trajectory. Before increasing
+concurrency, assess API rate limits, cost, Docker CPU/memory, image storage, and disk-write pressure.
 
-## 严格 profile
+## Strict Profile
 
-命令会在普通默认值上叠加
-[`swebench.yaml`](../../src/mini_agent/config/benchmarks/swebench.yaml)，其关键策略包括：
+The command overlays
+[`swebench.yaml`](../../src/mini_agent/config/benchmarks/swebench.yaml) on the ordinary defaults. Its
+key policies include:
 
-- Docker 工作目录 `/testbed`；
-- 容器 `--network=none`；
-- 常见网络命令预执行拦截；
-- Bash `-o pipefail`；
-- benchmark 专属预算和 tool timeout；
-- trajectory 工具；
-- clean-context draft review 与 evidence checkpoint。
+- Docker working directory `/testbed`;
+- container `--network=none`;
+- pre-execution blocking of common network commands;
+- Bash `-o pipefail`;
+- benchmark-specific budgets and tool timeouts;
+- the trajectory tool;
+- clean-context draft review and an evidence checkpoint.
 
-该 profile 不接收隐藏测试或 evaluator 反馈。reviewer 只能使用 issue、仓库、当前可用测试、
-候选 patch 和运行自己的事件记录。
+This profile receives no hidden tests or evaluator feedback. The reviewer can use only the issue,
+repository, currently available tests, candidate patch, and its own event records.
 
-## 输出目录
+## Output Directory
 
 ```text
 runs/verified-20/
@@ -92,22 +97,24 @@ runs/verified-20/
     └── <instance_id>.events.jsonl
 ```
 
-`preds.jsonl` 是官方 harness 输入。trajectory 的 instance metadata 刻意排除 gold patch、
-隐藏测试和 eval script；不要从原始 dataset row 手工补回这些字段。
+`preds.jsonl` is the official harness input. The trajectory instance metadata intentionally excludes
+the gold patch, hidden tests, and evaluation script; do not manually restore these fields from the
+raw dataset row.
 
-## 断点续跑
+## Resuming a Run
 
-同一输出目录默认保留已有终局结果。按需要选择：
+An output directory retains existing terminal results by default. Choose as needed:
 
 ```bash
 minimal-swebench ... --retry-failed
 minimal-swebench ... --redo-existing
 ```
 
-`--retry-failed` 面向失败项，`--redo-existing` 明确重做已有项。重跑前备份需要保留的实验
-产物，并记录代码 commit 与配置；同名目录里混入不同版本会削弱可比性。
+`--retry-failed` targets failed items, while `--redo-existing` explicitly reruns existing items.
+Before rerunning, back up experiment artifacts that must be preserved and record the code commit and
+configuration; mixing different versions in a directory with the same name weakens comparability.
 
-## 官方评分
+## Official Scoring
 
 ```bash
 conda run -n minimal-SWE-agent minimal-swebench-eval \
@@ -117,31 +124,34 @@ conda run -n minimal-SWE-agent minimal-swebench-eval \
   --report-dir runs/verified-20/reports
 ```
 
-evaluation adapter 运行官方 harness 并收集 report。具体 CLI 参数以 `--help` 为准：
+The evaluation adapter runs the official harness and collects a report. Use `--help` for the exact
+CLI parameters:
 
 ```bash
 conda run -n minimal-SWE-agent minimal-swebench-eval --help
 ```
 
-## 如何判读结果
+## Interpreting Results
 
-至少分开报告：
+Report at least the following separately:
 
-1. generation 是否 `submitted`，是否有非空 unified diff；
-2. Agent 自己运行了哪些测试、精确 return code 与覆盖范围；
-3. container/image/setup 是否正常；
-4. 官方 harness 是否成功完成；
-5. 最终 resolved 与否；
-6. token/API calls/cost、steps 和墙钟；
-7. review 是否改变 patch 或新增独立验证。
+1. whether generation was `submitted` and whether it produced a non-empty unified diff;
+2. which tests Agent ran, their exact return codes, and their coverage;
+3. whether the container, image, and setup worked;
+4. whether the official harness completed successfully;
+5. whether the final result was resolved;
+6. token/API calls/cost, steps, and wall-clock time;
+7. whether review changed the patch or added independent verification.
 
-“本地测试绿”“提交了 diff”“harness resolved”是三种不同证据。失败时先区分基础设施、
-测试环境、patch 格式和行为契约，再归因于模型。
+“Local tests pass,” “a diff was submitted,” and “the harness resolved it” are three different kinds of
+evidence. When something fails, first distinguish infrastructure, test environment, patch format, and
+behavioral-contract problems before attributing the failure to the model.
 
-## 测试边界
+## Testing Boundaries
 
-runner 与 dataset/storage 的单元测试不需要真实 API 或 Docker；官方 E2E generation 可能
-产生费用，不属于默认测试。仓库完整非 E2E 命令见[测试指南](testing.md)。
+Unit tests for the runner and dataset/storage do not need a real API or Docker. Official E2E generation
+may incur charges and is not part of the default test suite. See the [Testing Guide](testing.md) for
+the repository's complete non-E2E command.
 
-架构细节见[Benchmark 层](../architecture/benchmark-layer.md)，历史复盘见
-[实验索引](../experiments/index.md)。
+See the [Benchmark Layer](../architecture/benchmark-layer.md) for architecture details and the
+[Experiment Index](../experiments/index.md) for the historical review.
