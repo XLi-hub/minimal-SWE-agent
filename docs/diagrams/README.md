@@ -8,7 +8,9 @@ within a page so that changing one branch does not require synchronizing binary 
 | File | Purpose |
 |---|---|
 | `system-overview.drawio` / `.svg` | Seven parts, core dependencies, and the benchmark boundary |
+| `system-overview-en.drawio` / `.svg` | English version of the system overview |
 | `context-records.drawio` / `.svg` | Relationships among messages, events, evidence, and persisted artifacts |
+| `context-records-en.drawio` / `.svg` | English version of the context and record boundaries |
 
 `.drawio` is the editable source and `.svg` is the published render. The exported SVG also embeds
 diagram data, so draw.io can open it directly; if the two differ, `.drawio` remains authoritative.

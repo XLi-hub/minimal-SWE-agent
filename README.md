@@ -76,17 +76,7 @@ configured real prices, `cost_limit` cannot serve as a dollar-denominated safegu
 
 ## Minimal architecture
 
-```text
-CLI / benchmark runner
-        │ build Config and dependencies
-        ▼
-Agent ──query──► Model ──► OpenAI-compatible Chat Completions
-  │
-  ├──dispatch──► tool registry ──► tooling helpers
-  │                              └──► Environment ABC
-  ├──compress──► context
-  └──record────► evidence + persistence
-```
+![minimal-SWE-agent system architecture](docs/diagrams/system-overview-en.svg)
 
 The core runtime is assembled with dependency injection: `Agent(model, environment, config)`. The
 repository provides `Model` as a concrete OpenAI-compatible adapter; the Agent uses it through
@@ -105,7 +95,8 @@ The project is easiest to understand as seven parts:
 7. Benchmark layer: `benchmarks/`, where `_swebench/` handles only dataset and storage details.
 
 For the complete dependency directions, ordinary flow, and SWE-bench flow, see
-[Architecture overview](docs/architecture/overview.md).
+[Architecture overview](docs/architecture/overview.md). See
+[diagram maintenance](docs/diagrams/README.md) for editable sources and export conventions.
 
 ## Configuration and testing
 

@@ -16,6 +16,12 @@ by the model can be compressed, while the audit ledger cannot be overwritten by 
 Model-generated summaries remain claims, not evidence. An evidence checkpoint deliberately ignores
 tool-free assistant narration while preserving original event sequences for reviewer lookups.
 
+![Context and record boundaries](../diagrams/context-records-en.svg)
+
+Edit the source in draw.io: [context-records-en.drawio](../diagrams/context-records-en.drawio).
+The upper half is the mutable model working view, while the lower half is the append-only audit fact
+plane; neither can replace the other.
+
 ## messages: model working context
 
 It starts with the system prompt and rendered task, then appends assistant(tool calls) and tool

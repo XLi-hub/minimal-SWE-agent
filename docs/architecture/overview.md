@@ -4,6 +4,12 @@ The core of minimal-SWE-agent is not a particular model, but a control flow conn
 dependencies. The entry point constructs `Config`, a model, and an environment; `Agent` only
 orchestrates messages and tools, while persistence and benchmarks reuse the core as boundary layers.
 
+![minimal-SWE-agent system architecture](../diagrams/system-overview-en.svg)
+
+Edit the source in draw.io: [system-overview-en.drawio](../diagrams/system-overview-en.drawio).
+The diagram provides the overall mental model; the responsibilities, constraints, and exceptions
+remain defined by this page.
+
 ## Seven parts
 
 | Part | Submodules | Responsibilities |
