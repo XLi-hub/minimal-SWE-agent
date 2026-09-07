@@ -1,178 +1,153 @@
-# SWE-bench Verified 单实例报告：Sphinx 7590（失败）
+# SWE-bench Verified Single-Instance Report: Sphinx 7590 (Failure)
 
-## 1. 本次跑了哪个 benchmark 实例
+## 1. Which benchmark instance was run
 
-| 项目 | 值 |
+| Item | Value |
 |---|---|
 | benchmark | SWE-bench Verified |
 | split | `test` |
 | instance ID | `sphinx-doc__sphinx-7590` |
-| 被测仓库 | `sphinx-doc/sphinx` |
-| 模型 | `deepseek-v4-flash`（thinking disabled） |
-| 实验机制 | author 首次提交后重置上下文，由 clean reviewer 独立复核 |
-| 运行限制 | strict 断网容器、400 steps、2400 秒、128K context、8192 output tokens |
-| 运行目录 | `runs/verified-deepseek-v4-strict-hard-clean-review/` |
+| repository under test | `sphinx-doc/sphinx` |
+| model | `deepseek-v4-flash` (thinking disabled) |
+| experiment mechanism | Reset the context after the author's first submission and have an independent clean reviewer recheck it |
+| runtime limits | Strictly offline container, 400 steps, 2400 seconds, 128K context, 8192 output tokens |
+| run directory | `runs/verified-deepseek-v4-strict-hard-clean-review/` |
 
-**本轮只运行了 `sphinx-doc__sphinx-7590`。原计划中的 xarray 实例没有运行，不能把它记为成功或失败。**
+**This round ran only `sphinx-doc__sphinx-7590`. The xarray instance from the original plan was not run and must not be recorded as either a success or a failure.**
 
-## 2. 官方结果：失败
+## 2. Official result: failure
 
 | instance ID | resolved | FAIL_TO_PASS | PASS_TO_PASS | infrastructure failure |
 |---|---:|---:|---:|---:|
-| `sphinx-doc__sphinx-7590` | **0/1（失败）** | **0/1** | 24/24 | 0 |
+| `sphinx-doc__sphinx-7590` | **0/1 (failure)** | **0/1** | 24/24 | 0 |
 
-Agent 最终提交了 patch，但“提交了 patch”不等于“解决了实例”。SWE-bench 官方 harness 的新增失败
-测试没有通过，因此本实例的最终状态是 **unresolved**。
+The Agent ultimately submitted a patch, but “submitted a patch” does not mean that the instance was solved. The official SWE-bench harness's newly failing test did not pass, so the final state of this instance is **unresolved**.
 
-过程开销如下：
+The process cost was:
 
-| 阶段 | model queries | tool calls | context compression |
+| Stage | model queries | tool calls | context compression |
 |---|---:|---:|---:|
 | author | 90 | 90 | 0 |
 | clean reviewer | 24 | 24 | 0 |
-| 合计 | 114 | 114 | 0 |
+| total | 114 | 114 | 0 |
 
-## 3. 这个实例要求解决什么问题
+## 3. What this instance required
 
-该实例要求 Sphinx 正确理解 C++ 的 user-defined literal（UDL）。以 `5_udl` 为例，它看起来像一个
-带后缀的数字，但在 C++ 中表达的是一次调用：
+The instance required Sphinx to correctly understand C++ user-defined literals (UDLs). For example, `5_udl` looks like a number with a suffix, but in C++ it represents a call:
 
 ```cpp
 operator ""_udl(5)
 ```
 
-上面的写法是为了说明语义，不是原始源码的等价改写。Sphinx 需要把 `5_udl` 解析成“用参数 `5` 调用
-literal operator `_udl`”，并为这个 C++ 表达式生成稳定的内部 ID。
+The expression above explains the semantics; it is not an equivalent rewrite of the original source. Sphinx needed to parse `5_udl` as “call the literal operator `_udl` with argument `5`” and generate a stable internal ID for this C++ expression.
 
-因此任务不是只让 parser 接受这段文本，而是同时做到：
+The task therefore was not merely to make the parser accept the text. It also had to:
 
-1. 能读入 `5_udl`；
-2. 能重新显示为 `5_udl`；
-3. 内部语义必须是“调用 `_udl` operator”，不能把整个 `5_udl` 当成一个普通数字。
+1. read `5_udl`;
+2. render it again as `5_udl`;
+3. represent its internal semantics as a call to the `_udl` operator, rather than treating the entire `5_udl` as an ordinary number.
 
-## 4. Agent 做了什么，为什么仍然失败
+## 4. What the Agent did, and why it still failed
 
-**一句话原因：Agent 只修好了“读入这段文字”，没有修好“理解这段文字”。**
+**In one sentence: the Agent fixed “reading this text” but did not fix “understanding this text.”**
 
-候选 patch 直接把 `_udl` 粘到数字内容后面，把 `5_udl` 作为一个整体存进普通数字节点。这样做产生了
-下面的结果：
+The candidate patch directly appended `_udl` to the number content and stored `5_udl` as a whole in an ordinary number node. This produced the following results:
 
-| 检查层次 | 正确行为 | 候选 patch | 结果 |
+| Check layer | Correct behavior | Candidate patch | Result |
 |---|---|---|---|
-| 读取源码 | 接受 `5_udl` | 可以接受 | 通过 |
-| 重新显示 | 输出 `5_udl` | 可以原样输出 | 通过 |
-| 理解语义 | `_udl` operator 接受参数 `5` | 把 `5_udl` 当成一个普通数字 | **错误** |
-| 生成内部 ID | 生成“operator 调用”的 ID | 生成“数字 literal”的 ID | **错误** |
+| Read source | Accept `5_udl` | Accepted it | Passed |
+| Render again | Output `5_udl` | Could output it unchanged | Passed |
+| Understand semantics | The `_udl` operator receives argument `5` | Treated `5_udl` as an ordinary number | **Wrong** |
+| Generate internal ID | Generate an ID for an operator call | Generated an ID for a numeric literal | **Wrong** |
 
-这就像把一条指令原样抄写出来，却没有识别出它是一次函数调用。表面文本正确，内部表示仍然错误。
+This is like copying an instruction verbatim without recognizing that it is a function call. The surface text is correct, but the internal representation remains wrong.
 
-官方新增测试正好检查了这个内部语义：
+The official new test checked exactly this internal semantics:
 
-| 输入 | 官方期望 expression ID | 候选实际结果 |
+| Input | Official expected expression ID | Candidate actual result |
 |---|---|---|
-| `5_udl` | `clL_Zli4_udlEL5EE`（operator 调用） | `L5_udlE`（普通数字） |
+| `5_udl` | `clL_Zli4_udlEL5EE` (operator call) | `L5_udlE` (ordinary number) |
 
-两串 ID 本身不需要记。它们只是证明：官方要求的是“调用 `_udl` operator”，候选提交的却是“一个叫
-`5_udl` 的数字”。因此新增测试没有通过，最终 `FAIL_TO_PASS = 0/1`，整个实例判定为失败。
+The two IDs themselves are not important. They simply demonstrate that the official requirement is a call to the `_udl` operator, while the candidate submission produced a number named `5_udl`. Consequently, the new test failed, the final `FAIL_TO_PASS = 0/1`, and the entire instance was judged a failure.
 
-clean reviewer 做过以下检查：
+The clean reviewer performed the following checks:
 
-- 用无 patch / 有 patch 对照确认多个 UDL 输入从解析失败变为可解析；
-- 覆盖 decimal float、integer、hex、binary 和普通 literal；
-- 运行 `tests/test_domain_cpp.py`，25 个已有测试通过；
-- 检查 declaration stringify、signature 和若干 ID。
+- Compared parsing with and without the patch and confirmed that multiple UDL inputs changed from parse failures to parseable inputs;
+- covered decimal floats, integers, hexadecimals, binaries, and ordinary literals;
+- ran `tests/test_domain_cpp.py`, with all 25 existing tests passing;
+- checked declaration stringify, signatures, and several IDs.
 
-reviewer 没发现这个问题，是因为它主要检查了前两层——“能不能读”和“能不能原样输出”——没有直接
-检查第三层“它在语义上是不是一次 operator 调用”。具体来说：
+The reviewer missed this issue because it mainly checked the first two layers—whether the text could be read and rendered unchanged—without directly checking whether it represented an operator call semantically. Specifically:
 
-1. 25 个已有测试没有对新的 UDL 输入断言精确 expression ID，不能充当该行为的 oracle；
-2. reviewer 检查的周围 member declaration ID 不编码 initializer，因此与失败点无关；
-3. parse、stringify 和 `get_id` 都来自同一个错误的 `ASTNumberLiteral` 表示，三者彼此一致不构成独立验证。
+1. The 25 existing tests did not assert an exact expression ID for the new UDL inputs, so they could not serve as an oracle for this behavior;
+2. The member-declaration IDs checked by the reviewer do not encode the initializer and were unrelated to the failure point;
+3. `parse`, `stringify`, and `get_id` all derived from the same incorrect `ASTNumberLiteral` representation, so their consistency was not independent validation.
 
-所以，本实例的核心失败是：**实现把 UDL 当成特殊数字，而 C++ 要求把它当成 operator 调用；reviewer
-又没有为这个调用语义建立直接测试。**
+Thus, the core failure was: **the implementation treated a UDL as a special number, while C++ requires it to be represented as an operator call; the reviewer also did not establish a direct test for that call semantics.**
 
-## 5. Docker/harness 事故是否导致了这次失败
+## 5. Did a Docker/harness incident cause the failure?
 
-运行中确实发生了一个独立的 harness 问题：`edit` 两次修改约 7,288 行的 `cpp.py` 时将文件截断为
-0 字节。模型随后用 `git checkout` 恢复文件，并改用脚本完成替换。
+An independent harness problem did occur during the run: while `edit` modified the roughly 7,288-line `cpp.py` twice, the file was truncated to 0 bytes. The model then restored the file with `git checkout` and used a script for the replacement.
 
-这个事故增加了调用次数和时间，但 **没有导致官方语义失败**，依据是：
+This incident increased the number of calls and the runtime, but **did not cause the official semantic failure**, for the following reasons:
 
-- 最终候选 patch 已成功应用；
-- 官方 harness 报告 `infrastructure failure = 0`；
-- 24/24 个 PASS_TO_PASS 测试通过；
-- 唯一 FAIL_TO_PASS 测试稳定地指出 expression ID 不符合预期。
+- the final candidate patch was applied successfully;
+- the official harness reported `infrastructure failure = 0`;
+- all 24/24 PASS_TO_PASS tests passed;
+- the only FAIL_TO_PASS test consistently reported that the expression ID did not match the expected value.
 
-事故根因是旧 Docker timeout wrapper 将 `setsid` 命令放到后台后，非交互 shell 把 stdin 接到
-`/dev/null`；`docker exec -i` 内的 `cat > file` 先截断文件，再立即读到 EOF。该问题已经在
-`972f025` 中修复，并用真实 Docker 完成约 300 KiB 文件往返和 timeout descendant cleanup 验证。
+The root cause was that the old Docker timeout wrapper put the `setsid` command in the background, after which a non-interactive shell connected stdin to `/dev/null`; `cat > file` inside `docker exec -i` truncated the file first and then immediately read EOF. This issue was fixed in `972f025`, which was validated with a real Docker round trip of a roughly 300 KiB file and timeout descendant cleanup.
 
-因此应分开记录两条结论：
+The two conclusions should therefore be recorded separately:
 
-- benchmark 失败原因：UDL identity / mangling 实现错误；
-- harness 运行事故：stdin 丢失造成大文件截断，已恢复且已修复，不改变本次 benchmark 的失败判定。
+- benchmark failure: incorrect UDL identity/mangling implementation;
+- harness runtime incident: lost stdin caused large-file truncation, but the file was restored and the issue was fixed; it does not change this benchmark's failure classification.
 
-## 6. 对 clean-review 机制的结论
+## 6. Conclusion about the clean-review mechanism
 
-clean reset 本身按设计工作：reviewer 的初始上下文只有 system、原始 issue、候选 patch 和审计要求，
-没有继承 author 的 90 轮对话。它减少了直接沿用作者结论的风险，但没有自动产生真正独立的 oracle。
+The clean reset itself worked as designed: the reviewer's initial context contained only the system prompt, the original issue, the candidate patch, and the audit requirements; it did not inherit the author's 90-turn conversation. This reduced the risk of directly reusing the author's conclusions, but it did not automatically produce a genuinely independent oracle.
 
-本次结果只支持以下结论：
+This result supports only the following conclusions:
 
-- 分离作者和 reviewer 的默认上下文是有价值的；
-- 仅重置上下文不足以保证审查质量；
-- reviewer 必须为新增 construct 枚举所有可观察行为，并直接断言精确结果；
-- 旧测试只有在包含新输入并断言相关输出时，才能作为新行为的 oracle；
-- 同一错误 AST 派生出的多个结果不能冒充相互独立的证据。
+- Separating the default author and reviewer contexts is valuable;
+- resetting the context alone does not guarantee review quality;
+- a reviewer must enumerate every observable behavior of a new construct and directly assert exact results;
+- old tests can serve as an oracle for new behavior only when they include the new inputs and assert the relevant outputs;
+- multiple results derived from the same incorrect AST cannot be presented as independent evidence.
 
-## 7. 已经完成的修改
+## 7. Changes already completed
 
-以下改动已经实现并提交，不是后续设想：
+The following changes have already been implemented and committed; they are not future proposals:
 
-| commit | 状态 | 修改目的 |
+| commit | status | purpose |
 |---|---|---|
-| `fc73234` | 已完成 | provider 价格全为 0 时警告 cost cap 实际不可执行 |
-| `d05e11a` | 已完成 | 可靠清理 Docker timeout 后的子进程 |
-| `972f025` | 已完成 | 保留 Docker 写文件命令的 stdin，避免大文件被截断 |
-| `6477834` | 已完成 | 提供只读、可搜索、可分页的 `trajectory` 证据工具 |
-| `e98d73c` | 已完成 | 在 SWE-bench clean reviewer 中启用 trajectory，并收紧 exact-oracle 规则 |
-| `7cd2cf7` | 已完成 | 建立不含作者结论和 candidate body 的机器证据 checkpoint |
-| `b5ec908` | 已完成 | clean review 同时接收机器索引与不可信压缩工作记忆；摘要失败可降级 |
-| `b5691c5` | 已完成 | trajectory 支持按事件、角色、工具和 return code 组合过滤 |
+| `fc73234` | completed | Warn when provider prices are all zero and a cost cap is therefore not actually enforceable |
+| `d05e11a` | completed | Reliably clean up child processes after a Docker timeout |
+| `972f025` | completed | Preserve stdin for Docker file-write commands so large files are not truncated |
+| `6477834` | completed | Provide a read-only, searchable, paginated `trajectory` evidence tool |
+| `e98d73c` | completed | Enable `trajectory` in the SWE-bench clean reviewer and tighten exact-oracle rules |
+| `7cd2cf7` | completed | Establish a machine-evidence checkpoint without author conclusions or the candidate body |
+| `b5ec908` | completed | Give clean review both the machine index and untrusted compressed working memory; degrade gracefully if summarization fails |
+| `b5691c5` | completed | Support combined filtering by event, role, tool, and return code in `trajectory` |
 
-轨迹继续采用两层存储：`.traj.json` 保存紧凑的 model-facing view，`.events.jsonl` 保存完整的
-append-only journal。clean reviewer 默认不继承作者全文，而是接收一份有界的机器证据索引和明确
-标为不可信的模型摘要；需要时可用 `trajectory(query, start, events, event_type, role, tool_name,
-returncode)` 检索原始命令和输出。所有过滤条件按 AND 组合。取回的是待验证的 evidence，而不是
-自动可信的 conclusion。
+The trajectory continues to use two storage layers: `.traj.json` stores a compact model-facing view, while `.events.jsonl` stores the complete append-only journal. By default, the clean reviewer does not inherit the author's full conversation. Instead, it receives a bounded machine-evidence index and a model summary explicitly marked untrusted; when needed, it can use `trajectory(query, start, events, event_type, role, tool_name, returncode)` to retrieve original commands and output. All filters are combined with AND. What is retrieved is evidence to verify, not an automatically trusted conclusion.
 
-## 8. 下一步计划（尚未执行）
+## 8. Next steps (not yet executed)
 
-1. 先配置真实的 DeepSeek token 价格或明确的 provider cost policy，使 `agent.cost_limit` 真正生效；
-   checkpoint 至多多一次摘要请求，这次调用也必须纳入真实费用。
-2. 只重跑 `sphinx-doc__sphinx-7590`，保持断网、步数、时间和上下文上限不变，把新的 memory
-   handoff 作为唯一主要变量。
-3. 要求 reviewer 对 UDL 在相关 identity version 下的精确 expression ID 建立直接测试；只验证
-   parse/stringify 或重跑旧测试不算通过审查。
-4. 以官方 `FAIL_TO_PASS = 1/1`、`PASS_TO_PASS = 24/24` 作为成功门槛，同时记录 reviewer 是否调用
-   trajectory、使用了哪些结构化过滤、取回了什么证据、是否减少重复探索。
-5. Sphinx 得到可解释结果后再运行 xarray。若 reviewer 仍把相关性不足的证据当 oracle，再考虑真正
-   分离的 critic/author protocol 或更换 reviewer model，而不是继续堆叠提示词。
+1. First configure real DeepSeek token prices or explicitly define a provider cost policy so that `agent.cost_limit` actually takes effect; the checkpoint may make at most one additional summarization request, and that call must also be included in the real cost.
+2. Rerun only `sphinx-doc__sphinx-7590`, keeping the offline policy, step count, time limit, and context limit unchanged, with the new memory handoff as the sole primary variable.
+3. Require the reviewer to establish a direct test for the exact expression ID of UDLs under the relevant identity version; checking only parse/stringify or rerunning old tests does not count as a successful review.
+4. Use the official `FAIL_TO_PASS = 1/1` and `PASS_TO_PASS = 24/24` as the success threshold, while recording whether the reviewer called `trajectory`, which structured filters it used, what evidence it retrieved, and whether repeated exploration decreased.
+5. Run xarray only after Sphinx produces an interpretable result. If the reviewer still treats insufficiently related evidence as an oracle, consider a truly separated critic/author protocol or a different reviewer model instead of continuing to stack prompts.
 
-本轮没有继续运行 xarray，是因为 Sphinx 已在 114 次调用后直接否证了“clean reset + 原审计提示就足够”
-这一假设，同时价格为 0 使成本上限无法约束真实费用。这是一次明确记录的 early stop，不是缺失或隐藏的
-xarray 结果。
+Xarray was not run in this round because Sphinx directly falsified the assumption that “clean reset + the original audit prompt is sufficient” after 114 calls, while a price of zero meant that the cost limit could not constrain real spending. This was a clearly recorded early stop, not a missing or hidden xarray result.
 
-## 9. 结果与证据位置
+## 9. Result and evidence locations
 
-- 运行目录：`runs/verified-deepseek-v4-strict-hard-clean-review/`
-- 官方评分报告：`runs/verified-deepseek-v4-strict-hard-clean-review/reports/deepseek-v4-flash.deepseek-v4-strict-hard-clean-review-sphinx.json`
-- 官方测试输出：`logs/run_evaluation/deepseek-v4-strict-hard-clean-review-sphinx/deepseek-v4-flash/sphinx-doc__sphinx-7590/test_output.txt`
+- Run directory: `runs/verified-deepseek-v4-strict-hard-clean-review/`
+- Official scoring report: `runs/verified-deepseek-v4-strict-hard-clean-review/reports/deepseek-v4-flash.deepseek-v4-strict-hard-clean-review-sphinx.json`
+- Official test output: `logs/run_evaluation/deepseek-v4-strict-hard-clean-review-sphinx/deepseek-v4-flash/sphinx-doc__sphinx-7590/test_output.txt`
 
-**一句话结论：本轮只跑了 SWE-bench Verified 的 `sphinx-doc__sphinx-7590`，官方结果失败；失败来自
-UDL expression ID 的语义建模错误，不是 Docker 事故，下一轮将用已经补强的轨迹访问和 exact-oracle
-规则先复跑同一实例。**
+**One-sentence conclusion: this round ran only SWE-bench Verified's `sphinx-doc__sphinx-7590`, and the official result was a failure; the failure came from semantic modeling of the UDL expression ID, not the Docker incident, and the next round will first rerun the same instance using the strengthened trajectory access and exact-oracle rules.**
 
-导航：[实验索引](index.md) · [SWE-bench 指南](../guides/swebench.md) ·
-[轨迹格式](../reference/trajectory-format.md)
+Navigation: [experiment index](index.md) · [SWE-bench guide](../guides/swebench.md) · [trajectory format](../reference/trajectory-format.md)

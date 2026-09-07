@@ -1,18 +1,20 @@
-# 测试指南
+# Testing Guide
 
-测试按风险边界分层：纯函数和 fake 优先，真实 shell 验证集成，Docker 验证资源层，真实模型
-API 只在显式 E2E 中运行。数量会变化，因此文档不硬编码测试个数。
+Tests are layered by risk boundary: pure functions and fakes come first, a real shell verifies
+integration, Docker verifies the resource layer, and the real model API runs only in explicit E2E
+tests. Test counts change, so this document does not hard-code them.
 
-## 默认命令
+## Default Command
 
-仓库要求使用项目 conda 环境：
+The repository requires the project conda environment:
 
 ```bash
 conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python -m pytest tests/ -q -p no:anyio -m "not e2e"
 ```
 
-这条命令不会选择真实 provider E2E。若 CI 也没有 Docker daemon，可进一步排除：
+This command does not select real-provider E2E tests. If CI also lacks a Docker daemon, exclude Docker
+tests as well:
 
 ```bash
 conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
@@ -20,94 +22,100 @@ conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   -m "not e2e and not docker"
 ```
 
-`pyproject.toml` 的 pytest 默认 addopts 也排除 `e2e`，但仓库约定仍使用上面的明确命令，
-避免本机第三方 pytest plugins 改变行为。
+The pytest default `addopts` in `pyproject.toml` also excludes `e2e`, but the repository convention is
+to use the explicit command above so that third-party pytest plugins on the machine cannot change its
+behavior.
 
-## 纯单元层
+## Pure Unit Layer
 
-这层不联网、不运行真实命令，覆盖：
+This layer does not access the network or run real commands. It covers:
 
-- Agent 的预算、退出、批次确认和 review 状态机；
-- context 分组、压缩与 token 估算；
-- 配置 merge、环境变量、模板和 pydantic 校验；
-- 工具 schema/handler、文件编辑和输出截断；
-- 计费、证据抽取和 persistence；
-- dataset、prediction storage 与 harness 命令构造。
+- Agent budgets, exits, batch confirmation, and the review state machine;
+- context grouping, compression, and token estimation;
+- config merging, environment variables, templates, and pydantic validation;
+- tool schemas/handlers, file editing, and output truncation;
+- billing, evidence extraction, and persistence;
+- dataset and prediction storage, and harness command construction.
 
-Fake Model 应返回结构上兼容的 response，而不是绕过 Agent 的解析路径。Fake Environment
-应返回 `ExecutionResult` 形态，必要时记录调用，用来断言预算命中后没有副作用。
+A fake Model should return a structurally compatible response rather than bypassing Agent's parsing
+path. A fake Environment should return an `ExecutionResult`-shaped value and, when needed, record
+calls so tests can assert that no side effects occur after a budget is reached.
 
-## 集成层
+## Integration Layer
 
-`tests/test_integration.py` 等测试组合真 `LocalEnvironment` 与 fake Model，验证：
+Tests such as `tests/test_integration.py` combine a real `LocalEnvironment` with a fake Model to verify:
 
-- shell quoting、stdout/stderr 和空输出；
-- 多轮 assistant/tool 消息能被下一次 query 正确消费；
-- 非零 return code 与 execution error 不混淆；
-- 文件工具与 bash 观察同一宿主工作目录；
-- timeout 后不会遗留子进程树。
+- shell quoting, stdout/stderr, and empty output;
+- that multiple rounds of assistant/tool messages are consumed correctly by the next query;
+- that a nonzero return code is not confused with an execution error;
+- that file tools and bash observe the same host working directory;
+- that no child-process tree remains after a timeout.
 
-真 shell 会暴露 mock 隐藏的问题，但仍不应访问网络或真实模型服务。
+A real shell exposes problems hidden by mocks, but it still must not access the network or a real model
+service.
 
-## Docker 层
+## Docker Layer
 
-带 `docker` marker 的测试需要可访问的 daemon，验证镜像启动、cwd、文件 I/O、环境转发、
-timeout 和 cleanup。daemon 不可用时测试应跳过，而不是伪装成通过。
+Tests marked `docker` require access to a daemon and verify image startup, cwd, file I/O, environment
+forwarding, timeout, and cleanup. When the daemon is unavailable, tests should skip rather than
+pretend to pass.
 
-调试时先确认：
+When debugging, first check:
 
 ```bash
 docker info
 ```
 
-Docker 测试可能拉取镜像、消耗磁盘和较长时间。不要把普通单元测试的失败归因于 Docker；
-先用 focused test 缩小范围。
+Docker tests may pull images, consume disk space, and take longer. Do not attribute an ordinary unit
+test failure to Docker; narrow the scope with a focused test first.
 
-## E2E 层
+## E2E Layer
 
-E2E 会调用真实 OpenAI-compatible API，可能产生费用，只有用户明确决定后才运行：
+E2E tests call a real OpenAI-compatible API and may incur charges, so run them only after the user has
+explicitly decided to do so:
 
 ```bash
 conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python -m pytest tests/test_e2e.py -v -p no:anyio -m e2e
 ```
 
-运行前核对 provider、model、base URL、API key、token 单价、cost limit 和任务内容。发现
-环境中恰好存在 key 不构成运行授权。
+Before running, verify the provider, model, base URL, API key, token prices, cost limit, and task
+content. The mere presence of a key in the environment does not authorize a run.
 
-## 修改后的 focused tests
+## Focused Tests After a Change
 
-按改动选择最窄但足够的集合：
+Choose the narrowest sufficient set based on the change:
 
-| 改动 | 首选测试 |
+| Change | Preferred tests |
 |---|---|
-| Agent/submit/review | `tests/test_agent.py`、`tests/test_evidence.py` |
+| Agent/submit/review | `tests/test_agent.py`, `tests/test_evidence.py` |
 | tools/tooling | `tests/test_tools.py` |
 | config/YAML | `tests/test_config*.py` |
-| environments | `tests/test_environment.py`、`test_environments_init.py`、`test_docker.py` |
-| context/trajectory | `test_context.py`、`test_persistence.py` |
+| environments | `tests/test_environment.py`, `test_environments_init.py`, `test_docker.py` |
+| context/trajectory | `test_context.py`, `test_persistence.py` |
 | benchmark | `tests/benchmarks/` |
-| CLI/resources | `tests/test_cli.py`、`tests/benchmarks/test_cli.py` |
+| CLI/resources | `tests/test_cli.py`, `tests/benchmarks/test_cli.py` |
 | docs links | `tests/test_docs.py` |
 
-focused tests 通过后，交付前再跑完整非 E2E suite。
+After focused tests pass, run the complete non-E2E suite before delivery.
 
-## 应断言什么
+## What to Assert
 
-高价值断言检查 observable contract，而不只检查“没有抛异常”：
+High-value assertions check the observable contract, not only that “no exception was raised”:
 
-- tool call id 和 tool response 一一对应；
-- return code、异常信息与输出都准确；
-- 命中时间/费用后 handler 未执行；
-- 清理在成功与失败路径都发生；
-- 保存的 event count 和 sidecar 内容一致；
-- runner 的 prediction 和 status 可断点恢复；
-- review 不把作者摘要误当机器证据。
+- tool call IDs and tool responses correspond one-to-one;
+- return codes, exception information, and output are accurate;
+- a handler does not execute after a time or cost limit is reached;
+- cleanup occurs on both success and failure paths;
+- the saved event count matches the sidecar contents;
+- the runner's prediction and status can resume from a checkpoint;
+- review does not mistake the author's summary for machine evidence.
 
-## 失败解释
+## Interpreting Failures
 
-测试命令本身的 return code 才决定成功。`pytest | tail` 若没有 pipefail 可能显示尾部输出却
-掩盖 pytest 失败；SWE-bench profile 因此启用 pipefail。缺依赖、找不到测试、timeout 和
-skip 都需要准确报告，不能统称“测试通过”。
+The return code of the test command itself determines success. Without `pipefail`, `pytest | tail`
+may show the final lines while hiding a pytest failure; the SWE-bench profile therefore enables
+pipefail. Missing dependencies, undiscovered tests, timeouts, and skips all need to be reported
+accurately and must not be collectively called “tests passed.”
 
-返回[文档首页](../index.md)，或继续读[设计取舍](../decisions/design-tradeoffs.md)。
+Return to the [Documentation Home](../index.md), or continue with the [Design Trade-offs](../decisions/design-tradeoffs.md).

@@ -1,168 +1,125 @@
-# SWE-bench 高难双实例审计复跑：过程更好，结果仍是 0/2
+# SWE-bench Hard Two-Instance Audit Rerun: Better Process, Still 0/2
 
-> 对照运行：`runs/verified-deepseek-v4-strict-hard/`  
-> 审计复跑：`runs/verified-deepseek-v4-strict-hard-audit/`  
-> 模型：`deepseek-v4-flash`（thinking disabled）  
-> 实例：`pydata__xarray-6992`、`sphinx-doc__sphinx-7590`
+> Control run: `runs/verified-deepseek-v4-strict-hard/`
+> Audit rerun: `runs/verified-deepseek-v4-strict-hard-audit/`
+> Model: `deepseek-v4-flash` (thinking disabled)
+> Instances: `pydata__xarray-6992`, `sphinx-doc__sphinx-7590`
 
-这次复跑固定了模型、prepared image、断网策略、`max_tokens=8192`、400 steps、2400 秒、
-128K Agent context 和测试超时。相对上一轮只引入证据导向摘要与第一次 submit 后的同上下文
-draft audit。两个实例顺序生成、分别评分，评分后立即删除大型 Docker image。
+This rerun fixed the model, prepared image, offline policy, `max_tokens=8192`, 400 steps, 2400 seconds, 128K Agent context, and test timeout. Compared with the previous round, it introduced only evidence-oriented summaries and a same-context draft audit after the first submit. The two instances were generated sequentially and scored separately; the large Docker image was deleted immediately after scoring.
 
-## 结果
+## Results
 
-| 实例 | 旧 API calls | 新 API calls | 旧/新压缩 | FAIL_TO_PASS | PASS_TO_PASS | resolved |
+| Instance | Old API calls | New API calls | Old/new compression | FAIL_TO_PASS | PASS_TO_PASS | resolved |
 |---|---:|---:|---:|---:|---:|---|
-| `pydata__xarray-6992` | 60 | 41 | 0 / 0 | 0/12 | 945/945 | 否 |
-| `sphinx-doc__sphinx-7590` | 124 | 73 | 1 / 0 | 0/1 | 24/24 | 否 |
+| `pydata__xarray-6992` | 60 | 41 | 0 / 0 | 0/12 | 945/945 | No |
+| `sphinx-doc__sphinx-7590` | 124 | 73 | 1 / 0 | 0/1 | 24/24 | No |
 
-两次官方 harness 都是 0 个 infrastructure failure。API calls 下降、Sphinx 不再触发压缩，
-说明过程成本和轨迹长度有所改善；但这里只各有一个样本，不能把下降归因于单一机制，更不能
-用它代替 resolved rate。价格配置仍为零，因此 trajectory 中的 `$0` 只表示项目没有配置
-provider 单价，不表示真实调用免费。
+Both official harness runs had zero infrastructure failures. Fewer API calls and no compression for Sphinx show improvements in process cost and trajectory length; however, there is only one sample of each, so the decrease cannot be attributed to a single mechanism, much less substituted for the resolved rate. Prices remain configured as zero, so `$0` in the trajectory means only that the project has no provider unit prices configured; it does not mean that the actual calls were free.
 
-## draft audit 实际改变了什么
+## What did the draft audit actually change?
 
 ### xarray
 
-第一次 draft 后，Agent 重新追踪了 `set_index → reset_index`，检查 MultiIndex dimension、
-level drop 和普通 index，运行了 2500 多项相关测试，并确认一个额外 Pint failure 在撤销 patch
-后仍存在。这些动作比上一轮更扎实。
+After the first draft, the Agent retraced `set_index → reset_index`, checked the MultiIndex dimension, level drops, and ordinary indexes, ran more than 2,500 related tests, and confirmed that an additional Pint failure remained after reverting the patch. These actions were more thorough than in the previous round.
 
-但它仍把问题收缩成两个局部条件：
+But it still narrowed the issue to two local conditions:
 
-- `DataVariables.__len__` 与 `__iter__` 一致；
-- dropped name 不再残留在 `_coord_names`。
+- `DataVariables.__len__` and `__iter__` agree;
+- a dropped name no longer remains in `_coord_names`.
 
-官方新增用例要求的是完整 reset-index 状态机：dimension/level、single/list 参数、`drop`
-True/False、MultiIndex 降级、IndexVariable 转 base Variable、重命名、维度重算以及 groupby
-下游行为。Agent 验证了几个自己选择的例子，却没有先从 public 参数和邻近测试构造行为矩阵。
-所以 12 个 FAIL_TO_PASS 仍全部失败。
+The new official cases required the complete reset-index state machine: dimension/level handling, single/list parameters, `drop` True/False, MultiIndex degradation, conversion of `IndexVariable` to a base `Variable`, renaming, dimension recalculation, and downstream behavior under groupby. The Agent validated several examples of its own choosing, but did not first construct a behavior matrix from the public parameters and neighboring tests. All 12 FAIL_TO_PASS tests therefore still failed.
 
 ### Sphinx
 
-第一次 draft 后，Agent 主动检查了 construction、stringify、`get_id()` 和 signature，且用
-`git stash` 证明临时回归脚本在无 patch 时会失败。这已经不是“只跑旧测试”。
+After the first draft, the Agent proactively checked construction, stringify, `get_id()`, and signature, and used `git stash` to prove that the temporary regression script failed without the patch. This was no longer “only running old tests.”
 
-关键错误是把以下结果称为 contract 证据：
+The key mistake was calling the following results contract evidence:
 
 ```text
 data='1q_s'  str='1q_s'  id2='L1q_sE'  signature='1q_s'
 ```
 
-这些值全部从新塞进 `ASTNumberLiteral.data` 的同一个字符串派生，只证明内部自洽。仓库文件
-开头已声明 ID 使用 Itanium C++ ABI mangling，且已有 `ASTOperatorLiteral` 和 call expression
-是可用的独立类比。官方期望 `5_udl` 的新 ID 为 `clL_Zli4_udlEL5EE`，实际仍是
-`L5_udlE`。Agent 看到了 ID，却没有先从既有 literal-operator 调用抽象计算期望值。
+All of these values were derived from the same string newly inserted into `ASTNumberLiteral.data`; they proved only internal consistency. The beginning of the repository file already stated that IDs use Itanium C++ ABI mangling, and the existing `ASTOperatorLiteral` and call expression provided an independent analogy. The official expected new ID for `5_udl` was `clL_Zli4_udlEL5EE`, while the actual ID remained `L5_udlE`. The Agent saw the ID but did not first calculate the expected value from the existing literal-operator call abstraction.
 
-## 新发现的 tool 问题
+## Newly discovered tool issue
 
-`read(path=...)` 虽然有 20K character cap，却没有应用 `tools.default_max_lines=100`。Sphinx
-轨迹中同一个 7000 多行文件至少四次返回 20K characters、约 392 个编号行；xarray 也有一次
-20K/511 行输出。模型甚至在轨迹里指出 read offset 异常，但只能改用 `sed` 绕过。
+Although `read(path=...)` has a 20K-character cap, it did not apply `tools.default_max_lines=100`. In the Sphinx trajectory, the same 7,000-plus-line file returned 20K characters—about 392 numbered lines—at least four times; xarray also had one 20K/511-line output. The model even pointed out the abnormal read offset in the trajectory, but could only work around it with `sed`.
 
-这不是失败的唯一原因，不过它会重复污染上下文、增加 anchoring。`d952498` 已让 read 默认
-分页，并提供 `line_start`/`lines` 连续读取，保留原始行号和字符上限。
+This was not the sole cause of failure, but it repeatedly polluted the context and increased anchoring. `d952498` made `read` paginate by default and added `line_start`/`lines` for sequential reads, preserving original line numbers and the character limit.
 
-## 为什么同上下文自审仍会失败
+## Why same-context self-review still failed
 
-draft audit 给原作者增加了一次检查机会，但仍保留其完整推理历史。模型已经投入大量步骤建立
-某个方案后，审计很容易变成“寻找更多证据证明当前 patch”，而不是从零尝试推翻它。两条轨迹
-都出现了这种 confirmation bias：验证范围明显扩大，最终抽象选择却几乎没有变化。
+The draft audit gave the original author one more chance to inspect the work, but retained the full reasoning history. After the model has invested many steps in establishing an approach, an audit easily becomes “find more evidence that the current patch is right” rather than trying to disprove it from scratch. Both trajectories showed this confirmation bias: the validation scope expanded substantially, while the abstract choice barely changed.
 
-因此后续机制不是简单增加第三次 submit，而是：
+The follow-up mechanism is therefore not simply a third submit, but:
 
-1. `662459e`：review 可从 system、原始 issue、candidate patch 和审计清单组成的干净 context
-   开始；完整作者轨迹继续保存在 append-only events，不再作为 reviewer 的默认锚点。
-2. `95aef11`：SWE-bench 启用 clean review；状态 API 必须构造行为矩阵，identity/serialization/
-   mangling 必须寻找仓库内独立 oracle。由同一个新表示派生的多个方法不能互相作证。
-3. 标准 run 仍不提供 hidden test。若使用上面的官方失败明细继续修复，必须另建 repair run，
-   标记 `harness_feedback=true` 和 non-comparable。
+1. `662459e`: let review start from a clean context composed of the system prompt, original issue, candidate patch, and audit checklist; retain the full author trajectory in append-only events rather than using it as the reviewer's default anchor.
+2. `95aef11`: enable clean review in SWE-bench; require the status API to construct a behavior matrix and require identity/serialization/mangling checks to find an independent repository oracle. Multiple methods derived from the same new representation cannot testify for one another.
+3. Keep standard runs free of hidden tests. If the official failure details above are used for further repair, create a separate repair run marked `harness_feedback=true` and non-comparable.
 
-## 对参数设置的结论
+## Conclusion about parameter settings
 
-这两次失败都不是 step/time 不足。新一轮分别在 41、73 次 API 调用后主动提交，远低于 400
-steps；没有因 2400 秒上限退出。继续把上限从 400 提高只会扩大最坏费用，不会自动发现缺失
-契约。当前更合理的方向是把预算看成安全上限，把额外调用花在独立 review、对照 oracle 和
-行为矩阵，而不是允许原路径无限延长。
+Neither failure was caused by insufficient steps or time. The new round submitted proactively after 41 and 73 API calls respectively, far below 400 steps; neither exited because of the 2400-second limit. Raising the limit from 400 would only expand worst-case cost and would not automatically discover missing contracts. The more appropriate direction is to treat the budget as a safety ceiling and spend additional calls on independent review, comparison oracles, and behavior matrices rather than allowing the original path to continue indefinitely.
 
-## 下一次实验如何解释
+## How to interpret the next experiment
 
-下一次用 clean-context review 复跑时，至少要同时记录：
+When rerunning with a clean-context review, record at least the following together:
 
-- resolved/F2P/P2P，而不是只看 submitted；
-- reviewer 是否真的找到了独立 repository oracle；
-- 是否在看官方结果前构造了覆盖 public 参数轴的行为矩阵；
-- author 与 reviewer 各自 API calls、工具输出字符量和压缩次数；
-- 实际 provider 费用（只有配置了单价后 trajectory cost 才可信）。
+- resolved/F2P/P2P rather than only submitted;
+- whether the reviewer actually found an independent repository oracle;
+- whether it constructed a behavior matrix covering the public-parameter axes before seeing the official result;
+- author and reviewer API calls, tool-output character counts, and compression counts separately;
+- actual provider cost (trajectory cost is trustworthy only after unit prices are configured).
 
-即使下一轮仍为 0/2，只要 clean reviewer 能明确指出当前 patch 的 ABI 或状态矩阵缺口，机制
-也比“更多步骤”更接近可解释、可迭代的 Agent 设计；但最终是否有效仍以官方 resolved 为准。
+Even if the next round remains 0/2, a clean reviewer that can clearly identify the ABI or state-matrix gap in the current patch is closer to an interpretable, iterative Agent design than simply adding more steps. Ultimately, effectiveness is still determined by the official resolved result.
 
-## 后续实现：压缩记忆与按需回查并存
+## Later implementation: compressed memory and on-demand lookup together
 
-后续 Sphinx clean-review 单实例复跑仍然是 `0/1`；xarray 没有在那一轮复跑，不能把它写成
-第二次失败。Sphinx 证明“清空作者上下文”本身并不能保证 reviewer 找到正确 ABI oracle：它
-去除了锚定，也同时丢掉了作者已经付费获得的命令、测试和文件定位。于是问题不该被简化为
-“保留全文”与“完全清空”二选一。
+The later Sphinx clean-review single-instance rerun was still `0/1`; xarray was not rerun in that round and must not be described as a second failure. Sphinx demonstrated that “clearing the author's context” alone cannot guarantee that the reviewer will find the correct ABI oracle: it removed anchoring, but also discarded the commands, tests, and file locations the author had already paid to discover. The problem should therefore not be reduced to a choice between “retain the entire history” and “clear everything.”
 
-现在采用三层内存：
+Three memory layers are now used:
 
 ```text
-热上下文：system + 原始 issue + 有界 checkpoint + candidate + review prompt
+Hot context: system + original issue + bounded checkpoint + candidate + review prompt
                               │
-             reviewer 需要精确证据时主动查询
+             Reviewer actively queries when exact evidence is needed
                               ▼
-冷存储：append-only .events.jsonl（完整、只读、不自动回灌）
+Cold storage: append-only .events.jsonl (complete, read-only, not automatically fed back)
 ```
 
-checkpoint 本身又分两层：
+The checkpoint itself has two layers:
 
-- 机器层只抽取 event sequence、工具名、命令、return code、文件路径和错误；它不复制作者
-  的自然语言结论，也不复制 submit 中的大 patch；
-- 模型层用 evidence-focused prompt 压缩工作状态，并明确标为不可信 navigation aid；它帮助
-  reviewer 知道“可能要去哪里查”，但不能替代 repository oracle。
+- The machine layer extracts only event sequence, tool name, command, return code, file path, and error; it does not copy the author's natural-language conclusions or the large patch from `submit`;
+- The model layer compresses the working state with an evidence-focused prompt and explicitly marks it as an untrusted navigation aid; it helps the reviewer know “where it might need to look,” but cannot replace a repository oracle.
 
-reviewer 仍可用 `trajectory` 读取原始记录，不过读取变成主动、局部、可组合的操作：除了
-`query/start/events`，还可以按 `event_type`、`role`、`tool_name` 和 `returncode` 过滤。例如先
-找 `tool_name=bash, returncode=1`，再用事件序号回查相关上下文，不需要恢复作者全文。
+The reviewer can still use `trajectory` to read the original records, but reading is now active, local, and composable. In addition to `query/start/events`, it can filter by `event_type`, `role`, `tool_name`, and `returncode`. For example, it can first find `tool_name=bash, returncode=1`, then use the event sequence to look up the surrounding context without restoring the author's full history.
 
-对应实现分成三笔提交，避免把存储、交接和检索耦合在一个大改动里：
+The corresponding implementation was split into three commits to avoid coupling storage, handoff, and lookup in one large change:
 
-| commit | 作用 | 不声称解决什么 |
+| commit | purpose | what it does not claim to solve |
 |---|---|---|
-| `7cd2cf7` | 从原始 events 建立确定性、有界、可关联 call/result 的证据 checkpoint | 不判断 patch 正确性 |
-| `b5ec908` | 在 clean-review 边界强制生成 checkpoint，并保留不可信压缩摘要 | 不保证 reviewer 会找到正确 oracle |
-| `b5691c5` | 为 trajectory 增加结构化组合筛选 | 不自动选择该查哪条证据 |
+| `7cd2cf7` | Build a deterministic, bounded evidence checkpoint with correlated calls/results from raw events | Does not judge patch correctness |
+| `b5ec908` | Force checkpoint generation at the clean-review boundary and retain an untrusted compressed summary | Does not guarantee that the reviewer will find the right oracle |
+| `b5691c5` | Add structured combined filtering to `trajectory` | Does not automatically choose which evidence to inspect |
 
-这个机制针对的是两次失败中的**信息组织问题**，不是直接修复任务本身：
+This mechanism targets the **information-organization problem** in the two failures, not the tasks themselves:
 
-| benchmark 实例 | 官方结果 | 根本失败 | 新机制可能改善 | 新机制不能替代 |
+| Benchmark instance | Official result | Fundamental failure | What the new mechanism may improve | What it cannot replace |
 |---|---:|---|---|---|
-| `pydata__xarray-6992` | FAIL_TO_PASS 0/12，失败 | 没有从 public 参数和状态转换构造完整 behavior matrix | checkpoint 保留已跑模式，减少 reviewer 重复探索；trajectory 可找已有失败/成功对照 | reviewer 仍必须主动枚举 dimension、level、drop、MultiIndex 等轴 |
-| `sphinx-doc__sphinx-7590` | FAIL_TO_PASS 0/1，失败 | 把 UDL 建模成普通 number，而非 literal-operator call，导致 ABI ID 错误 | checkpoint 暴露 parse/stringify/ID 检查范围；reviewer 可精确回查命令与 return code | reviewer 仍必须找到 `ASTOperatorLiteral`/call expression 这一独立 oracle，并断言 exact ID |
+| `pydata__xarray-6992` | FAIL_TO_PASS 0/12, failure | No complete behavior matrix was constructed from public parameters and state transitions | The checkpoint preserves patterns already run, reducing repeated exploration by the reviewer; `trajectory` can find existing failure/success comparisons | The reviewer must still actively enumerate dimension, level, drop, MultiIndex, and other axes |
+| `sphinx-doc__sphinx-7590` | FAIL_TO_PASS 0/1, failure | Modeled a UDL as an ordinary number rather than a literal-operator call, causing an ABI ID error | The checkpoint exposes the scope of parse/stringify/ID checks; the reviewer can look up exact commands and return codes | The reviewer must still find `ASTOperatorLiteral`/call expression as an independent oracle and assert the exact ID |
 
-因此不能说这三笔改动已经解决前两次 benchmark 失败。更准确的假设是：它们减少 clean reset
-造成的信息损耗，同时不恢复完整推理带来的锚定；是否提高 resolved rate 必须由同配置复跑
-验证。
+It is therefore incorrect to say that these three changes solved the previous two benchmark failures. The more accurate hypothesis is that they reduce information loss caused by a clean reset without restoring the anchoring of a complete reasoning history; whether they improve the resolved rate must be tested by a rerun under the same configuration.
 
-## 下一轮对照实验（尚未执行）
+## Next controlled experiment (not yet executed)
 
-下一轮应保持模型、prepared image、断网、400 steps、2400 秒、128K context 和测试超时不变，
-只把 memory handoff 作为实验变量。报告必须按实例分开，不再用一个笼统的“bench 跑了”概括：
+The next round should keep the model, prepared image, offline policy, 400 steps, 2400 seconds, 128K context, and test timeout unchanged, using only the memory handoff as the experimental variable. The report must separate the instances instead of summarizing them as one generic “bench run”:
 
-1. 先跑 `sphinx-doc__sphinx-7590`。成功门槛是 FAIL_TO_PASS 1/1、PASS_TO_PASS 24/24；同时记录
-   reviewer 是否在提交前建立 exact expression-ID oracle。
-2. 再跑 `pydata__xarray-6992`。成功门槛是 FAIL_TO_PASS 12/12、PASS_TO_PASS 945/945；同时记录
-   reviewer 是否在看官方反馈前形成完整 behavior matrix。
-3. 每个实例分别报告 author 主循环 calls、checkpoint 摘要 calls、reviewer calls、trajectory
-   调用与过滤条件、压缩次数、墙钟时间和真实费用。
-4. 如果仍失败，先判断是 checkpoint 丢证据、reviewer 没有主动检索，还是检索后仍选择了错误
-   抽象；这三类失败对应不同改法，不能统一归咎于步数不够。
+1. Run `sphinx-doc__sphinx-7590` first. The success threshold is FAIL_TO_PASS 1/1 and PASS_TO_PASS 24/24; also record whether the reviewer established an exact expression-ID oracle before submission.
+2. Then run `pydata__xarray-6992`. The success threshold is FAIL_TO_PASS 12/12 and PASS_TO_PASS 945/945; also record whether the reviewer formed a complete behavior matrix before seeing official feedback.
+3. Report each instance's author main-loop calls, checkpoint-summary calls, reviewer calls, `trajectory` calls and filters, compression count, wall time, and actual cost separately.
+4. If it still fails, first determine whether the checkpoint lost evidence, the reviewer did not actively retrieve it, or the reviewer still chose the wrong abstraction after retrieval. These failure types require different fixes and must not all be blamed on insufficient steps.
 
-这轮不同时调整模型、prompt 大段内容和硬预算，否则即便成功也无法知道是哪项改变起作用。
-400 steps 继续作为防失控的上限，不是鼓励模型用满；checkpoint 的摘要请求计入调用、成本和
-墙钟，但不计入主循环 step。
+Do not also change the model, large sections of the prompt, and hard budget in this round; otherwise, even success would not reveal which change mattered. Continue using 400 steps as a runaway-protection ceiling rather than a target; checkpoint-summary requests count toward calls, cost, and wall time, but not toward the main-loop step count.
 
-导航：[实验索引](index.md) · [Agent 循环](../architecture/agent-loop.md) ·
-[工具参考](../reference/tools.md)
+Navigation: [experiment index](index.md) · [Agent loop](../architecture/agent-loop.md) · [tool reference](../reference/tools.md)

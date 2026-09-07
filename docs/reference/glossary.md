@@ -1,129 +1,147 @@
-# 术语表
+# Glossary
 
-本页解释项目中特别容易混淆的术语，并链接到实际边界。
+This page explains terms that are especially easy to confuse in this project and links to their
+operational boundaries.
 
 ## ABC
 
-Abstract Base Class，Python 中由 `abc.ABC` 与 `@abstractmethod` 声明的接口约束。本项目的
-Environment 是 ABC；缺少 `execute`、`read_file` 或 `write_file` 的子类不能实例化。
+Abstract Base Class: an interface constraint declared in Python with `abc.ABC` and
+`@abstractmethod`. This project's Environment is an ABC; a subclass that lacks `execute`, `read_file`,
+or `write_file` cannot be instantiated.
 
 ## Agent
 
-控制循环。它维护 messages/events、检查预算、查询 Model、分发工具并决定退出，不等于
-模型、shell 或 benchmark runner。[Agent 循环](../architecture/agent-loop.md)
+The control loop. It maintains messages/events, checks budgets, queries Model, dispatches tools, and
+decides when to exit. It is not the model, shell, or benchmark runner. [Agent Loop](../architecture/agent-loop.md)
 
-## 鸭子类型
+## Duck Typing
 
-对象无需继承指定基类，只要提供调用方所需行为即可。Agent 对 Model 使用鸭子类型：测试
-fake 只需提供兼容 `.query(messages, tools)` 和响应形状。
+An object need not inherit from a specified base class as long as it provides the behavior the caller
+needs. Agent uses duck typing for Model: a test fake only needs a compatible `.query(messages, tools)`
+and response shape.
 
-## Model adapter
+## Model Adapter
 
-把项目 messages/tools 转给 provider，并返回兼容响应的具体类。仓库 `Model` 使用 OpenAI
-SDK 的 Chat Completions 接口；它不是抽象 Model 基类。
+The concrete class that passes the project's messages/tools to a provider and returns a compatible
+response. The repository's `Model` uses the OpenAI SDK's Chat Completions interface; it is not an
+abstract Model base class.
 
 ## Environment
 
-命令与文件 I/O 的抽象执行边界。Local 直接操作宿主，Docker 操作长寿命容器。统一接口
-包括 `execute`、`read_file`、`write_file`、`cleanup`。
+The abstract execution boundary for command and file I/O. Local operates directly on the host, while
+Docker operates in a long-lived container. The shared interface includes `execute`, `read_file`,
+`write_file`, and `cleanup`.
 
-## 依赖注入
+## Dependency Injection
 
-在外部构造依赖并传给消费者，例如 `Agent(model, environment, config)`，而不是 Agent 内部
-写死具体 Model 和 LocalEnvironment。它使替换和测试更直接。
+Constructing dependencies externally and passing them to the consumer, such as
+`Agent(model, environment, config)`, instead of hard-coding a concrete Model and LocalEnvironment
+inside Agent. This makes replacement and testing more direct.
 
 ## Factory
 
-按名称或上下文选择具体实现的函数。`get_environment()` 按配置名称构造环境；benchmark
-还允许注入 model/environment/agent factories。
+A function that selects a concrete implementation by name or context. `get_environment()` constructs
+an environment from its configured name; the benchmark also allows model/environment/agent factories
+to be injected.
 
-## Tool schema
+## Tool Schema
 
-发给 provider 的 JSON function 描述，声明名称、说明和参数结构。schema 约束模型输出意图，
-但运行时仍必须校验 provider 返回的 arguments。
+A JSON function description sent to the provider that declares a name, description, and parameter
+structure. The schema constrains the model's intended output, but the provider's returned arguments
+must still be validated at runtime.
 
 ## Handler
 
-执行一个工具的 Python callable，接收已解析 args 与 ToolContext，返回 ToolResult。
-schema/handler 通过 registry 成对注册。
+A Python callable that executes a tool, receives parsed args and ToolContext, and returns ToolResult.
+Schemas and handlers are registered as pairs through the registry.
 
 ## Observation
 
-工具执行后追加的 `role=tool` 消息。成功输出、参数错误、policy 拒绝和 skipped 都是
-observation；必须带回原 `tool_call_id`。
+The `role=tool` message appended after a tool executes. Successful output, argument errors, policy
+denials, and skipped calls are all observations; each must carry the original `tool_call_id`.
 
-## Round-trip
+## Round Trip
 
-一条 assistant(tool_calls) 及紧随其后的全部 tool observations。上下文压缩把它作为原子
-单元，避免产生 provider 无法接受的孤儿调用。
+One assistant message with `tool_calls` and all immediately following tool observations. Context
+compression treats this as an atomic unit to avoid producing orphan calls that the provider cannot
+accept.
 
 ## Submit
 
-模型显式声明完成的工具。普通 profile 首次 submit 终止；review profile 首次只形成 draft，
-再次 submit 才结束。
+The tool by which the model explicitly declares completion. In the ordinary profile, the first submit
+terminates; in the review profile, the first only creates a draft and a second submit ends the run.
 
-## Clean-context review
+## Clean-Context Review
 
-draft 后丢弃作者模型工作上下文，只保留原始 task、候选 patch、review prompt 和可选交接
-材料，以降低锚定。它仍可能由同一模型执行，不等于独立 evaluator。
+After a draft, the author's model working context is discarded, retaining only the original task,
+candidate patch, review prompt, and optional handoff material to reduce anchoring. The review may still
+be performed by the same model and is not an independent evaluator.
 
 ## Messages
 
-下一次模型查询使用的 context view。它可被摘要替换，所以 `.traj.json.messages` 不代表完整
-历史。[上下文与记录](../architecture/context-and-records.md)
+The context view used for the next model query. It can be replaced by a summary, so
+`.traj.json.messages` does not represent the complete history. [Context and Records](../architecture/context-and-records.md)
 
 ## Events
 
-一次运行内追加的原始消息与控制边界记录，最终保存为 `.events.jsonl`。压缩不会删除旧事件。
+The original messages and control-boundary records appended during a run and ultimately saved as
+`.events.jsonl`. Compression does not delete old events.
 
 ## Evidence
 
-从 events 确定性抽取的机器可观察事实，如命令、return code、文件路径和 error。它有选择地
-省略叙述，但不是模型 summary。
+Machine-observable facts deterministically extracted from events, such as commands, return codes, file
+paths, and errors. It selectively omits narration but is not a model summary.
 
 ## Summary
 
-模型生成的有损工作记忆，用来节省 context 或交接导航。即使结构化，也仍是不可信声明，
-关键结论必须回到工具或 event journal 验证。
+Lossy working memory generated by the model to save context or provide handoff navigation. Even when
+structured, it remains an untrusted claim; verify important conclusions against tools or the event
+journal.
 
 ## Trajectory
 
-广义上指运行记录；具体落盘时主 `.traj.json` 保存最终 context/metadata，sidecar
-`.events.jsonl` 保存完整事件。[轨迹格式](trajectory-format.md)
+Broadly, the record of a run. On disk, the main `.traj.json` stores the final context/metadata, while
+the `.events.jsonl` sidecar stores complete events. [Trajectory Format](trajectory-format.md)
 
-## Context compression
+## Context Compression
 
-当估算输入接近窗口时，把中间旧 round-trips 总结成 marker message，保留 system、原始
-task 与最近单元。摘要调用计费，但不计主循环 step。
+When estimated input approaches the window, intermediate old round trips are summarized into a marker
+message while the system message, original task, and recent units are retained. The summary request
+is billed but does not count as a main-loop step.
 
 ## ExecutionResult
 
-Environment 命令返回的 mapping：`output`、`returncode`、`exception_info`。非零 return code
-通常表示命令本身失败；`-1` 加 exception info 表示执行机械问题。
+The mapping returned by an Environment command: `output`, `returncode`, and `exception_info`. A
+nonzero return code usually means the command itself failed; `-1` with exception info indicates a
+mechanical execution problem.
 
 ## `UNSET`
 
-配置合并哨兵，表示高优先级层没有意见。它与 `None` 不同：`None` 是可真实覆盖下层的值，
-例如关闭 max_time。
+A configuration-merge sentinel meaning that a higher-priority layer has no opinion. It differs from
+`None`: `None` is a real value that can override a lower layer, for example to disable `max_time`.
 
 ## Mock / Fake
 
-替代真实依赖的测试对象。mock 常记录调用并由框架配置；fake 通常实现小型可运行行为。
-两者都不能替代真实 shell quoting、Docker 生命周期或付费 provider E2E 的全部验证。
+Test objects that replace real dependencies. A mock often records calls and is configured by a
+framework; a fake usually implements a small, runnable behavior. Neither replaces full verification
+of real shell quoting, Docker lifecycles, or paid provider E2E runs.
 
 ## Unit / Integration / E2E
 
-unit 隔离模块，integration 组合真实 shell 与 fake model，Docker 层验证 daemon 资源，E2E
-调用真实 provider。默认测试明确排除 E2E。[测试指南](../guides/testing.md)
+Unit tests isolate modules; integration tests combine a real shell with a fake model; the Docker layer
+verifies daemon resources; E2E tests call a real provider. The default test command explicitly excludes
+E2E. [Testing Guide](../guides/testing.md)
 
 ## SWE-bench
 
-以真实仓库 issue 和测试评估 patch 的 benchmark。generation 产出 prediction；官方 harness
-另行评分。submitted、本地测试绿和 resolved 是不同状态。
+A benchmark that evaluates patches against issues and tests in real repositories. Generation produces
+a prediction; the official harness scores it separately. Submitted, local tests passing, and resolved
+are different states.
 
 ## Harness
 
-执行官方测试与汇总 resolved 的评测程序。它是 Agent 运行后的独立阶段，基础设施错误应与
-patch 行为错误分开报告。
+The evaluation program that runs official tests and aggregates resolved results. It is an independent
+stage after the Agent run; infrastructure errors should be reported separately from patch behavior
+errors.
 
-返回[文档首页](../index.md)。
+Return to the [Documentation Home](../index.md).

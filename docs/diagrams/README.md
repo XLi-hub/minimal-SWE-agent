@@ -1,27 +1,27 @@
-# 架构图维护
+# Diagram maintenance
 
-本目录只放跨模块关系图。单页内部的短流程优先使用 Mermaid，避免每次改一个分支都要同步
-二进制或大段 XML。
+This directory contains only cross-module relationship diagrams. Prefer Mermaid for short flows
+within a page so that changing one branch does not require synchronizing binary files or large XML.
 
-## 文件约定
+## File conventions
 
-| 文件 | 用途 |
+| File | Purpose |
 |---|---|
-| `system-overview.drawio` / `.svg` | 七个部分、核心依赖与 Benchmark 边界 |
-| `context-records.drawio` / `.svg` | messages、events、evidence 与落盘产物的关系 |
+| `system-overview.drawio` / `.svg` | Seven parts, core dependencies, and the benchmark boundary |
+| `context-records.drawio` / `.svg` | Relationships among messages, events, evidence, and persisted artifacts |
 
-`.drawio` 是可编辑源文件，`.svg` 是文档引用的发布版本。SVG 导出时也嵌入 diagram 数据，
-因此可以直接在 draw.io 中打开；发生差异时仍以 `.drawio` 为准。
+`.drawio` is the editable source and `.svg` is the published render. The exported SVG also embeds
+diagram data, so draw.io can open it directly; if the two differ, `.drawio` remains authoritative.
 
-## 编辑与导出
+## Editing and export
 
-1. 用 draw.io Desktop 或 diagrams.net 打开 `.drawio`；
-2. 保持节点短句化，把解释留在相邻架构页面；
-3. 导出时启用 **Include a copy of my diagram**，使用白色背景并裁剪；
-4. 覆盖同名 `.svg`，检查文字没有截断、连线没有穿过节点；
-5. 同时提交源图、SVG 和受影响的架构文档。
+1. Open `.drawio` with draw.io Desktop or diagrams.net;
+2. keep node text concise and leave explanations in the adjacent architecture page;
+3. enable **Include a copy of my diagram**, use a white background, and crop the export;
+4. replace the matching `.svg`, checking that text is not clipped and edges do not cross nodes;
+5. commit the source, SVG, and affected architecture documentation together.
 
-桌面版也可命令行导出：
+The desktop application can also export from the command line:
 
 ```bash
 drawio --export --format svg --embed-diagram --theme light \
@@ -30,7 +30,8 @@ drawio --export --format svg --embed-diagram --theme light \
   docs/diagrams/system-overview.drawio
 ```
 
-配色表达边界而非装饰：蓝色是编排，紫色是模型适配，绿色是外部执行或可核查事实，黄色是
-上下文/记录，红色是 Benchmark 或 review 边界。新增颜色前先判断现有语义是否足够。
+Colors express boundaries rather than decoration: blue is orchestration, purple is model adaptation,
+green is external execution or verifiable facts, yellow is context/records, and red is the benchmark
+or review boundary. Check whether an existing meaning is sufficient before introducing a new color.
 
-返回[文档首页](../index.md)。
+Return to the [documentation home](../index.md).

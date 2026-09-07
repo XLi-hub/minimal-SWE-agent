@@ -1,97 +1,116 @@
-# 工具调用演进
+# Tool-Calling Evolution
 
-本页记录工具协议为何从文本解析演进到 function calling、显式 submit、专用文件工具、
-registry 与 review 回查。它解释历史，不替代当前[工具参考](../reference/tools.md)。
+This page records why the tool protocol evolved from text parsing to function calling, explicit
+submit, dedicated file tools, a registry, and review lookups. It explains the history and does not
+replace the current [Tool Reference](../reference/tools.md).
 
-## v1：正则解析文本块（已删除）
+## v1: Regex Parsing of Text Blocks (Removed)
 
-早期模型输出自然语言和特定 fenced code block，Agent 用正则提取 shell 命令。优点是兼容
-只会输出文本的模型；缺点是标签拼写、围栏、多个命令和解释文本都会让 parser 变脆弱。
+Early models emitted natural language and a specific fenced code block, and Agent used a regex to
+extract shell commands. The advantage was compatibility with models that only emitted text; the
+disadvantage was that label spelling, fences, multiple commands, and explanatory text made the
+parser fragile.
 
-解析失败还要再注入纠正消息，既浪费步骤，也把“模型没按模板写”与“命令执行失败”混成
-一种错误。新增工具意味着新增文本语法，最终会形成一个不完整的自制协议。
+A parse failure also required injecting a corrective message. That wasted steps and conflated “the
+model did not follow the template” with “command execution failed.” Adding a tool meant adding more
+text syntax, eventually producing an incomplete custom protocol.
 
-## v2：OpenAI function calling
+## v2: OpenAI Function Calling
 
-模型改为返回 `tool_calls`：每项含 id、function name 和序列化 arguments。Agent 不再从
-自然语言猜命令，schema 还能向模型描述参数。
+The model switched to returning `tool_calls`, with an ID, function name, and serialized arguments for
+each item. Agent no longer had to guess commands from natural language, and schemas could describe
+parameters to the model.
 
-结构化不等于可信。`arguments` 仍可能是畸形 JSON、数组或标量；名称可能未知，字段类型也
-可能错误。因此 dispatcher 必须运行时校验，并为原 call id 追加 error observation。
+Structured does not mean trustworthy. `arguments` may still be malformed JSON, an array, or a scalar;
+the name may be unknown, and field types may be wrong. The dispatcher must therefore validate at
+runtime and append an error observation for the original call ID.
 
-这一步建立了首个核心不变量：每个 assistant tool call 都要有对应 tool response，即使调用
-无效也不能让轨迹断裂。
+This step established the first core invariant: every assistant tool call must have a corresponding
+tool response. Even an invalid call must not break the trajectory.
 
-## v2.1：有界输出与 timeout
+## v2.1: Bounded Output and Timeout
 
-bash 加入 `lines` 和 `timeout`，随后又补字符预算，避免 minified JSON、base64 等超长单行
-绕过行限制。截断保留头尾并给继续读取建议。
+bash gained `lines` and `timeout`, followed by a character budget to prevent long single lines such
+as minified JSON or base64 from bypassing the line limit. Truncation keeps the head and tail and
+offers guidance for continuing to read.
 
-Environment 的命令结果从裸字符串升级为 `ExecutionResult`，区分 output、return code 与
-执行器异常。Local timeout 终止整个进程组；SWE-bench shell 加 `pipefail`，防止 pipeline
-末项的零状态掩盖前序测试失败。
+Environment command results evolved from bare strings into `ExecutionResult`, distinguishing output,
+return code, and executor exceptions. Local timeout terminates the entire process group; the
+SWE-bench shell adds `pipefail` so a zero status from the last pipeline item cannot hide an earlier
+test failure.
 
-项目没有建立异步后台任务系统。需要长命令时显式提高单次 timeout；这是以较小控制面换取
-可预测线性事件历史的取舍。
+The project did not establish an asynchronous background-task system. For long commands, explicitly
+increase the timeout for that call; this trades a smaller control surface for a predictable linear
+event history.
 
-## v3：显式 submit
+## v3: Explicit submit
 
-“模型没有调工具”无法区分完成、卡住或截断。`submit(output)` 把完成变成显式协议事件，
-`Agent.run()` 因而可以返回结构化 `exit_status` 与 submission。
+“The model did not call a tool” cannot distinguish completion, getting stuck, and truncation.
+`submit(output)` turns completion into an explicit protocol event, allowing `Agent.run()` to return a
+structured `exit_status` and submission.
 
-循环同时引入步数、墙钟和费用退出。查询后必须再检查时间/成本，避免 provider 请求本身已
-越界后仍执行写文件或 shell。批次中 submit 后的调用被确认但跳过，维护协议又避免副作用。
+The loop also introduced step, wall-clock, and cost exits. It must check time and cost again after a
+query, so that a provider request that already crossed a limit cannot be followed by a file write or
+shell command. Calls after submit in the same batch are acknowledged but skipped, preserving the
+protocol without side effects.
 
-## v4：read/edit/write
+## v4: read/edit/write
 
-一切走 bash 虽小，却有两个问题：shell quoting 使写文件脆弱，`sed` 等工具可能匹配失败却
-给出误导状态。专用文件工具把操作放到 Environment 接口：
+Using bash for everything was small but had two problems: shell quoting made file writes fragile, and
+tools such as `sed` could fail to match while reporting a misleading state. Dedicated file tools put
+these operations behind the Environment interface:
 
-- read 提供行号和分页；
-- edit 要求 old string 唯一匹配；
-- write 明确整文件覆盖。
+- read provides line numbers and pagination;
+- edit requires a unique match for the old string;
+- write explicitly replaces the entire file.
 
-纯 bash profile 仍可用作教学对照，但默认配置启用专用文件工具。它们让 local/Docker 文件
-语义一致，也让事件证据能直接识别文件路径。
+A bash-only profile remains available as a teaching comparison, but dedicated file tools are enabled
+by default. They align local/Docker file semantics and let event evidence identify file paths directly.
 
-## v4.1：schema/handler registry 与 tooling 拆分
+## v4.1: Schema/Handler Registry and Tooling Split
 
-随着工具增加，分散的 schema list 和名称 if/elif 会漂移。当前 `TOOL_REGISTRY` 将 name、
-schema、handler 组成 `ToolDefinition`，配置名单同时控制模型可见性和执行授权。
+As the number of tools grew, a scattered schema list and name-based if/elif branches could drift.
+`TOOL_REGISTRY` now combines each name, schema, and handler into a `ToolDefinition`; the configured
+list controls both model visibility and execution authorization.
 
-随后可复用细节移到 `tooling/`：schemas、types、files、output、network。`tools.py` 保留
-handlers 与 runtime dispatch，从“所有逻辑单文件”变为稳定 facade + 小模块。
+Reusable details then moved into `tooling/`: schemas, types, files, output, and network. `tools.py`
+retains handlers and runtime dispatch, changing the design from “all logic in one file” to a stable
+facade plus small modules.
 
-## v5：draft review 与 trajectory
+## v5: Draft Review and trajectory
 
-首次 submit 可被捕获为 draft，再要求模型审查后提交。为了降低作者推理锚定，SWE-bench
-profile 可以重置 messages；但完全清空会浪费此前探索。
+The first submit can be captured as a draft and then reviewed by the model before final submission.
+To reduce author-reasoning anchoring, the SWE-bench profile can reset messages; clearing everything,
+however, would waste prior exploration.
 
-当前折中由三层组成：
+The current compromise has three layers:
 
-1. append-only events 保留原始记录；
-2. evidence checkpoint 只抽机器事实；
-3. `trajectory` 允许 reviewer 按需分页/筛选回查，而非自动塞回全部历史。
+1. append-only events retain the original record;
+2. the evidence checkpoint extracts machine facts only;
+3. `trajectory` lets the reviewer page through and filter lookups as needed instead of automatically
+   inserting the entire history.
 
-可选模型 summary 只作为明确不可信的 navigation aid。reviewer 没有隐藏 evaluator 反馈，
-因此 review 改善的是验证过程，不保证 patch 正确。
+An optional model summary is only an explicitly untrusted navigation aid. The reviewer has no hidden
+evaluator feedback, so review improves the verification process but does not guarantee a correct patch.
 
-## 当前不变量
+## Current Invariants
 
-- registry 名称与 schema function name 一致；
-- `tools.enabled` 同时控制 advertise 和 authorize；
-- arguments 必须解析为 JSON object；
-- 每个 call id 都有 observation；
-- submit/limit 后不执行剩余副作用；
-- 文件 I/O 走 Environment；
-- observation 有字符预算；
-- trajectory 查询只读且有界；
-- assistant summary 不被当作 machine evidence。
+- the registry name matches the schema function name;
+- `tools.enabled` controls both advertisement and authorization;
+- arguments must parse as a JSON object;
+- every call ID has an observation;
+- remaining side-effecting calls do not run after submit or a limit;
+- file I/O goes through Environment;
+- observations have a character budget;
+- trajectory queries are read-only and bounded;
+- an assistant summary is not treated as machine evidence.
 
-## 明确代价
+## Explicit Costs
 
-Function calling 绑定兼容 provider 格式；专用工具增加 schema 面积；review 多一次或多次模型
-调用；完整事件增加磁盘和隐私负担。项目接受这些成本，因为协议可审计性和失败诊断是教学
-目标的一部分。
+Function calling binds the project to compatible provider formats; dedicated tools increase schema
+surface area; review adds one or more model calls; and complete events increase disk and privacy
+burdens. The project accepts these costs because protocol auditability and failure diagnosis are part
+of its teaching goals.
 
-当前实现见[工具系统](../architecture/tool-system.md)，参数见[工具参考](../reference/tools.md)。
+See the [Tool System](../architecture/tool-system.md) for the current implementation and the
+[Tool Reference](../reference/tools.md) for parameters.

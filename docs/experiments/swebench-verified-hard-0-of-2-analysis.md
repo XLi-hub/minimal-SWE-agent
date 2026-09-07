@@ -1,197 +1,172 @@
-# SWE-bench Verified 高难双实例失败复盘：为什么“自测全绿”仍是 0/2
+# SWE-bench Verified Hard Two-Instance Failure Retrospective: Why “All Self-Tests Green” Still Ended at 0/2
 
-> 运行目录：`runs/verified-deepseek-v4-strict-hard/`  
-> 模型：`deepseek-v4-flash`（thinking disabled）  
-> 实例：`pydata__xarray-6992`、`sphinx-doc__sphinx-7590`  
-> 官方 harness：0/2 resolved，0 个 infrastructure failure
+> Run directory: `runs/verified-deepseek-v4-strict-hard/`
+> Model: `deepseek-v4-flash` (thinking disabled)
+> Instances: `pydata__xarray-6992`, `sphinx-doc__sphinx-7590`
+> Official harness: 0/2 resolved, 0 infrastructure failures
 
-这次实验刻意选择了 Verified 中标注为 `>4 hours`、此前没有跑过的两个实例。它们都
-到达了 `submitted`，也都通过了原仓库里的相关测试，但官方 harness 最终判定全部失败。
-这不是一次“模型没工作”的实验，而是一次更有价值的反例：**Agent 做了很多正确动作，
-却没有建立足够强的证据证明补丁满足新行为。**
+This experiment deliberately selected two previously unrun Verified instances labeled `>4 hours`. Both reached `submitted` and both passed relevant tests in the original repositories, but the official harness ultimately judged both failures. This was not an experiment in which “the model did nothing”; it was a more valuable counterexample: **the Agent performed many correct actions but did not establish sufficiently strong evidence that the patches satisfied the new behavior.**
 
-## 结果不是“提交成功”
+## The result was not “submission succeeded”
 
-| 实例 | Agent API calls | 完整事件 | 上下文压缩 | FAIL_TO_PASS | PASS_TO_PASS | resolved |
+| Instance | Agent API calls | Complete events | Context compression | FAIL_TO_PASS | PASS_TO_PASS | resolved |
 |---|---:|---:|---:|---:|---:|---|
-| `pydata__xarray-6992` | 60 | 123 | 0 | 0/12 | 945/945 | 否 |
-| `sphinx-doc__sphinx-7590` | 124 | 249 | 1 | 0/1 | 24/24 | 否 |
+| `pydata__xarray-6992` | 60 | 123 | 0 | 0/12 | 945/945 | No |
+| `sphinx-doc__sphinx-7590` | 124 | 249 | 1 | 0/1 | 24/24 | No |
 
-`submitted` 只表示 Agent 调用了 `submit` 并产出了可应用的 patch。它不说明新增行为正确，
-更不能替代官方 harness。今后的状态解释必须区分：
+`submitted` means only that the Agent called `submit` and produced an applicable patch. It does not mean that the new behavior is correct, and it cannot replace the official harness. Future status descriptions must distinguish:
 
-1. `submitted`：有候选 patch；
-2. `completed`：harness 成功运行；
-3. `resolved`：FAIL_TO_PASS 和 PASS_TO_PASS 都满足要求。
+1. `submitted`: a candidate patch exists;
+2. `completed`: the harness ran successfully;
+3. `resolved`: both FAIL_TO_PASS and PASS_TO_PASS requirements were met.
 
-## xarray：修掉了异常，却没有恢复数据模型不变量
+## xarray: the exception was fixed, but the data-model invariant was not restored
 
-### Agent 做对了什么
+### What the Agent got right
 
-- 复现了 `DataVariables.__len__()` 返回负数的问题；
-- 找到了 `_coord_names` 可能包含 `_variables` 中不存在名称这一直接原因；
-- 修改 `__len__`，改为实际计数非坐标变量；
-- 在 `reset_index()` 中从 `coord_names` 移除 `drop_variables`；
-- 跑了大范围 xarray 测试，没有破坏 945 个 PASS_TO_PASS。
+- Reproduced the problem where `DataVariables.__len__()` returned a negative number;
+- found the direct cause that `_coord_names` could contain a name absent from `_variables`;
+- changed `__len__` to count actual non-coordinate variables;
+- removed `drop_variables` from `coord_names` in `reset_index()`;
+- ran a broad xarray test suite without breaking the 945 PASS_TO_PASS tests.
 
-这些动作足以让 issue 中的最小示例不再抛出 `ValueError`，也足以让旧测试保持绿色。因此
-Agent 形成了“根因已解决”的判断。
+These actions were enough to stop the minimal example in the issue from raising `ValueError`, and enough to keep the old tests green. The Agent therefore concluded that the “root cause was fixed.”
 
-### 真正缺失的部分
+### What was actually missing
 
-负长度不是独立 bug，而是索引重构后状态不一致的一个可见症状。正确行为还必须同时维护：
+The negative length was not an independent bug, but a visible symptom of inconsistent state after index reconstruction. Correct behavior also had to maintain all of the following at the same time:
 
-- `_variables` 与 `_coord_names` 的成员关系；
-- `_indexes` 与 MultiIndex level coordinates 的对应关系；
-- `set_index()` 替换旧索引时哪些坐标要转成 base variable；
-- `reset_index(drop=True)` 是否真正删除维度变量和 level variables；
-- MultiIndex 剩一个 level 时是否按兼容语义重命名回维度；
-- dimensions 是否需要通过 `_replace_with_new_dims()` 重新计算。
+- membership consistency between `_variables` and `_coord_names`;
+- correspondence between `_indexes` and MultiIndex level coordinates;
+- which coordinates become base variables when `set_index()` replaces an old index;
+- whether `reset_index(drop=True)` actually removes dimension variables and level variables;
+- whether a MultiIndex with one remaining level is renamed back to the dimension under compatibility semantics;
+- whether dimensions must be recalculated through `_replace_with_new_dims()`.
 
-Agent 修的是读取无效状态时的消费者 `DataVariables.__len__`，但没有完整修复产生无效状态的
-`set_index/reset_index` 生命周期。官方新增的 12 个测试全部失败，恰好覆盖这些状态转换。
+The Agent fixed the consumer `DataVariables.__len__` when it read invalid state, but did not fully repair the `set_index/reset_index` lifecycle that produced the invalid state. The 12 new official tests all failed, precisely covering these state transitions.
 
-### 机制教训
+### Mechanism lesson
 
-“最小改动”不等于“最靠近 traceback 的改动”。当异常揭示内部不变量已被破坏时，应先问：
+“Minimal change” does not mean “change the code closest to the traceback.” When an exception reveals that an internal invariant has been broken, first ask:
 
-> 这个状态本来允许存在吗？如果不允许，谁产生了它？
+> Is this state supposed to exist? If not, who produced it?
 
-只有确认无效状态是合法中间态时，消费者侧的防御性修复才足够。否则它可能只是把错误藏起来。
+Only after confirming that an invalid state is a legal intermediate state is a defensive fix on the consumer sufficient. Otherwise it may merely hide the error.
 
-## Sphinx：解析成功不等于 AST 契约完整
+## Sphinx: successful parsing does not mean the AST contract is complete
 
-### Agent 做对了什么
+### What the Agent got right
 
-- 识别了 `identifier_re` 开头的 word boundary 无法匹配数字后 UDL suffix；
-- 支持 number/string/character user-defined literals；
-- 复现并修复了实现过程中的无限循环；
-- 工具 120 秒超时后成功恢复，没有中止整个实例；
-- 原有 `tests/test_domain_cpp.py` 25 项全部通过；
-- issue 中的 `6.62607015e-34q_J * 1q_s` 能够完成 parse 和 stringify。
+- Identified that the word boundary at the start of `identifier_re` could not match a UDL suffix after a number;
+- supported number, string, and character user-defined literals;
+- reproduced and fixed an infinite loop during implementation;
+- recovered successfully after a 120-second tool timeout without aborting the whole instance;
+- passed all 25 existing `tests/test_domain_cpp.py` tests;
+- parsed and stringified `6.62607015e-34q_J * 1q_s` from the issue.
 
-### 真正缺失的部分
+### What was actually missing
 
-Sphinx 的 C++ AST literal 不只承担“能解析、能转回字符串”两个职责。它还参与：
+Sphinx's C++ AST literal has more responsibilities than “parse and convert back to a string.” It also participates in:
 
-- `get_id(version)` 的 C++ symbol ID 生成；
-- literal operator 的 ABI 风格 name mangling；
-- signature rendering；
-- UDL suffix 对 `operator""suffix` 的 identifier/xref 表达；
-- 标准整数/浮点 suffix 与 UDL suffix 的边界区分。
+- C++ symbol ID generation through `get_id(version)`;
+- ABI-style name mangling for literal operators;
+- signature rendering;
+- identifier/xref representation of a UDL suffix as `operator""suffix`;
+- distinguishing standard integer/float suffixes from UDL suffixes.
 
-Agent 自己设计的验证期待 `5_udl` 对应类似 `L5_udlE` 的 ID。官方测试要求把 UDL 表达成
-literal operator 调用，例如 `clL_Zli...E...E`。因此 parse 和 stringify 虽然正确，唯一的
-FAIL_TO_PASS 仍然失败。
+The Agent designed a validation that expected `5_udl` to have an ID resembling `L5_udlE`. The official test required the UDL to be represented as a literal-operator call, such as `clL_Zli...E...E`. Thus, although parsing and stringification were correct, the only FAIL_TO_PASS test still failed.
 
-轨迹中 Agent 其实意识到 ABI 可能不同，但随后用自己猜测的 ID 写了临时测试，再用这个
-测试证明自己的实现正确。这是典型的循环论证：**测试验证了实现者的假设，而不是仓库既有
-抽象的契约。**
+The Agent recognized in its trajectory that the ABI might differ, but then wrote a temporary test using its guessed ID and used that test to prove that its implementation was correct. This is a typical circular argument: **the test validated the implementer's assumption rather than the contract of the repository's existing abstraction.**
 
-## 上下文压缩是次要因素，不是统一解释
+## Context compression was a secondary factor, not a universal explanation
 
-xarray 没有发生压缩，仍然失败，所以不能把 0/2 简单归因于 summary 丢信息。
+xarray was not compressed and still failed, so the 0/2 result cannot simply be attributed to the summary losing information.
 
-Sphinx 发生了一次压缩。完整 `.events.jsonl` 保留 249 个事件，模型视图压缩为较短历史。
-摘要保留了文件、命令和测试结果，但也把“所有相关测试已通过”和“ID 可能与 grading 不同”
-一起压缩成了当前状态。后续模型更多是在确认已有方案，而不是重新打开未验证假设。
+Sphinx was compressed once. The complete `.events.jsonl` retained 249 events, while the model view was reduced to a shorter history. The summary retained files, commands, and test results, but it also compressed “all relevant tests passed” and “the ID may differ from grading” into the current state. The later model mostly confirmed the existing approach instead of reopening unverified assumptions.
 
-因此压缩机制要保留的不只是“做过什么”，还应明确区分：
+The compression mechanism therefore needs to retain more than “what was done”; it must distinguish:
 
-- 已观察证据；
-- 当前假设；
-- 已否定方案；
-- 尚未验证的契约；
-- 测试覆盖了什么、没有覆盖什么；
-- 提交前仍需关闭的风险。
+- observed evidence;
+- current hypotheses;
+- rejected approaches;
+- unverified contracts;
+- what the tests covered and did not cover;
+- risks that must still be closed before submission.
 
-完整轨迹和压缩视图继续并存是正确的。默认不需要让模型读取整个 event journal；先提高摘要
-的证据结构更简单、更可控。只有实验显示摘要仍持续丢失关键证据时，再考虑分页、限额、只读
-的历史检索工具。
+Keeping the complete trajectory and the compressed view side by side is correct. The model does not need to read the entire event journal by default; improving the evidence structure of the summary is simpler and more controllable. Only if experiments show that summaries continue to lose key evidence should pagination, limits, and a read-only history lookup tool be considered.
 
-## harness 应该改什么，不应该改什么
+## What the harness should and should not change
 
-### 不应该：把隐藏测试反馈给标准评测中的 Agent
+### Should not: provide hidden-test feedback to the standard evaluation Agent
 
-官方 test patch 在提交前不可见，是 SWE-bench 的核心评测边界。若第一次失败后把具体
-FAIL_TO_PASS traceback 发回模型让它修第二次，再把第二次记作标准成绩，就等于把测试答案
-变成训练信号，结果不能和普通 SWE-bench run 比较。
+The official test patch is not visible before submission, which is a core boundary of SWE-bench. If, after the first failure, the specific FAIL_TO_PASS traceback is sent back to the model for a second fix and that second attempt is recorded as the standard score, the test answer has become a training signal and the result cannot be compared with an ordinary SWE-bench run.
 
-可以提供研发用 `repair mode`，但必须满足：
+A development `repair mode` can be provided, but it must:
 
-- 使用新的 run id；
-- 报告中标记 `harness_feedback=true`；
-- 不计入标准 resolved rate；
-- 保留每轮 patch 和测试反馈，不能覆盖第一次失败。
+- use a new run ID;
+- mark `harness_feedback=true` in the report;
+- be excluded from standard resolved-rate statistics;
+- preserve every round's patch and test feedback rather than overwriting the first failure.
 
-### 应该：强化提交前可验证证据
+### Should: strengthen evidence that can be verified before submission
 
-harness/runner 可以在不泄漏隐藏测试的前提下做这些事情：
+Without leaking hidden tests, the harness/runner can do the following:
 
-1. **候选 patch 预检**：非空、能应用、`git diff --check` 通过、没有修改禁止路径；
-2. **状态语言分离**：Runner 只称 candidate/submitted，harness 才能写 resolved；
-3. **提交前契约审计**：要求 Agent 再检查一次受影响对象的全部公开契约，而不只是最小复现；
-4. **测试证据清单**：记录精确命令、returncode，以及这些测试覆盖/未覆盖的行为；
-5. **严格运行防护**：断网、管道 `pipefail`、进程树超时清理、原始事件 append-only；
-6. **基础设施分类**：镜像拉取失败、命令超时、测试失败必须分开，不能混成 unresolved。
+1. **Precheck candidate patches**: require them to be non-empty and applicable, pass `git diff --check`, and avoid forbidden paths;
+2. **Separate status language**: let the Runner say only candidate/submitted, while only the harness can write resolved;
+3. **Audit contracts before submission**: require the Agent to recheck all public contracts of affected objects, not just the minimal reproduction;
+4. **List test evidence**: record exact commands and return codes, along with the behaviors those tests cover and do not cover;
+5. **Harden execution**: use offline networking, pipeline `pipefail`, process-tree timeout cleanup, and an append-only raw event log;
+6. **Classify infrastructure**: keep image-pull failures, command timeouts, and test failures separate rather than merging them into unresolved.
 
-## 已实施的基础改进
+## Basic improvements already implemented
 
-- `5c8358e`：严格 SWE-bench 在 tool 分发前阻止常见联网命令，同时保留
-  `--network=none` 作为安全边界；
-- `d3c56fa`：修复 runner compact factory 参数重复/遗漏绑定；
-- `ca78a76`：摘要调用后重新检查时间与费用，malformed summary response 也保留 usage；
-- `7fcecfe`：宿主机超时时同步清理容器内 exec 进程组，Windows 清理后代进程树；
-- `5d33c45`：压缩摘要明确分离契约、观察证据、精确测试范围和未验证假设；
-- `5181ce9`、`3993ac1`、`785fced`：增加通用 draft submission gate，在 SWE-bench
-  中启用无 hidden-test 反馈的契约审计，并让完整轨迹准确区分 draft 与 final submit；
-- 完整事件 sidecar、压缩模型视图和官方 harness report 继续分别保存。
+- `5c8358e`: block common network commands before tool dispatch in strict SWE-bench, while retaining `--network=none` as a safety boundary;
+- `d3c56fa`: fix duplicate/missing binding of runner compact-factory parameters;
+- `ca78a76`: recheck time and cost after a summary call, and preserve usage even for a malformed summary response;
+- `7fcecfe`: clean up exec process groups inside the container when the host timeout fires, and clean descendant process trees on Windows;
+- `5d33c45`: make compressed summaries explicitly separate contracts, observed evidence, exact test scope, and unverified assumptions;
+- `5181ce9`, `3993ac1`, `785fced`: add a general draft-submission gate, enable a no-hidden-test-feedback contract audit in SWE-bench, and make the complete trajectory distinguish draft from final submit accurately;
+- continue to save the complete event sidecar, the compressed model view, and the official harness report separately.
 
-这些改进提高运行可信度，但不会自动让错误 patch 变正确。下一层需要直接针对“验证策略”改进。
+These improvements increase runtime trustworthiness, but they do not automatically make an incorrect patch correct. The next layer must target the verification strategy directly.
 
-## 下一层机制设计
+## Next-layer mechanism design
 
-### 1. 证据导向摘要
+### 1. Evidence-oriented summaries
 
-把 summary 从“进度回顾”改成“可继续推理的状态”：必须保留 invariants/contracts、证据、
-未验证假设、测试覆盖空白和下一步关闭条件。该项已经落地；是否提升 resolved rate 仍需用
-固定变量的复现实验判断。
+Change the summary from a “progress review” into a state that supports continued reasoning: it must retain invariants/contracts, evidence, unverified assumptions, test-coverage gaps, and conditions for closing the next step. This has been implemented; whether it improves the resolved rate still requires a fixed-variable replication experiment.
 
-### 2. 提交前二阶段审计
+### 2. Two-stage pre-submission audit
 
-第一次 `submit` 只登记 draft。Agent 获得一次明确的审计机会：
+The first `submit` records only a draft. The Agent receives one explicit audit opportunity:
 
-- 这是根因修复还是症状屏蔽？
-- 哪些相关状态会被创建、转换、删除？
-- 受影响对象除 parse/execute 外还有哪些 ID、serialization、rendering 或 lifecycle 契约？
-- 新行为是否有独立于实现细节的本地 regression check？
-- 旧测试通过能证明什么，不能证明什么？
+- Is this a root-cause fix or symptom suppression?
+- Which related states are created, transformed, or deleted?
+- Besides parse/execute, which ID, serialization, rendering, or lifecycle contracts of the affected objects exist?
+- Does the new behavior have a local regression check independent of implementation details?
+- What can passing the old tests prove, and what can it not prove?
 
-完成审计后第二次 `submit` 才终止。这个机制不能保证成功，但会把“我觉得好了”转换成一组
-必须关闭的证据问题。该项已经在 SWE-bench profile 启用，第一次 draft 不运行 hidden tests，
-也不会得到 evaluator 反馈。
+Only the second `submit` terminates the run after the audit is complete. This mechanism cannot guarantee success, but it converts “I think it is fixed” into a set of evidence questions that must be closed. It is enabled in the SWE-bench profile; the first draft does not run hidden tests and receives no evaluator feedback.
 
-### 3. 可比较的实验设计
+### 3. Comparable experiment design
 
-后续重新运行同两个实例时，应固定：
+When rerunning the same two instances, keep the following fixed:
 
-- 同一 base image、模型和 thinking 设置；
-- 同一网络策略；
-- 同一 max steps/time；
-- 只改变一个机制（例如先只改 summary，再只加 submit audit）；
-- 同时报告 resolved rate、API calls、wall time、压缩次数和 contract-audit 行为。
+- the same base image, model, and thinking setting;
+- the same network policy;
+- the same max steps/time;
+- change only one mechanism (for example, change only the summary first, then add only the submit audit);
+- report resolved rate, API calls, wall time, compression count, and contract-audit behavior together.
 
-否则即使从 0/2 变成 1/2，也无法判断是哪项改进产生作用。
+Otherwise, even a change from 0/2 to 1/2 cannot reveal which improvement produced the effect.
 
-## 最重要的学习
+## Most important lesson
 
-这次失败说明，复杂 SWE-bench 实例的难点不是“能不能写代码”，而是：
+This failure shows that the difficulty of complex SWE-bench instances is not “whether code can be written,” but:
 
-> 能否从有限 issue 描述中恢复仓库维护者真正保护的抽象边界，并设计不依赖自己实现假设的
-> 验证证据。
+> Can the Agent recover the abstraction boundaries that the repository maintainers actually protect from a limited issue description, and design evidence for verification that does not depend on its own implementation assumptions?
 
-旧测试全绿、最小复现不报错、diff 很小，都只是证据的一部分。高质量 Agent 还需要主动
-寻找被遗漏的契约，以及明确承认哪些部分仍未验证。
+Green old tests, a minimal reproduction without an exception, and a small diff are all only partial evidence. A high-quality Agent must also actively look for omitted contracts and clearly acknowledge what remains unverified.
 
-导航：[实验索引](index.md) · [设计取舍](../decisions/design-tradeoffs.md) ·
-[SWE-bench 指南](../guides/swebench.md)
+Navigation: [experiment index](index.md) · [design trade-offs](../decisions/design-tradeoffs.md) · [SWE-bench guide](../guides/swebench.md)

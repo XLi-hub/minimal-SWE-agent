@@ -1,8 +1,9 @@
-# 工具参考
+# Tool Reference
 
-内置工具 schema 的权威来源是
-[`tooling/schemas.py`](../../src/mini_agent/tooling/schemas.py)，handler 与 registry 位于
-[`tools.py`](../../src/mini_agent/tools.py)。YAML 的 `tools.enabled` 决定可见与可执行集合。
+The authoritative source for built-in tool schemas is
+[`tooling/schemas.py`](../../src/mini_agent/tooling/schemas.py); handlers and the registry are in
+[`tools.py`](../../src/mini_agent/tools.py). YAML's `tools.enabled` determines which tools are visible
+and executable.
 
 ## bash
 
@@ -10,14 +11,15 @@
 bash(command: string, lines?: integer, timeout?: integer)
 ```
 
-- `command` 必填，在当前 Environment 中执行；
-- `lines` 覆盖本次 observation 的最大行数；
-- `timeout` 覆盖本次等待秒数；
-- 返回格式包含 output、return code、execution exception；
-- 输出同时受配置字符预算限制。
+- `command` is required and runs in the current Environment;
+- `lines` overrides the maximum number of lines in this observation;
+- `timeout` overrides the number of seconds to wait for this call;
+- the return format includes output, return code, and execution exception;
+- output is also subject to the configured character budget.
 
-正常非零退出保留真实 return code。timeout 或执行机械错误通常返回 `returncode=-1` 和
-`exception_info`。SWE-bench 离线 profile 会拒绝明显网络命令，并把 schema 描述改成离线。
+Normal nonzero exits preserve the real return code. A timeout or mechanical execution error usually
+returns `returncode=-1` and `exception_info`. The offline SWE-bench profile rejects obvious network
+commands and changes the schema description to indicate offline operation.
 
 ## read
 
@@ -25,10 +27,11 @@ bash(command: string, lines?: integer, timeout?: integer)
 read(path: string, line_start?: integer >= 1, lines?: integer >= 1)
 ```
 
-读取 Environment 中的 UTF-8 文件并添加行号。`line_start` 为 1-based，默认从第一行开始；
-按提示继续下一块，避免反复读取整个大文件。文件不存在、目录路径和 I/O 错误变成 observation。
+Reads a UTF-8 file from Environment and adds line numbers. `line_start` is 1-based and defaults to
+the first line; follow the prompt to continue with the next chunk instead of repeatedly reading a
+large file in full. Missing files, directory paths, and I/O errors become observations.
 
-成功与错误文本都受字符预算限制。
+Both success and error text are subject to the character budget.
 
 ## edit
 
@@ -36,9 +39,10 @@ read(path: string, line_start?: integer >= 1, lines?: integer >= 1)
 edit(path: string, old_string: string, new_string: string)
 ```
 
-读取文件，要求 `old_string` 精确出现一次，然后通过 Environment 写回。零次匹配和多次匹配
-都失败；应加入足够上下文使目标唯一。空 `new_string` 表示删除。该工具不做模糊匹配、patch
-解析或自动格式化。
+Reads a file, requires `old_string` to occur exactly once, and writes it back through Environment.
+Zero matches and multiple matches both fail; include enough context to make the target unique. An
+empty `new_string` means deletion. This tool does not perform fuzzy matching, patch parsing, or
+automatic formatting.
 
 ## write
 
@@ -46,8 +50,9 @@ edit(path: string, old_string: string, new_string: string)
 write(path: string, content: string)
 ```
 
-创建或覆盖完整文件，父目录由具体 Environment 保证。它不是 append，也不会检查文件是否
-已存在；覆盖前需要模型或调用者先 read。
+Creates or replaces a complete file; the concrete Environment ensures that the parent directory
+exists. It is not append and does not check whether the file already exists; the model or caller must
+read it first before overwriting.
 
 ## submit
 
@@ -55,10 +60,12 @@ write(path: string, content: string)
 submit(output: string)
 ```
 
-表达任务完成。普通任务可提交答案、patch 或摘要；SWE-bench prompt 要求完整 unified diff。
-若启用 review，第一次 submit 只是 draft，第二次才终止。
+Expresses task completion. An ordinary task can submit an answer, patch, or summary; the SWE-bench
+prompt requires a complete unified diff. When review is enabled, the first submit is only a draft and
+the second terminates the run.
 
-同一 assistant 批次中 submit 后的工具会收到 skipped observation，不会执行副作用。
+Tools after submit in the same assistant batch receive a skipped observation and do not execute side
+effects.
 
 ## trajectory
 
@@ -74,56 +81,59 @@ trajectory(
 )
 ```
 
-只读检索当前运行的 append-only events：
+Read-only search of append-only events from the current run:
 
-- `query` 在序列化事件中做大小写不敏感搜索；
-- `start` 是首个考虑的 sequence；
-- `events` 限制匹配条目数；
-- `event_type`、`role`、`tool_name`、`returncode` 是精确筛选；
-- 多个条件按 AND 组合；
-- tool result 可通过 call id 关联回 `tool_name`。
+- `query` performs a case-insensitive search in serialized events;
+- `start` is the first sequence to consider;
+- `events` limits the number of matching entries;
+- `event_type`, `role`, `tool_name`, and `returncode` are exact filters;
+- multiple conditions are combined with AND;
+- a tool result can be linked back to `tool_name` through its call ID.
 
-返回条数和字符数都有界，包含继续分页的 start 提示。该工具默认只在 SWE-bench review
-profile 启用。它会暴露原始事件，其中的 assistant 推理仍是不可信声明。
+Both result count and character count are bounded, and the response includes a `start` hint for
+continuing pagination. This tool is enabled by default only in the SWE-bench review profile. It
+exposes raw events, in which assistant reasoning remains an untrusted claim.
 
-## 通用错误语义
+## General Error Semantics
 
-dispatcher 在以下情况仍追加匹配 call id 的 `role=tool` error：
+The dispatcher still appends a `role=tool` error with the matching call ID in these cases:
 
-- 工具未注册；
-- 工具已注册但当前 profile 禁用；
-- `function.arguments` 不是合法 JSON；
-- JSON 顶层不是 object；
-- 必填参数缺失或类型/范围无效；
-- handler 抛出异常。
+- the tool is not registered;
+- the tool is registered but disabled by the current profile;
+- `function.arguments` is not valid JSON;
+- the top-level JSON value is not an object;
+- a required argument is missing or has an invalid type/range;
+- the handler raises an exception.
 
-模型看见错误后可以在下一轮修正。协议完整性不代表操作成功，消费者必须检查 observation。
+After seeing the error, the model can correct itself in the next round. Protocol integrity does not
+imply operation success; consumers must inspect the observation.
 
-## 输出截断
+## Output Truncation
 
-bash 和 read 先按行预算选取，再应用字符预算；超长单行无法绕过保护。截断提示说明遗漏量
-和下一步读取方式。trajectory 也应用字符预算。edit/write 的成功确认保持简短，但 handler
-异常同样经过统一 tool result 通道。
+bash and read select lines according to the line budget first, then apply the character budget; an
+overlong single line cannot bypass the protection. The truncation notice explains how much was omitted
+and how to read the next portion. trajectory also applies the character budget. Success confirmations
+from edit/write remain short, while handler exceptions use the same unified tool-result channel.
 
-## ToolContext 与 ToolResult
+## ToolContext and ToolResult
 
-handler 接收 `ToolContext(environment, config, event_log)`：
+Handlers receive `ToolContext(environment, config, event_log)`:
 
-- 环境工具使用 environment；
-- handler 从 config 读取默认预算和策略；
-- 只有 trajectory 使用 event_log，普通环境工具不依赖它。
+- environment tools use `environment`;
+- handlers read default budgets and policies from `config`;
+- only trajectory uses `event_log`; ordinary environment tools do not depend on it.
 
-handler 返回 `ToolResult(content, submission=None)`。只有 submit 设置 `submission`；是否立即
-退出由 dispatcher 与 Agent 的 review 状态决定。
+Handlers return `ToolResult(content, submission=None)`. Only submit sets `submission`; whether the run
+exits immediately is determined by the dispatcher and Agent's review state.
 
-## 扩展检查表
+## Extension Checklist
 
-1. schema name 与 registry key 完全一致；
-2. handler 不直接绕开 Environment 做文件 I/O；
-3. 配置名单同时限制 schema 和执行；
-4. 所有参数错误都有同 call id observation；
-5. 大输出有明确预算；
-6. 副作用工具在 submit/limit 后不会运行；
-7. 新增 focused tests，并更新本页。
+1. The schema name exactly matches the registry key;
+2. The handler does not bypass Environment for file I/O;
+3. The configured list limits both schemas and execution;
+4. Every argument error has an observation with the same call ID;
+5. Large output has an explicit budget;
+6. Side-effecting tools do not run after submit or a limit;
+7. Add focused tests and update this page.
 
-设计说明见[工具系统](../architecture/tool-system.md)。
+See the [Tool System](../architecture/tool-system.md) for design details.

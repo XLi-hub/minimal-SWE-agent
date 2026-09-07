@@ -1,26 +1,27 @@
-# 配置指南
+# Configuration Guide
 
-配置目标是让 prompt、预算、provider、工具和环境策略可组合，同时让 secrets 留在运行环境。
-本页讲如何操作；字段定义见[配置参考](../reference/configuration.md)。
+The configuration is designed to make prompts, budgets, providers, tools, and environment policies
+composable while keeping secrets in the runtime environment. This page explains how to use it; see
+the [Configuration Reference](../reference/configuration.md) for field definitions.
 
-## 配置来源
+## Configuration Sources
 
-最终 `Config` 由四层递归合并，后写优先：
+The final `Config` is built by recursively merging four layers, with later values taking precedence:
 
 ```text
-内置 default.yaml
-  < --config 文件或 dotted key=value（从左到右）
-  < MINI_AGENT_* 环境变量
-  < 专用 CLI 参数
+built-in default.yaml
+  < --config file or dotted key=value (left to right)
+  < MINI_AGENT_* environment variables
+  < dedicated CLI arguments
 ```
 
-普通默认文件是
-[`default.yaml`](../../src/mini_agent/config/default.yaml)。SWE-bench CLI 会先额外叠加
-[`benchmarks/swebench.yaml`](../../src/mini_agent/config/benchmarks/swebench.yaml)。
+The ordinary default file is
+[`default.yaml`](../../src/mini_agent/config/default.yaml). The SWE-bench CLI additionally overlays
+[`benchmarks/swebench.yaml`](../../src/mini_agent/config/benchmarks/swebench.yaml) first.
 
-## 使用 YAML 文件
+## Using a YAML File
 
-只写想覆盖的嵌套字段：
+Write only the nested fields you want to override:
 
 ```yaml
 model:
@@ -36,15 +37,16 @@ cost:
   price_output_per_1m: 4.0
 ```
 
-运行：
+Run it with:
 
 ```bash
-minimal --config my-provider.yaml --task "检查项目"
+minimal --config my-provider.yaml --task "inspect the project"
 ```
 
-`--config` 可重复，后面的文件或 key=value 覆盖前面，但不会抹掉未提及的同层字段。
+`--config` can be repeated. Later files or key=value entries override earlier ones without erasing
+unmentioned fields at the same level.
 
-## 覆盖单个字段
+## Overriding a Single Field
 
 ```bash
 minimal -c agent.max_steps=50 -c environment.type=docker
@@ -52,63 +54,68 @@ minimal -c 'tools.enabled=["bash","submit"]'
 minimal -c agent.cost_limit=null
 ```
 
-值先尝试按 JSON 解析：数字、布尔、null、数组和对象保留类型；普通未加引号的文本作为字符串。
-key 中不能出现空段。
+Values are first parsed as JSON: numbers, booleans, null, arrays, and objects retain their types;
+ordinary unquoted text becomes a string. Keys may not contain empty segments.
 
-环境变量用双下划线表达嵌套：
+Environment variables express nesting with double underscores:
 
 ```bash
 MINI_AGENT_AGENT__MAX_STEPS=50 minimal
 MINI_AGENT_ENVIRONMENT__BLOCK_NETWORK_COMMANDS=true minimal
 ```
 
-专用 CLI 参数如 `--max-steps`、`--env` 和 `--image` 优先级最高。未传入的 flag 使用内部
-`UNSET` 哨兵，不能意外把 YAML 值覆盖成 `None`。
+Dedicated CLI arguments such as `--max-steps`, `--env`, and `--image` have the highest priority.
+Flags that are not passed use the internal `UNSET` sentinel and cannot accidentally overwrite a YAML
+value with `None`.
 
-## 保护 API key
+## Protecting API Keys
 
-YAML 的 `model.api_key_env` 是环境变量名称，不是密钥：
+`model.api_key_env` in YAML is the name of an environment variable, not the secret itself:
 
 ```yaml
 model:
   api_key_env: OPENAI_API_KEY
 ```
 
-真实值放在未提交的 `.env` 或进程环境：
+Put the actual value in an uncommitted `.env` file or the process environment:
 
 ```bash
-OPENAI_API_KEY=... minimal --task "检查项目"
+OPENAI_API_KEY=... minimal --task "inspect the project"
 ```
 
-不要把 key 放进 `model_kwargs`、trajectory、命令参数或可提交的 profile。Docker 的
-`forward_env` 也应最小化；模型 provider key 通常只需留在宿主 Model，不应进入执行容器。
+Do not put the key in `model_kwargs`, a trajectory, command arguments, or a committable profile.
+Docker's `forward_env` should also be minimal; a model provider key usually only needs to remain in
+the host Model and should not enter the execution container.
 
-## Prompt 模板
+## Prompt Templates
 
-`agent.instance_template` 与 `summary_prompt` 使用 Jinja2 `{{ variable }}`。渲染启用
-`StrictUndefined`，拼错变量会立即失败，不会静默生成缺字段 prompt。
+`agent.instance_template` and `summary_prompt` use Jinja2 `{{ variable }}`. Rendering enables
+`StrictUndefined`, so a misspelled variable fails immediately instead of silently generating a
+prompt with missing fields.
 
-自定义 system/instance prompt 时仍要保留：
+When customizing the system or instance prompt, still retain:
 
-- 允许的工作目录和安全策略；
-- 工具使用与最终 submit 约定；
-- 测试结果必须检查 return code；
-- benchmark 中不得检索上游答案或修改测试的限制。
+- the allowed working directory and security policy;
+- tool-use and final-submit conventions;
+- the requirement to check return codes for test results;
+- the benchmark restriction against retrieving upstream answers or modifying tests.
 
-## 工具 profile
+## Tool Profiles
 
-默认 profile 启用 bash、submit、read、edit、write。只用 bash 的教学对照可叠加：
+The default profile enables bash, submit, read, edit, and write. For a bash-only teaching comparison,
+you can overlay:
 
 ```bash
-minimal --config default_bash --task "检查项目"
+minimal --config default_bash --task "inspect the project"
 ```
 
-`tools.enabled` 同时控制发给模型的 schema 和 dispatcher 权限。启用名称必须已在 registry
-注册，列表不能为空、不能重复。
+`tools.enabled` controls both the schemas sent to the model and dispatcher permissions. Every enabled
+name must be registered in the registry; the list cannot be empty or contain duplicates.
 
-## Review 配置
+## Review Configuration
 
-设置 `submission_review_prompt` 后，首次 submit 成为 draft。若要 clean-context review：
+After `submission_review_prompt` is set, the first submit becomes a draft. To enable clean-context
+review:
 
 ```yaml
 agent:
@@ -118,13 +125,14 @@ agent:
   submission_review_checkpoint_context: true
 ```
 
-checkpoint 依赖 prompt 和 reset，两者缺一时配置校验失败。它额外进行摘要请求，必须纳入
-费用和时间估算。
+The checkpoint depends on both the prompt and reset settings; validation fails if either is missing.
+It makes an additional summary request, which must be included in cost and time estimates.
 
-## 验证配置
+## Validating Configuration
 
-所有层合并后由 pydantic `Config` 校验：未知字段被拒绝，数值范围、工具名单、reserved
-model kwargs 和 review 组合都有约束。修改内置 YAML 后运行：
+After all layers are merged, pydantic `Config` validates the result: unknown fields are rejected, and
+constraints cover numeric ranges, the tool list, reserved model kwargs, and review combinations. After
+modifying the built-in YAML, run:
 
 ```bash
 conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
@@ -132,12 +140,12 @@ conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   tests/test_config_read_edit.py -q -p no:anyio
 ```
 
-## 常见问题
+## Common Problems
 
-- `KeyError: OPENAI_API_KEY`：设置 `api_key_env` 指向的环境变量；
-- 配置看似没生效：检查是否被环境变量或专用 CLI flag 以更高优先级覆盖；
-- 字符串被解析成数字/布尔：在 key=value 中使用 JSON 引号；
-- cost limit 不停：为当前 provider 配置真实非零价格；
-- Docker 选项影响 local：多数 Docker 字段在 local 中被忽略，这是共享 model 的设计结果。
+- `KeyError: OPENAI_API_KEY`: set the environment variable named by `api_key_env`;
+- configuration appears ineffective: check whether an environment variable or dedicated CLI flag overrides it with higher priority;
+- a string is parsed as a number/boolean: use JSON quotes in key=value;
+- the cost limit does not stop a run: configure real, nonzero prices for the current provider;
+- Docker options affect Local: most Docker fields are ignored by Local, a consequence of sharing the model configuration.
 
-返回[文档首页](../index.md)。
+Return to the [Documentation Home](../index.md).

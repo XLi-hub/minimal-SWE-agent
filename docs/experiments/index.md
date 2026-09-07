@@ -1,80 +1,69 @@
-# 实验索引
+# Experiment Index
 
-这里保存有明确时间与样本背景的 SWE-bench 实验。它们解释当时观察到的失败和设计变化，
-不充当当前 API、默认值或排行榜声明。阅读时应对照当前[架构](../architecture/overview.md)与
-[SWE-bench 指南](../guides/swebench.md)。
+This directory contains SWE-bench experiments with explicit dates and sample context. They explain the failures and design changes observed at the time; they do not serve as claims about the current API, defaults, or leaderboard. When reading them, compare them with the current [architecture](../architecture/overview.md) and [SWE-bench guide](../guides/swebench.md).
 
-## 推荐顺序
+## Recommended order
 
-1. [Verified 两实例回顾](swebench-verified-deepseek-v4-retrospective.md)：从表面 2/2 结果中
-   识别污染、轨迹和 pipeline 风险；
-2. [高难双实例 0/2 分析](swebench-verified-hard-0-of-2-analysis.md)：为什么自测绿色仍未恢复
-   隐含数据模型与 AST 契约；
-3. [审计复跑](swebench-verified-hard-audit-rerun.md)：draft audit 改善了过程，但没有把结果
-   变成成功；
-4. [Clean-review 续试](swebench-clean-review-followup.md)：去锚定、轨迹回查与 harness 事故
-   如何分层归因。
+1. [Verified two-instance retrospective](swebench-verified-deepseek-v4-retrospective.md): identify contamination, trajectory, and pipeline risks in an apparently successful 2/2 result;
+2. [Hard two-instance 0/2 analysis](swebench-verified-hard-0-of-2-analysis.md): why green self-tests still failed to restore the implicit data-model and AST contracts;
+3. [Audit rerun](swebench-verified-hard-audit-rerun.md): draft audit improved the process but did not turn the result into a success;
+4. [Clean-review follow-up](swebench-clean-review-followup.md): how de-anchoring, trajectory review, and harness incidents should be attributed in separate layers.
 
-## 共同主题
+## Common themes
 
-- `submitted` 只说明 Agent 接受了一个结果；
-- 本地测试通过只覆盖实际运行的输入与 assertion；
-- 官方 harness resolved 是独立结果，也可能受基础设施影响；
-- assistant 的自我评价不是证据；
-- 完整 events、return code、patch 和报告应共同保存；
-- 少量、挑选或已公开污染的样本不能支持宽泛能力结论。
+- `submitted` only means that the Agent accepted a result;
+- passing local tests covers only the inputs and assertions that actually ran;
+- an official harness `resolved` result is independent evidence and may also be affected by infrastructure;
+- the assistant's self-assessment is not evidence;
+- complete events, return codes, patches, and reports should be preserved together;
+- small, selected, or known-contaminated samples cannot support broad capability claims.
 
-## 当前机制映射
+## Mapping to current mechanisms
 
-| 实验问题 | 当前代码位置 | 说明 |
+| Experiment question | Current code location | Description |
 |---|---|---|
-| 压缩覆盖原始历史 | `context.py` + `persistence.py` | messages/events 双视图 |
-| 作者结论污染 review | `evidence.py` | 机器事实 checkpoint |
-| clean review 丢失探索 | `trajectory` tool | 有界、按需回查 |
-| pipeline 假成功 | SWE-bench YAML interpreter | Bash pipefail |
-| 外部检索污染 | Docker run args + network policy | network none 是实际边界 |
-| gold 字段进入轨迹 | benchmark metadata allowlist | 只保留公开字段 |
-| runner 过于集中 | `benchmarks/_swebench/` | dataset/storage 下沉 |
+| Compression hides original history | `context.py` + `persistence.py` | Two views: messages/events |
+| Author conclusions contaminate review | `evidence.py` | Machine-fact checkpoint |
+| Clean review loses exploration history | `trajectory` tool | Bounded, on-demand lookup |
+| Pipeline false success | SWE-bench YAML interpreter | Bash `pipefail` |
+| Contamination from external retrieval | Docker run args + network policy | `network none` is the actual boundary |
+| Gold fields enter the trajectory | Benchmark metadata allowlist | Retain only public fields |
+| Runner is too centralized | `benchmarks/_swebench/` | Move dataset/storage downward |
 
-## 如何引用实验
+## How to cite an experiment
 
-报告结论时至少附上：代码版本、配置 profile、模型/provider、实例 id、generation status、
-完整 patch、精确测试命令与 return code、harness 版本和最终报告。若缺一项，应明确称为限制。
+When reporting a conclusion, include at least: code version, configuration profile, model/provider, instance ID, generation status, complete patch, exact test command and return code, harness version, and final report. If any item is missing, explicitly describe it as a limitation.
 
-实验记录中的模型能力、provider 上下文窗口、价格或外部 benchmark 状态可能已经变化；
-当前运行配置以 YAML 和 provider 官方信息为准。
+Model capabilities, provider context windows, prices, and external benchmark status in experiment records may have changed. Use the YAML configuration and the provider's official information for the current runtime configuration.
 
-## 报告模板
+## Report template
 
-新增实验记录时，建议包含以下最小结构：
+When adding an experiment record, the following minimal structure is recommended:
 
 ```text
-问题：这次只改变哪个变量，想证伪什么？
-设置：commit、profile diff、provider/model、instance selection、seed
-Generation：exit status、steps、API calls、cost、wall time
-证据：命令、return code、测试输入与 assertion、最终 patch
-Evaluation：harness command/version、基础设施状态、resolved report
-结论：观察支持什么，不支持什么
-下一步：保持哪些变量不变，下一轮只改什么
+Question: Which single variable changed this time, and what hypothesis is it intended to falsify?
+Setup: commit, profile diff, provider/model, instance selection, seed
+Generation: exit status, steps, API calls, cost, wall time
+Evidence: command, return code, test inputs and assertions, final patch
+Evaluation: harness command/version, infrastructure status, resolved report
+Conclusion: What does the observation support, and what does it not support?
+Next step: Which variables remain fixed, and what is the only change for the next round?
 ```
 
-不要只粘贴模型自述或末尾几行测试输出。对 pipeline 命令记录 `pipefail` 状态；对超时记录
-是否终止进程树；对 review 记录作者阶段、checkpoint 摘要与 reviewer 阶段各自调用量。
+Do not paste only the model's self-report or the last few lines of test output. For pipeline commands, record the `pipefail` state; for timeouts, record whether the process tree was terminated; for reviews, record the author-stage checkpoint summary and the reviewer-stage call counts separately.
 
-## 可比性检查
+## Comparability checks
 
-- 实例集合、split 或排序变化时，不直接比较 resolve rate；
-- prompt、模型、预算和 review 同时变化时，只能称为系统级对比；
-- 重跑同一公开任务会有记忆或数据污染风险；
-- harness 事故必须与 patch 语义失败分开；
-- “旧测试通过”只能证明执行到的旧契约，不能覆盖新增行为；
-- 同一实现派生出的 stringify/hash/render 互相一致，不算独立 oracle；
-- 结果为 0/2 或 2/2 的小样本都不支持总体能力估计。
+- When the instance set, split, or ordering changes, do not compare resolve rates directly;
+- when the prompt, model, budget, and review all change together, describe the result only as a system-level comparison;
+- rerunning the same public task carries a risk of memorization or data contamination;
+- harness incidents must be separated from patch-semantic failures;
+- “old tests pass” proves only the old contract that was executed, not newly added behavior;
+- stringify/hash/render results derived from the same implementation agreeing with one another do not constitute independent oracles;
+- neither a 0/2 nor a 2/2 result from a tiny sample supports an estimate of overall capability.
 
-## 与正式文档的边界
+## Boundary with formal documentation
 
-实验提出并已实现的机制，应在 architecture/reference 页面以当前代码语义重写；未实现想法
-留在报告中，不写成默认能力。若报告内的计划后来改变，保留原文并从索引链接当前设计，
-不要回写历史让实验显得事后必然。
+Mechanisms proposed by an experiment and already implemented should be rewritten on architecture/reference pages using the semantics of the current code; unimplemented ideas should remain in the report and should not be presented as default capabilities. If a plan in a report later changes, preserve the original text and link from the index to the current design; do not rewrite history to make the experiment look inevitable in retrospect.
 
-返回[文档首页](../index.md)。
+Return to the [documentation home](../index.md).

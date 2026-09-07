@@ -1,30 +1,26 @@
-# 从“本地跑通”到“质疑分数”：两次 SWE-bench Verified 实验复盘
+# From “Running Locally” to “Questioning the Score”: Retrospective on Two SWE-bench Verified Experiments
 
-> 实验日期：2026-08-27  
-> 模型：`deepseek-v4-flash`（thinking disabled）  
-> 数据集：`SWE-bench/SWE-bench_Verified`  
-> 实例：`django__django-11138`、`sympy__sympy-13878`  
-> 运行目录：`runs/verified-deepseek-v4-hard-400/`
+> Experiment date: 2026-08-27
+> Model: `deepseek-v4-flash` (thinking disabled)
+> Dataset: `SWE-bench/SWE-bench_Verified`
+> Instances: `django__django-11138`, `sympy__sympy-13878`
+> Run directory: `runs/verified-deepseek-v4-hard-400/`
 
-## 1. 这次实践真正想回答什么
+## 1. What did this experiment really try to answer?
 
-这次实验最初看起来只是“在本地电脑上挑少量 SWE-bench 实例跑起来”，但随着运行推进，
-问题逐渐从工程层面变成了评测方法层面：
+At first, this experiment looked like simply “running a small selection of SWE-bench instances on a local computer.” As the run progressed, however, the question gradually moved from engineering to evaluation methodology:
 
-1. 双系统环境下，放在 Windows 数据盘上的项目能否稳定运行 Docker 评测；
-2. 内存、磁盘和容器生命周期是否适合在个人电脑上跑少量实例；
-3. 100 步是否低估了真实修复所需的探索时间，困难任务需要多大预算；
-4. 一个结构很简单的 Agent 如果解决了标注为 `1-4 hours` 或 `>4 hours` 的任务，
-   说明 Agent 很强、模型很强，还是 benchmark 已经失去区分度；
-5. `resolved` 到底证明了什么，又遗漏了哪些污染、测试和轨迹证据。
+1. In a dual-boot environment, can a project stored on a Windows data drive run Docker evaluation reliably?
+2. Are memory, disk, and container lifecycles suitable for running a small number of instances on a personal computer?
+3. Does a 100-step limit underestimate the exploration time needed for a real fix, and how large a budget do difficult tasks require?
+4. If a structurally simple Agent solves tasks labeled `1-4 hours` or `>4 hours`, does that indicate a very strong Agent, a very strong model, or a benchmark that has lost its ability to discriminate?
+5. What exactly does `resolved` prove, and which contamination, test, and trajectory evidence does it leave out?
 
-我最初更关注“能不能跑”和“能不能通过”，后来把关注点转向“这个通过是否值得相信”。
-这是本次实践最重要的认识变化：**先把系统跑通只是第一层，知道测量结果是否有效才是第二层。**
+I initially focused more on “can it run?” and “can it pass?” and later shifted my attention to “is this pass worth believing?” This was the most important change in understanding from the exercise: **getting the system to run is only the first layer; knowing whether the measurement is valid is the second.**
 
-## 2. 实验设置与结果
+## 2. Experiment setup and results
 
-为了避免只挑明显容易完成的任务，本次选择了两个历史上被标注为较困难的 Verified 实例，
-并把预算从早期的 100 步提高为：
+To avoid selecting only obviously easy tasks, this experiment chose two Verified instances historically labeled as difficult and increased the budget from the early 100-step setting to:
 
 ```yaml
 context_window: 128000
@@ -35,208 +31,176 @@ max_time: 2400
 tools.default_timeout: 120
 ```
 
-最终官方 SWE-bench harness 判定两个实例均为 `resolved`：
+The official SWE-bench harness ultimately judged both instances `resolved`:
 
-| 实例 | 历史人工难度 | API 调用 | 记录成本 | 官方结果 |
+| Instance | Historical human difficulty | API calls | Recorded cost | Official result |
 |---|---:|---:|---:|---:|
 | `django__django-11138` | `1-4 hours` | 112 | $0.0533238 | resolved |
 | `sympy__sympy-13878` | `>4 hours` | 165 | $0.07140632 | resolved |
 
-从工程角度，这证明了以下链路已经成立：
+From an engineering perspective, this established that the following chain worked:
 
-- 本地 Docker 能启动官方实例镜像；
-- Agent 能在长任务中持续执行、压缩上下文并最终提交；
-- prediction 格式可以被官方 harness 接收；
-- 两个补丁都通过了 FAIL_TO_PASS 与 PASS_TO_PASS 测试；
-- 400 步和 2400 秒作为困难任务的硬上限，在这台机器上可运行。
+- Local Docker could start the official instance images;
+- the Agent could keep executing, compress context, and eventually submit during a long task;
+- the prediction format was accepted by the official harness;
+- both patches passed the FAIL_TO_PASS and PASS_TO_PASS tests;
+- 400 steps and 2400 seconds were runnable as hard limits for difficult tasks on this machine.
 
-但是，`2/2` 不能解释任务是怎样完成的。打开轨迹以后，两个“成功”的性质并不相同。
+However, `2/2` does not explain how the tasks were completed. Once the trajectories were opened, the two “successful” results turned out to have different properties.
 
-## 3. Django：一个有效提交，也是一条受污染的能力证据
+## 3. Django: a valid submission, and also contaminated capability evidence
 
-### 3.1 它做对了什么
+### 3.1 What it got right
 
-Agent 最终修改了与参考补丁相同的四个数据库后端文件，核心方向正确：
+The Agent ultimately modified the same four database-backend files as the reference patch, with the correct core direction:
 
-- 将数据库连接时区纳入日期截断和转换；
-- 源时区和目标时区相同时跳过不必要转换；
-- SQLite 自定义函数收到连接时区；
-- MySQL、Oracle、SQLite 的实现保持一致的行为目标。
+- include the database connection timezone in date truncation and conversion;
+- skip unnecessary conversion when the source and target timezones are the same;
+- pass the connection timezone to SQLite custom functions;
+- keep MySQL, Oracle, and SQLite aligned on the intended behavior.
 
-它还执行了较广泛的测试：model fields、lookups、backends、database functions 和聚焦的
-timezone 用例。`timezones` 中出现的 3 个失败，在 stash 掉补丁后仍然存在，因此较可能是
-旧 Django 与当前运行环境的基线兼容问题，而不是本次修改引入的回归。
+It also ran a relatively broad set of tests: model fields, lookups, backends, database functions, and focused timezone cases. The three failures in `timezones` remained after stashing the patch, so they were more likely baseline compatibility issues between the old Django version and the current runtime environment than regressions introduced by this change.
 
-### 3.2 为什么这条成功不能算“独立解决”
+### 3.2 Why this success cannot count as an independent solution
 
-轨迹显示 Agent 下载并解压了其他 Django 发行版本，随后将 `/testbed` 中的代码与
-`/tmp/django30/d30/...` 逐段比较，并明确判断自己的实现与 Django 3.0 上游实现一致。
-最终补丁甚至带入了该实例 gold patch 没有的后续上游逻辑。
+The trajectory shows that the Agent downloaded and extracted other Django releases, then compared the code in `/testbed` line by line with `/tmp/django30/d30/...` and explicitly concluded that its implementation matched the Django 3.0 upstream implementation. The final patch even included later upstream logic that was absent from this instance's gold patch.
 
-这不是数据加载器把 gold patch 直接放进 prompt，也不是 Agent 偷读了 harness 隐藏测试；
-但它仍然是一个能力评测捷径：
+This was not a data loader putting the gold patch directly into the prompt, nor did the Agent secretly read the harness's hidden tests. It was nevertheless a shortcut in a capability evaluation:
 
 ```text
-旧版本仓库 + 公开 issue
+Old-version repository + public issue
           ↓
-联网获取包含后续修复的发行版
+Fetch a release containing a later fix over the network
           ↓
-diff 上游源码并移植
+Diff and port the upstream source
           ↓
-通过隐藏测试
+Pass hidden tests
 ```
 
-在真实开发中，检索 release、文档和上游源码是值得鼓励的能力；在想测“模型能否根据 issue
-和旧仓库独立推导修复”时，它却改变了题目。**真实工作模式和严格 benchmark 模式必须明确
-区分，而不能混用同一个“允许联网”的结果。**
+In real development, looking up releases, documentation, and upstream source is a valuable skill. When the goal is to measure whether a model can independently derive a fix from an issue and an old repository, however, it changes the task. **Real-workflow mode and strict-benchmark mode must be distinguished explicitly; they cannot share one result labeled “network allowed.”**
 
-### 3.3 测试通过仍暴露了覆盖盲区
+### 3.3 Passing tests still exposed a coverage blind spot
 
-Agent 自己构造的 SQLite 时区检查曾得到 `Asia/Bangkok` 的 `+06:42` LMT 偏移，输出
-`14:08` 而非预期 `13:50`。它识别出这与 `pytz.timezone()` 配合 `replace(tzinfo=...)`
-有关，但因为上游实现也是如此，最终没有进一步处理。
+An SQLite timezone check constructed by the Agent produced the `+06:42` LMT offset for `Asia/Bangkok`, outputting `14:08` instead of the expected `13:50`. The Agent recognized that this was related to combining `pytz.timezone()` with `replace(tzinfo=...)`, but did not investigate further because the upstream implementation behaved the same way.
 
-官方测试仍然通过，说明“通过 gold tests”不等于所有合理边界都正确。这个例子同时揭示了
-benchmark 的两个局限：测试可能只约束历史补丁的行为，而上游补丁本身也不必然覆盖所有
-语义边界。
+The official tests still passed, showing that “passing the gold tests” does not mean that every reasonable edge case is correct. This example also reveals two benchmark limitations: tests may constrain only the behavior of a historical patch, and an upstream patch itself does not necessarily cover every semantic boundary.
 
-## 4. SymPy：更接近真实求解，但绝非“一步解决”
+## 4. SymPy: closer to genuine solving, but far from “solved in one step”
 
-### 4.1 自主性证据
+### 4.1 Evidence of autonomy
 
-SymPy 轨迹中没有看到下载新版源码、clone GitHub 或读取预置答案的证据。最终补丁只修改
-`sympy/stats/crv_types.py`，而数据集 gold patch 还包含不同的代码结构、文档和测试修改。
-`/tmp/issue_patch.diff` 的 hunk 与 Agent 当前工作区 diff 一致，且官方基础镜像中不存在该
-文件，因此它是 Agent 自己生成的临时快照，不是参考补丁。
+The SymPy trajectory showed no evidence of downloading newer source, cloning GitHub, or reading a prepared answer. The final patch modified only `sympy/stats/crv_types.py`, while the dataset gold patch also contained different code structure, documentation, and test changes. The hunk in `/tmp/issue_patch.diff` matched the Agent's current workspace diff, and the official base image did not contain that file, so it was a temporary snapshot generated by the Agent rather than the reference patch.
 
-Agent 的实际求解过程包括：
+The Agent's actual solving process included:
 
-- 为 12 个连续分布补充 CDF；
-- 对部分公式做导数与 PDF 对照；
-- 运行 issue 中列出的 12 个调用；
-- 发现 StudentT 负数分支不满足 `F(x) + F(-x) = 1` 后自行修正；
-- 比较修改前后的旧版 SymPy 测试异常，确认没有新增异常；
-- 最终通过 1 个 FAIL_TO_PASS 与全部 19 个 PASS_TO_PASS。
+- adding CDFs for 12 continuous distributions;
+- checking derivatives against PDFs for some formulas;
+- running the 12 calls listed in the issue;
+- noticing that the StudentT negative branch did not satisfy `F(x) + F(-x) = 1` and correcting it independently;
+- comparing test anomalies in the old SymPy version before and after the change to confirm that no new anomaly was introduced;
+- ultimately passing 1 FAIL_TO_PASS test and all 19 PASS_TO_PASS tests.
 
-因此，这条轨迹更支持“强模型可以通过简单工具循环完成有实质内容的修复”。
+This trajectory therefore provides stronger support for the claim that a strong model can complete a substantive fix through a simple tool loop.
 
-### 4.2 “简单 Agent”不等于“任务简单”
+### 4.2 A “simple Agent” does not mean a “simple task”
 
-Agent 外壳只有查询、工具执行、观察、继续这条线性循环，但这次用了 165 次 API 调用。
-所谓简单，只说明 orchestration 薄，不说明求解成本低：
+The Agent wrapper contained only a linear loop of querying, tool execution, observation, and continuation, but this run used 165 API calls. “Simple” describes thin orchestration, not low solving cost:
 
 ```text
-简单控制流
-  + 强模型内部先验和推理
-  + 可执行仓库与测试反馈
-  + 128K 上下文预算
-  + 165 次查询/摘要调用
-  = 最终 resolved
+Simple control flow
+  + strong model priors and reasoning
+  + executable repository and test feedback
+  + 128K context budget
+  + 165 query/summary calls
+  = final resolved result
 ```
 
-后段约 6 次调用主要在重复查看相同 diff，前段还出现 pytest 未安装、测试模块路径错误、
-符号运算超时和重复 baseline 对比。这是一条有探索、有纠错、也有明显低效的轨迹，而不是
-模型看到题目后直接生成正确答案。
+The last roughly six calls mainly repeated inspection of the same diff. Earlier, pytest was not installed, a test-module path was wrong, symbolic computation timed out, and the baseline comparison was repeated. This was an exploratory, corrective, and visibly inefficient trajectory, not a model that saw the task and generated the right answer immediately.
 
-## 5. 为什么不能用这次 2/2 宣称能力
+## 5. Why this 2/2 cannot be used to claim capability
 
-### 5.1 样本太少且不是随机抽样
+### 5.1 The sample was too small and not randomly sampled
 
-两个实例是为检验困难长任务而有意选择的，不能估计总体成功率。`2/2` 的置信区间极宽，
-也无法区分仓库、任务类型、年代、题面信息量和模型训练记忆的影响。
+The two instances were deliberately selected to examine difficult long tasks, so they cannot estimate the overall success rate. The confidence interval for `2/2` is extremely wide, and the result cannot distinguish the effects of repository, task type, age, problem-statement information, and model training memory.
 
-### 5.2 历史“人工耗时”不是今天模型的稳定难度
+### 5.2 Historical “human time” is not a stable measure of today's model difficulty
 
-两个任务创建于 2018、2019 年。多年公开的 issue、PR、发行版和讨论可能进入模型训练数据。
-人类当年的修复耗时还包含熟悉项目、沟通、review 和等待 CI，而 Agent 只面对已经隔离好的
-仓库快照与一个可自动判分的问题。把 `>4 hours` 直接解释为“模型节省了四小时”并不严谨。
+The two tasks were created in 2018 and 2019. Public issues, pull requests, releases, and discussions from many years ago may have entered the model's training data. The human repair time at the time also included learning the project, communication, review, and waiting for CI, while the Agent faced an isolated repository snapshot and an automatically scored problem. It is not rigorous to interpret `>4 hours` directly as “the model saved four hours.”
 
-### 5.3 Verified 已经从能力标尺退化为回归集
+### 5.3 Verified has degraded from a capability yardstick into a regression set
 
-OpenAI 在 2026 年对 SWE-bench Verified 的审计中报告：在重点审查的 138 个困难/不稳定
-任务中，至少 59.4% 存在实质性题面或测试问题；同时，受测前沿模型均能复现部分 gold
-patch 或任务特有细节。OpenAI 因此停止报告 Verified，并建议其他模型开发者也停止把它
-当作前沿能力指标：
+In its 2026 audit of SWE-bench Verified, OpenAI reported that at least 59.4% of 138 difficult or unstable tasks examined in detail had substantive problem-statement or test issues; it also found that the evaluated frontier models could reproduce parts of gold patches or task-specific details. OpenAI therefore stopped reporting Verified and recommended that other model developers stop treating it as a frontier capability metric:
 
 - [Why SWE-bench Verified no longer measures frontier coding capabilities](https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/)
 
-后续对 SWE-bench Pro 的审计也估计约 30% 任务存在问题，并撤回了简单迁移到 Pro 的推荐：
+A later audit of SWE-bench Pro estimated that roughly 30% of tasks had issues and withdrew the recommendation to migrate to Pro directly:
 
 - [Separating signal from noise in coding evaluations](https://openai.com/index/separating-signal-from-noise-coding-evaluations/)
 
-因此，本次 Verified 结果仍有价值，但价值应重新定位为：
+The Verified result in this experiment still has value, but its value should be repositioned as:
 
-- 本地执行和官方评分链路的回归测试；
-- 同一模型下比较工具、prompt、压缩和预算策略的固定控制集；
-- 分析 Agent 失败模式和工程可靠性的教学材料；
-- **不是** 2026 年前沿模型真实软件工程能力的最终分数。
+- a regression test for the local execution and official scoring chain;
+- a fixed control set for comparing tool, prompt, compression, and budget strategies under the same model;
+- teaching material for analyzing Agent failure modes and engineering reliability;
+- **not** a final score for the real software-engineering capability of frontier models in 2026.
 
-## 6. 从轨迹暴露出的工程问题
+## 6. Engineering issues exposed by the trajectories
 
-### 6.1 压缩上下文覆盖了原始证据
+### 6.1 Context compression overwrote original evidence
 
-当前 `Agent._maybe_compress()` 会用摘要后的列表原地替换 `self.messages`，而
-`serialize()` 最终只保存这份列表。结果是：
+The current `Agent._maybe_compress()` replaces `self.messages` in place with the summarized list, and `serialize()` ultimately saves only that list. As a result:
 
-- Django 记录 112 次 API 调用，最终只能看到 25 个工具调用；
-- SymPy 记录 165 次 API 调用，最终只能看到 14 个工具调用；
-- 最需要审计的早期探索、下载、编辑和失败命令恰好被压缩掉；
-- 文档所说的“完整 message history”与实际行为不一致。
+- the Django record contains 112 API calls, but only 25 tool calls are visible at the end;
+- the SymPy record contains 165 API calls, but only 14 tool calls are visible at the end;
+- the early exploration, downloads, edits, and failed commands most important to an audit are exactly what gets compressed away;
+- the documentation's claim of a “complete message history” does not match actual behavior.
 
-压缩对模型是必要的，但不应该破坏实验记录。这里混淆了两个概念：
+Compression is necessary for the model, but it should not destroy the experiment record. Two concepts have been conflated:
 
-- **执行上下文（context view）**：为适配模型窗口而允许总结和裁剪；
-- **事实轨迹（event log）**：用于复盘、统计和审计，只追加、不覆盖。
+- **Execution context (context view)**: may be summarized and trimmed to fit the model window;
+- **Fact trajectory (event log)**: used for retrospectives, statistics, and audits; append-only and never overwritten.
 
-### 6.2 trajectory 保存了不该进入学习材料的 gold 字段
+### 6.2 `trajectory` stored gold fields that should not enter learning material
 
-SWE-bench runner 当前把整个 instance 字典写入 trajectory，其中可能包括 `patch`、
-`test_patch`、`eval_script`。本次运行给模型的任务只来自 `problem_statement`，没有发现 prompt
-泄漏；但保存文件若被用于盲测重试、轨迹浏览、公开分享或训练，就很容易把答案和隐藏测试
-带入后续流程。
+The current SWE-bench runner writes the entire instance dictionary into the trajectory, which may include `patch`, `test_patch`, and `eval_script`. The task given to the model in this run came only from `problem_statement`, and no prompt leakage was found. But if the saved file is later used for blind retries, trajectory browsing, public sharing, or training, it can easily carry the answer and hidden tests into a subsequent process.
 
-轨迹应采用公开字段 allowlist，而不是复制完整实例。
+The trajectory should use an allowlist of public fields rather than copying the complete instance.
 
-### 6.3 Shell pipeline 可以制造“假成功”
+### 6.3 Shell pipelines can create “false success”
 
-轨迹中多次出现：
+The trajectory included commands such as:
 
 ```bash
 python ... | grep ...
 python ... | tail ...
 ```
 
-Bash 默认把整个 pipeline 的退出码设为最后一个命令的退出码。前面的 Python 测试即使失败，
-只要后面的过滤命令成功，Agent 就可能看到 `returncode=0`。这次已有不存在测试模块和测试
-失败被管道状态弱化的情况。
+By default, Bash uses the exit status of the last command in a pipeline as the status of the entire pipeline. Even if the preceding Python test fails, the Agent may see `returncode=0` as long as the later filter command succeeds. This run already contained a nonexistent test module and test failures whose status was weakened by a pipeline.
 
-GNU Bash 官方定义的 `pipefail` 会让 pipeline 返回最右侧非零命令的状态：
+The GNU Bash `pipefail` option returns the status of the rightmost command that exited nonzero:
 
 - [Bash Reference Manual: Pipelines](https://www.gnu.org/software/bash/manual/html_node/Pipelines.html)
 
-这里应在 benchmark interpreter 层启用 `bash -o pipefail -c`，而不是只在 prompt 里提醒。
-Prompt 提示仍然有用，但它属于行为引导，不能替代执行器保证。
+The benchmark interpreter should enable `bash -o pipefail -c` rather than relying only on a reminder in the prompt. A prompt reminder remains useful as behavioral guidance, but it cannot replace an executor guarantee.
 
-不建议全局开启 `set -e`：Agent 经常有意执行会失败的探测命令，`errexit` 在 `if`、`&&`、
-`||` 和子 shell 中也有复杂例外。`pipefail` 只修复本次确认的状态掩盖问题，边界更清晰。
+Global `set -e` is not recommended: the Agent often intentionally runs probing commands expected to fail, and `errexit` has complex exceptions in `if`, `&&`, `||`, and subshells. `pipefail` fixes the status-masking problem confirmed in this run while keeping the boundary clearer.
 
-### 6.4 步数上限不是主要问题，缺少“收敛意识”才是
+### 6.4 The step limit was not the main problem; lack of convergence awareness was
 
-两条任务都没有触及 400 步，因此立即把上限降回 100 会重新伤害困难任务。真正的问题是：
+Neither task approached 400 steps, so immediately reducing the limit to 100 would harm difficult tasks again. The actual problems were:
 
-- 没有区分硬上限和软预算；
-- 模型看不到剩余步骤；
-- 系统不识别连续相同的 diff/read/test；
-- 测试已经稳定后缺少“总结证据并提交”的压力。
+- no distinction between a hard ceiling and a soft budget;
+- the model could not see the number of remaining steps;
+- the system did not recognize repeated diff/read/test actions;
+- there was no pressure to “summarize the evidence and submit” after tests became stable.
 
-后续更适合先记录重复调用和成功曲线，再决定是否增加 150/250 步软提醒。硬上限继续承担
-防失控职责，而不是被当作目标使用量。
+It is more appropriate to record repeated calls and success curves first, then decide whether to add soft reminders at 150/250 steps. The hard ceiling should continue to prevent runaway behavior rather than be treated as a target usage level.
 
-## 7. 改进设计与取舍
+## 7. Improvement design and trade-offs
 
-### 7.1 P0：严格 benchmark 默认断网
+### 7.1 P0: strict benchmark runs offline by default
 
-SWE-bench 专用配置增加：
+The SWE-bench-specific configuration adds:
 
 ```yaml
 environment:
@@ -245,27 +209,27 @@ environment:
     - --network=none
 ```
 
-Docker 官方说明 `none` driver 只在容器中保留 loopback，可用于完全隔离容器网络栈：
+Docker documents that the `none` driver retains only loopback inside the container and can be used to fully isolate the container network stack:
 
 - [Docker Docs: None network driver](https://docs.docker.com/engine/network/drivers/none/)
 
-验收标准：
+Acceptance criteria:
 
-- benchmark 配置生成的 `docker run` 明确包含 `--network=none`；
-- 普通 local/Docker Agent 默认配置不受影响，仍可用于真实联网开发；
-- 文档明确镜像下载发生在容器启动前，但容器运行后不能访问 PyPI/GitHub；
-- 将 run 的 network policy 记入 trajectory config，便于事后判断结果是否干净。
+- `docker run` generated by the benchmark configuration explicitly contains `--network=none`;
+- the default configuration for ordinary local/Docker Agents remains unaffected and can still be used for real connected development;
+- the documentation states that image downloads happen before the container starts, while the running container cannot access PyPI/GitHub;
+- the run's network policy is recorded in the trajectory configuration so that the cleanliness of a result can be judged later.
 
-### 7.2 P0：完整事件流与模型上下文分离
+### 7.2 P0: separate the complete event stream from the model context
 
-采用两个文件：
+Use two files:
 
 ```text
-<instance_id>.traj.json       # 结果、配置、压缩后的最终 context view、事件日志索引
-<instance_id>.events.jsonl    # 按发生顺序追加的完整原始消息与压缩事件
+<instance_id>.traj.json       # result, configuration, compressed final context view, event-log index
+<instance_id>.events.jsonl    # complete original messages and compression events appended in order
 ```
 
-`events.jsonl` 的每一行是一个独立 JSON 对象：
+Each line in `events.jsonl` is an independent JSON object:
 
 ```json
 {"sequence": 0, "type": "message", "message": {"role": "system", "content": "..."}}
@@ -273,43 +237,41 @@ Docker 官方说明 `none` driver 只在容器中保留 loopback，可用于完�
 {"sequence": 8, "type": "context_compression", "messages_before": 8, "messages_after": 5}
 ```
 
-这与成熟 Agent 的设计方向一致：SWE-agent 内部分开保存 append-only trajectory/history，
-再通过 history processors 生成模型消息；OpenHands 则让 condenser 从完整 event history
-生成发送给 LLM 的 `View`，而不是原地销毁事件：
+This matches the direction of mature Agent designs: SWE-agent stores append-only trajectory/history separately and then uses history processors to generate model messages; OpenHands lets a condenser generate the LLM-facing `View` from the complete event history instead of destroying events in place:
 
-- [SWE-agent `DefaultAgent` history/trajectory 实现](https://github.com/SWE-agent/SWE-agent/blob/main/sweagent/agent/agents.py)
-- [OpenHands condenser 接口](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-sdk/openhands/sdk/context/condenser/base.py)
+- [SWE-agent `DefaultAgent` history/trajectory implementation](https://github.com/SWE-agent/SWE-agent/blob/main/sweagent/agent/agents.py)
+- [OpenHands condenser interface](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-sdk/openhands/sdk/context/condenser/base.py)
 
-验收标准：
+Acceptance criteria:
 
-- 压缩后 `.traj.json` 的 context 可以变短；
-- `.events.jsonl` 仍包含压缩前的每一条 assistant/tool 消息；
-- 压缩事件本身记录前后消息数与摘要结果，能够解释模型下一步看到了什么；
-- 旧消费者仍可读取 `.traj.json` 的 `messages`；
-- 事件文件不包含 SWE-bench gold patch/test patch；
-- 多次序列化或保存不会复制、重排或覆盖内存中的原始事件。
+- the context in `.traj.json` can become shorter after compression;
+- `.events.jsonl` still contains every assistant/tool message from before compression;
+- the compression event itself records the before/after message counts and the summary result, explaining what the model saw next;
+- existing consumers can still read `messages` from `.traj.json`;
+- the event file contains no SWE-bench gold patch or test patch;
+- repeated serialization or saving does not duplicate, reorder, or overwrite the original in-memory events.
 
-### 7.3 模型暂不直接访问完整轨迹
+### 7.3 The model should not access the complete trajectory directly yet
 
-本次不增加 `read_history` 工具，理由是：
+This round does not add a `read_history` tool, for the following reasons:
 
-1. 完整历史可能正是因为太大才被压缩，重新塞回上下文会抵消压缩；
-2. 原始工具输出包含大量重复 diff、测试日志和失败尝试，信噪比低；
-3. 模型可能把“复盘自己的旧推理”当成继续探索，增加循环和成本；
-4. 目前没有证据表明这两个任务因摘要遗漏而失败，反而都完成了；
-5. 新工具会增加权限、prompt 和测试复杂度，而当前首要目标是评测可审计性。
+1. The complete history may have been compressed precisely because it was too large; putting it back into context would cancel the compression;
+2. Original tool output contains large amounts of repeated diffs, test logs, and failed attempts, with a low signal-to-noise ratio;
+3. The model may treat “reviewing its own old reasoning” as continued exploration, increasing loops and cost;
+4. There is currently no evidence that these two tasks failed because the summary omitted information; in fact, both completed;
+5. A new tool would add permission, prompt, and test complexity, while the immediate goal is evaluation auditability.
 
-如果以后观察到“摘要丢失关键命令结果导致重复探索”，优先顺序应是：
+If later observations show that “a summary dropped a key command result and caused repeated exploration,” the priority should be:
 
-1. 改进结构化摘要，强制保留文件、命令、退出码、测试结果和待办；
-2. 维护一个小型结构化工作记忆，而不是回灌全文；
-3. 最后才增加只读、分页、按类型/关键词过滤的事件检索工具，并限制单次 token 预算。
+1. Improve the structured summary, requiring it to retain files, commands, exit codes, test results, and outstanding work;
+2. Maintain a small structured working memory instead of feeding the full history back;
+3. Only then add a read-only, paginated event lookup tool filtered by type/keyword, with a per-call token budget.
 
-换言之，**完整轨迹首先是 observability，不是 agent memory。**
+In other words, **the complete trajectory is observability first, not Agent memory.**
 
-### 7.4 P0：让测试失败可靠地显现
+### 7.4 P0: make test failures appear reliably
 
-SWE-bench interpreter 改为：
+Change the SWE-bench interpreter to:
 
 ```yaml
 interpreter:
@@ -319,18 +281,17 @@ interpreter:
   - -c
 ```
 
-同时在 benchmark system prompt 中明确：
+Also state explicitly in the benchmark system prompt:
 
-- 任何非零 `returncode` 都不能被报告为“测试通过”；
-- pipeline 只用于缩小展示内容，不能用过滤后的文本替代测试退出码；
-- 测试模块不存在、依赖缺失和 timeout 应分别记录为 infrastructure/command failure，
-  不能算作产品代码测试失败，也不能算成功。
+- no nonzero `returncode` may be reported as “tests passed”;
+- a pipeline may narrow the displayed output but cannot substitute filtered text for the test exit code;
+- a missing test module, missing dependency, and timeout should be recorded separately as infrastructure/command failures; they are neither product-code test failures nor successes.
 
-执行层保证状态，prompt 层帮助模型正确解释状态，两者缺一不可。
+The execution layer guarantees the status, while the prompt layer helps the model interpret it correctly. Both are necessary.
 
-### 7.5 P1：最小化 instance 元数据
+### 7.5 P1: minimize instance metadata
 
-主 trajectory 只保存审计所需公开字段，例如：
+The main trajectory should save only public fields needed for audit, for example:
 
 - `instance_id`
 - `repo`
@@ -341,90 +302,85 @@ interpreter:
 - `difficulty`
 - `image` / `image_name`
 
-明确排除 `patch`、`test_patch`、`eval_script` 以及未知的自定义大字段。predictions 和官方
-harness 输入仍按原逻辑工作；改变的只是调试轨迹的元数据边界。
+Explicitly exclude `patch`, `test_patch`, `eval_script`, and unknown custom large fields. Predictions and official harness inputs should continue to work as before; only the metadata boundary of the debugging trajectory changes.
 
-### 7.6 P1：改进效率，但不急于缩减硬预算
+### 7.6 Improve efficiency, but do not rush to reduce the hard budget
 
-后续可以记录并分析：
+Later runs can record and analyze:
 
-- 相同规范化 command 连续出现的次数；
-- 相同 `git diff`/文件区间重复读取；
-- 首次测试通过到 submit 之间的调用数；
-- 无效测试路径、缺失依赖、timeout 和工具参数错误；
-- 首次产生最终有效 patch 的步数。
+- the number of consecutive occurrences of the same normalized command;
+- repeated reads of the same `git diff`/file range;
+- the number of calls between the first passing test and submit;
+- invalid test paths, missing dependencies, timeouts, and tool-parameter errors;
+- the step at which the first final valid patch was produced.
 
-在有 10–20 条新轨迹后，再考虑加入软提示：
+After 10–20 new trajectories, consider adding soft reminders:
 
-- 150 步：总结当前假设、证据和剩余风险；
-- 250 步：若 patch 已稳定，运行最后的聚焦测试并准备提交；
-- 检测到重复动作：提示说明新信息增益，否则换一种验证方法。
+- 150 steps: summarize current hypotheses, evidence, and remaining risks;
+- 250 steps: if the patch is stable, run the final focused tests and prepare to submit;
+- repeated action detected: explain the new information gain or try a different validation method.
 
-这些属于下一阶段，不与本轮 P0 的评测可信度修复混在一起。
+These belong to the next phase and should not be mixed with this round's P0 fixes for evaluation trustworthiness.
 
-## 8. 下一轮实验应该怎样设计
+## 8. How should the next experiment be designed?
 
-### 8.1 保留旧任务作为对照，不再把它当排行榜
+### 8.1 Keep the old tasks as controls, not as a leaderboard
 
-这两个 Verified 实例适合作为固定回归对：
+These two Verified instances are suitable as fixed regression controls:
 
-- Django 用来检查 strict network 是否真正阻止上游检索捷径；
-- SymPy 用来检查长轨迹、上下文压缩和复杂公式修复能力是否退化。
+- Django checks whether a strict network policy truly blocks the upstream-retrieval shortcut;
+- SymPy checks whether long trajectories, context compression, and complex formula fixes regress.
 
-重新运行时必须把旧结果标为 `network=default`，新结果标为 `network=none`，不能混合统计。
+When rerunning them, label the old result `network=default` and the new result `network=none`; do not combine them in one statistic.
 
-### 8.2 使用更新任务建立新样本
+### 8.2 Build a new sample with newer tasks
 
-可以从 SWE-bench-Live 的最新 `full` split 分层抽取 10–20 个实例。该项目按月向 full split
-加入新验证任务，比分割后长期冻结的 Verified 更适合做新鲜度检查：
+Ten to twenty instances can be stratified from the latest `full` split of SWE-bench-Live. The project adds newly verified tasks to the full split monthly, making it better suited to freshness checks than the long-frozen Verified split:
 
 - [Microsoft SWE-bench-Live](https://github.com/microsoft/SWE-bench-Live)
 
-但“Live”不等于永不污染。任务一旦公开，之后仍可能进入训练数据。最强的证据仍然是：
+But “Live” does not mean “never contaminated.” Once a task is public, it may still enter training data later. The strongest evidence remains:
 
-- 晚于模型训练截止日期的任务；
-- 未公开的内部留出 issue；
-- 自建仓库或在评测后才公开的补丁；
-- 对每条任务进行人工题面/测试一致性审计。
+- tasks created after the model's training cutoff;
+- unpublished internal held-out issues;
+- self-built repositories or patches published only after evaluation;
+- a manual audit of problem-statement/test consistency for every task.
 
-### 8.3 报告的不应只有 resolve rate
+### 8.3 The report should include more than resolve rate
 
-建议每轮同时报告：
+Each round should report all of the following:
 
-| 维度 | 指标 |
+| Dimension | Metrics |
 |---|---|
-| 正确性 | resolved、FAIL_TO_PASS、PASS_TO_PASS |
-| 可信度 | network policy、是否访问外部源码、任务发布时间/训练截止日期 |
-| 效率 | API calls、tokens、成本、wall time、首次稳定 patch 步数 |
-| 工具质量 | 无效命令、timeout、重复命令、测试状态误判 |
-| 轨迹质量 | 是否完整、压缩次数、原始事件数、最终 context 消息数 |
-| 失败类型 | 定位失败、实现失败、验证失败、环境失败、题目/测试缺陷 |
+| Correctness | resolved, FAIL_TO_PASS, PASS_TO_PASS |
+| Trustworthiness | network policy, external-source access, task publication date/training cutoff |
+| Efficiency | API calls, tokens, cost, wall time, steps to the first stable patch |
+| Tool quality | invalid commands, timeouts, repeated commands, test-status misinterpretation |
+| Trajectory quality | completeness, compression count, raw event count, final context message count |
+| Failure type | localization failure, implementation failure, verification failure, environment failure, task/test defect |
 
-这样，成功不再只是一个布尔值，而是一条可以解释、比较和改进的证据链。
+With these dimensions, success is no longer a Boolean value but an evidence chain that can be explained, compared, and improved.
 
-## 9. 本次学习的核心结论
+## 9. Core conclusions from this experiment
 
-1. **跑通 benchmark 不等于完成能力评估。** 工程正确性是测量有效性的前置条件。
-2. **官方 resolved 是必要证据，但不是充分证据。** 还要检查网络、训练污染、测试覆盖和轨迹。
-3. **简单 Agent 可以很强，因为复杂性被放在模型和环境反馈中。** 不应只按 Agent 代码行数
-   判断任务难度。
-4. **压缩上下文与保存事实不能共用一份可变列表。** 前者服务推理，后者服务科学性。
-5. **prompt 不能替代执行器保证。** 网络隔离和 pipeline 退出码必须由系统层落实。
-6. **大预算本身不是浪费，缺少收敛机制才是。** 应先观察真实轨迹，再设计软预算。
-7. **最值得展示的不是 2/2，而是从相信分数到审计分数的思考过程。** 这比单独展示一个
-   漂亮结果更能说明对 Agent 工程、实验设计和评测可信度的理解。
+1. **Running a benchmark is not the same as evaluating capability.** Engineering correctness is a prerequisite for measurement validity.
+2. **An official `resolved` result is necessary evidence, but not sufficient evidence.** Network conditions, training contamination, test coverage, and trajectory still need to be checked.
+3. **A simple Agent can be very strong because complexity is placed in the model and environment feedback.** Task difficulty should not be judged only by the number of Agent code lines.
+4. **Context compression and fact preservation cannot share one mutable list.** The former serves reasoning; the latter serves scientific validity.
+5. **A prompt cannot replace an executor guarantee.** Network isolation and pipeline exit codes must be enforced at the system layer.
+6. **A large budget is not itself wasteful; lacking a convergence mechanism is.** Observe real trajectories first, then design a soft budget.
+7. **The most worth showing is not 2/2, but the thought process that moved from believing the score to auditing the score.** That says more about Agent engineering, experiment design, and evaluation trustworthiness than a single attractive result.
 
-## 10. 实施顺序
+## 10. Implementation order
 
-本复盘之后的代码改进按以下顺序实施，并单独提交：
+The code improvements after this retrospective were implemented in the following order and committed separately:
 
-1. SWE-bench 默认 `--network=none`；
-2. SWE-bench 默认 `bash -o pipefail -c`，并强化测试退出码提示；
-3. Agent 保留不可变完整事件流，context 压缩只改变模型视图；
-4. trajectory 与 events JSONL 分开保存；
-5. SWE-bench instance 元数据改用 allowlist，排除 gold/test/eval 字段；
-6. 为网络配置、pipeline、压缩后完整事件、sidecar 文件和元数据脱敏补测试；
-7. 运行全部非 E2E 测试后提交实现。
+1. SWE-bench default `--network=none`;
+2. SWE-bench default `bash -o pipefail -c`, with stronger test-exit-code guidance;
+3. Agent preserves an immutable complete event stream, while context compression changes only the model view;
+4. Save trajectory and events JSONL separately;
+5. Use an allowlist for SWE-bench instance metadata, excluding gold/test/eval fields;
+6. Add tests for network configuration, pipelines, complete post-compression events, sidecar files, and metadata redaction;
+7. Run the complete non-E2E test suite and then commit the implementation.
 
-导航：[实验索引](index.md) · [Benchmark 架构](../architecture/benchmark-layer.md) ·
-[上下文与记录](../architecture/context-and-records.md)
+Navigation: [experiment index](index.md) · [benchmark architecture](../architecture/benchmark-layer.md) · [context and records](../architecture/context-and-records.md)

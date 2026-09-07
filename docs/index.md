@@ -1,84 +1,94 @@
-# 文档首页
+# Documentation home
 
-文档按“架构、指南、参考、决策、实验”组织。README 只负责定位和启动；这里提供三条
-阅读路径。目录最多两级，页面之间优先链接而不是复制同一段说明。
+> **Simplified Chinese version:** [zh-CN/index.md](zh-CN/index.md)
 
-## 路径一：理解系统
+The documentation is organized into architecture, guides, reference, decisions, and experiments.
+The README handles orientation and startup; this page provides three reading paths. The directory
+structure is at most two levels deep, and pages link to one another instead of duplicating the same
+explanations.
 
-适合第一次读代码，目标是从全貌走到关键机制。
+## Path 1: Understand the system
 
-1. [架构总览](architecture/overview.md)：七个部分、依赖方向和两条执行流程；
-2. [Agent 循环](architecture/agent-loop.md)：预算、查询、工具批次与 submit review；
-3. [工具系统](architecture/tool-system.md)：registry、schema/handler 与协议不变量；
-4. [模型与环境](architecture/model-and-environments.md)：鸭子类型、ABC、local/Docker；
-5. [上下文与记录](architecture/context-and-records.md)：messages、events、evidence、持久化；
-6. [Benchmark 层](architecture/benchmark-layer.md)：runner 与 `_swebench/` 的边界。
+This path is for a first read of the code, moving from the big picture to the key mechanisms.
 
-读完后，可用[术语表](reference/glossary.md)补齐 ABC、依赖注入、mock、round-trip 等概念。
-架构页中的 draw.io 源图及更新约定见[架构图维护](diagrams/README.md)。
+1. [Architecture overview](architecture/overview.md): the seven parts, dependency directions, and two execution flows;
+2. [Agent loop](architecture/agent-loop.md): budgets, queries, tool batches, and submit review;
+3. [Tool system](architecture/tool-system.md): the registry, schema/handler pair, and protocol invariants;
+4. [Models and environments](architecture/model-and-environments.md): duck typing, ABCs, local, and Docker;
+5. [Context and records](architecture/context-and-records.md): messages, events, evidence, and persistence;
+6. [Benchmark layer](architecture/benchmark-layer.md): the boundary around the runner and `_swebench/`.
 
-## 路径二：运行与修改
+After reading, use the [glossary](reference/glossary.md) to fill in concepts such as ABCs, dependency
+injection, mocks, and round trips.
+The editable architecture sources and export conventions are described in
+[Diagram maintenance](diagrams/README.md).
 
-适合准备在本地使用、改配置、加工具或跑测试。
+## Path 2: Run and modify
 
-1. [配置指南](guides/configuration.md)：覆盖配置和保护 secrets；
-2. [配置参考](reference/configuration.md)：六个配置 section 的字段职责；
-3. [工具参考](reference/tools.md)：内置工具参数、返回与扩展步骤；
-4. [测试指南](guides/testing.md)：unit、integration、Docker、E2E 的选择；
-5. [SWE-bench 指南](guides/swebench.md)：单实例、批量和官方评分。
+This path is for using the project locally, changing configuration, adding tools, or running tests.
 
-默认值以代码库中的 YAML 为准，不在页面中维护第二份完整副本：
+1. [Configuration guide](guides/configuration.md): configuration overrides and secret protection;
+2. [Configuration reference](reference/configuration.md): field responsibilities across the six configuration sections;
+3. [Tool reference](reference/tools.md): built-in tool parameters, return values, and extension steps;
+4. [Testing guide](guides/testing.md): choosing among unit, integration, Docker, and E2E tests;
+5. [SWE-bench guide](guides/swebench.md): single instances, batching, and official scoring.
 
-- [普通 profile](../src/mini_agent/config/default.yaml)
+The YAML files in the repository are authoritative for defaults; this site does not maintain a
+second complete copy:
+
+- [Ordinary profile](../src/mini_agent/config/default.yaml)
 - [SWE-bench profile](../src/mini_agent/config/benchmarks/swebench.yaml)
 
-## 路径三：审计与设计复盘
+## Path 3: Audit and revisit design
 
-适合分析一次运行为什么成功或失败，以及理解当前取舍的来由。
+This path is for analyzing why a run succeeded or failed and understanding the reasoning behind
+current trade-offs.
 
-1. [轨迹格式](reference/trajectory-format.md)：context view、event journal 和 metadata；
-2. [上下文与记录](architecture/context-and-records.md)：压缩、证据 checkpoint 与回查；
-3. [工具调用演进](decisions/tool-calling-evolution.md)：从文本解析到 registry 与 review；
-4. [设计取舍](decisions/design-tradeoffs.md)：安全、预算、shell 会话与测试边界；
-5. [实验索引](experiments/index.md)：SWE-bench 实验与失败复盘。
+1. [Trajectory format](reference/trajectory-format.md): the context view, event journal, and metadata;
+2. [Context and records](architecture/context-and-records.md): compression, evidence checkpoints, and lookups;
+3. [Tool-calling evolution](decisions/tool-calling-evolution.md): from text parsing to the registry and review;
+4. [Design trade-offs](decisions/design-tradeoffs.md): security, budgets, shell sessions, and testing boundaries;
+5. [Experiment index](experiments/index.md): SWE-bench experiments and failure retrospectives.
 
-审计时先区分“模型说了什么”和“机器观察到了什么”。assistant 的文字是声明；工具调用、
-return code、文件操作和 harness 报告才是可独立核对的证据。
+When auditing, first distinguish between what the model said and what the machine observed.
+Assistant text is a claim; tool calls, return codes, file operations, and harness reports are the
+evidence that can be independently checked.
 
-## 页面地图
+## Page map
 
 ```text
-architecture/  系统为何这样拆、运行时如何流动
-diagrams/      跨模块 draw.io 源图与发布用 SVG
-guides/        怎样配置、测试和运行 benchmark
-reference/     字段、工具、文件格式和术语的查表页
-decisions/     历史演进与明确接受的取舍
-experiments/   有时间背景的实验记录，不充当当前行为规范
+architecture/  why the system is split this way and how the runtime flows
+diagrams/      cross-module draw.io sources and published SVG renders
+guides/        how to configure, test, and run benchmarks
+reference/     lookup pages for fields, tools, file formats, and terminology
+decisions/     historical evolution and explicitly accepted trade-offs
+experiments/   time-bound experiment records, not the current behavioral specification
 ```
 
-若文档与实现冲突，以源码、配置模型和 YAML 为准，并把差异视为需要修复的文档 bug。
+If the documentation conflicts with the implementation, treat the source code, configuration
+models, and YAML as authoritative, and consider the discrepancy a documentation bug to fix.
 
-## 快速查找
+## Quick lookup
 
-| 我想知道 | 去哪里 |
+| I want to know | Go to |
 |---|---|
-| 一轮查询为什么在工具前后都检查预算 | [Agent 循环](architecture/agent-loop.md) |
-| schema、handler 和启用名单怎么对应 | [工具系统](architecture/tool-system.md) |
-| Local 与 Docker 的文件路径语义 | [模型与环境](architecture/model-and-environments.md) |
-| 压缩后怎样找回原始命令 | [上下文与记录](architecture/context-and-records.md) |
-| prediction、status 和轨迹由谁保存 | [Benchmark 层](architecture/benchmark-layer.md) |
-| 某个 YAML 字段允许什么值 | [配置参考](reference/configuration.md) |
-| 某个工具接受哪些参数 | [工具参考](reference/tools.md) |
-| `.traj.json` 与 `.events.jsonl` 的区别 | [轨迹格式](reference/trajectory-format.md) |
-| 为什么没有持久 shell 或后台任务系统 | [设计取舍](decisions/design-tradeoffs.md) |
+| Why a query checks the budget both before and after tools | [Agent loop](architecture/agent-loop.md) |
+| How schemas, handlers, and the enabled list correspond | [Tool system](architecture/tool-system.md) |
+| File path semantics in Local and Docker | [Models and environments](architecture/model-and-environments.md) |
+| How to find the original commands after compression | [Context and records](architecture/context-and-records.md) |
+| Who saves predictions, statuses, and trajectories | [Benchmark layer](architecture/benchmark-layer.md) |
+| What values a YAML field accepts | [Configuration reference](reference/configuration.md) |
+| What parameters a tool accepts | [Tool reference](reference/tools.md) |
+| The difference between `.traj.json` and `.events.jsonl` | [Trajectory format](reference/trajectory-format.md) |
+| Why there is no persistent shell or background task system | [Design trade-offs](decisions/design-tradeoffs.md) |
 
-## 文档维护约定
+## Documentation maintenance conventions
 
-- 行为说明优先链接源码或权威 YAML，不复制完整默认配置；
-- experiments 记录当时观察，不反向定义当前架构；
-- 新模块需要更新架构地图，新字段/工具/格式需要更新对应 reference；
-- 跨模块结构图维护 `.drawio` 与 `.svg`，页内短流程使用 Mermaid；
-- README 和所有 docs 的本地 Markdown 链接由 `tests/test_docs.py` 检查；
-- 不校验标题 slug anchor，重命名标题时仍需人工检查跨页 anchor。
+- For behavior descriptions, link to source code or authoritative YAML instead of copying the complete default configuration;
+- experiments record observations from that time and do not redefine the current architecture;
+- new modules require an update to the architecture map, while new fields, tools, and formats require an update to the corresponding reference page;
+- maintain `.drawio` and `.svg` together for cross-module diagrams; use Mermaid for short in-page flows;
+- `tests/test_docs.py` checks local Markdown links in the README and all docs;
+- title-slug anchors are not validated, so manually check cross-page anchors when renaming titles.
 
-返回[项目 README](../README.md)。
+Return to the [project README](../README.md).

@@ -1,36 +1,38 @@
-# 工具系统
+# Tool system
 
-工具层把模型声明的 function call 转成受配置约束的运行时操作。公共入口仍在
-[`tools.py`](../../src/mini_agent/tools.py)，可复用细节已经拆到 `tooling/`。
+The tool layer turns the function calls declared by the model into runtime operations constrained by
+configuration. The public entry point remains [`tools.py`](../../src/mini_agent/tools.py); reusable
+details have been split into `tooling/`.
 
-## 模块拆分
+## Module breakdown
 
-| 文件 | 责任 |
+| File | Responsibility |
 |---|---|
-| `tools.py` | handlers、registry、启用选择、分发、tool message 追加 |
+| `tools.py` | Handlers, registry, enabled-tool selection, dispatch, and appending tool messages |
 | `tooling/schemas.py` | OpenAI function schemas |
-| `tooling/types.py` | `ToolDefinition`、`ToolContext`、`ToolResult` |
-| `tooling/files.py` | 唯一替换与带行号读取格式化 |
-| `tooling/output.py` | 执行结果格式、timeout 解码、行/字符双重截断 |
-| `tooling/network.py` | 明显网络命令识别 |
+| `tooling/types.py` | `ToolDefinition`, `ToolContext`, and `ToolResult` |
+| `tooling/files.py` | Unique replacement and line-numbered read formatting |
+| `tooling/output.py` | Execution-result formatting, timeout decoding, and line/character truncation |
+| `tooling/network.py` | Detection of obvious network commands |
 
-这个拆分让 `tools.py` 保持“runtime orchestration”角色，并保留历史 import 路径；纯逻辑
-可以脱离 Agent 和真实环境测试。
+This breakdown keeps `tools.py` in its "runtime orchestration" role and preserves historical import
+paths; pure logic can be tested independently of Agent and a real environment.
 
-## 单一 registry
+## Single registry
 
-`TOOL_REGISTRY` 的每项是 `ToolDefinition(name, schema, handler)`。构造时校验 schema 中的
-function name 与 registry 名称一致，也拒绝重复注册。
+Each item in `TOOL_REGISTRY` is a `ToolDefinition(name, schema, handler)`. Construction verifies that
+the function name in the schema matches the registry name and rejects duplicate registrations.
 
-配置中的 `tools.enabled` 只存名称，但同时控制两件事：
+The configured `tools.enabled` list stores names only, but controls two things at once:
 
-1. `get_enabled_tool_schemas()` 只把启用 schema 发给模型；
-2. `execute_tool_call()` 只允许执行同一名单中的 handler。
+1. `get_enabled_tool_schemas()` sends only enabled schemas to the model;
+2. `execute_tool_call()` allows only handlers from the same list to execute.
 
-因此“模型看不到”和“运行时不授权”不会各维护一张容易漂移的表。未知配置名在准备
-schemas 时失败；模型臆造的未知或禁用工具则得到结构化 error observation。
+This prevents "hidden from the model" and "not authorized at runtime" from being maintained as two
+separate tables that can drift. An unknown configured name fails while schemas are prepared; an
+unknown or disabled tool invented by the model produces a structured error observation.
 
-## 分发流程
+## Dispatch flow
 
 ```mermaid
 sequenceDiagram
@@ -40,46 +42,48 @@ sequenceDiagram
     participant H as Handler
     participant E as Environment
     M->>A: ToolCall(id, name, arguments)
-    A->>R: 查询 definition 与 enabled 权限
+    A->>R: Look up definition and enabled permission
     R-->>A: schema + handler / error
-    A->>A: JSON decode，顶层必须为 object
+    A->>A: Decode JSON; require a top-level object
     A->>H: args + ToolContext
-    opt 命令或文件工具
+    opt Command or file tool
         H->>E: execute / read / write
-        E-->>H: 结构化结果
+        E-->>H: Structured result
     end
     H-->>A: ToolResult
-    A-->>M: role=tool，使用同一 tool_call_id
+    A-->>M: role=tool with the same tool_call_id
 ```
 
-handler 返回 `ToolResult(content, submission=None)`。submit 通过 `submission` 字段表达终局，
-普通工具只返回 observation 文本。异常被捕获为错误 observation，让模型有机会修正参数或
-换策略。
+The handler returns `ToolResult(content, submission=None)`. submit expresses a terminal outcome
+through the `submission` field, while ordinary tools return observation text only. Exceptions are
+caught as error observations, giving the model a chance to correct its arguments or change strategy.
 
-## 内置工具
+## Built-in tools
 
-- `bash`：调用 `Environment.execute()`，返回 output、return code 与 execution error；
-- `read`：调用 `Environment.read_file()`，支持起始行和行数限制；
-- `edit`：先读文件，要求 `old_string` 只出现一次，再写回；
-- `write`：调用 `Environment.write_file()` 创建或覆盖文件；
-- `submit`：提交答案或 patch；
-- `trajectory`：只读查询当前 append-only event journal，普通 profile 默认不启用。
+- `bash`: calls `Environment.execute()` and returns output, return code, and execution error;
+- `read`: calls `Environment.read_file()` and supports a starting line and line-count limit;
+- `edit`: reads a file first, requires `old_string` to occur exactly once, and writes it back;
+- `write`: calls `Environment.write_file()` to create or overwrite a file;
+- `submit`: submits an answer or patch;
+- `trajectory`: read-only queries the current append-only event journal and is disabled by default in the ordinary profile.
 
-参数细节见[工具参考](../reference/tools.md)。
+See the [tool reference](../reference/tools.md) for parameter details.
 
-## 输出预算
+## Output budgets
 
-模型输入必须同时防范两种大输出：很多行和单个超长行。bash/read 因此应用配置的
-`default_max_lines` 与 `default_max_chars`。截断保留头尾和省略提示；错误文本和 timeout
-提示也走字符上限，避免模型可控的路径或异常绕过预算。
+Model input must guard against two kinds of large output at once: many lines and a single very long
+line. bash/read therefore apply the configured `default_max_lines` and `default_max_chars`.
+Truncation preserves the beginning and end along with an omission notice; error text and timeout
+messages also use the character limit, preventing model-controlled paths or exceptions from evading
+the budget.
 
-`ExecutionResult` 的非零 return code 是正常命令结果，不等于执行器异常。环境启动失败、
-timeout 等执行机械问题使用 `returncode=-1` 和 `exception_info`，最终 observation 明确显示
-这三个维度。
+A non-zero return code in `ExecutionResult` is a normal command result and does not mean an
+executor exception. Mechanical execution problems such as environment startup failures and timeouts
+use `returncode=-1` and `exception_info`; the final observation shows all three dimensions clearly.
 
-## 文件工具语义
+## File-tool semantics
 
-文件工具不直接使用宿主 `Path`，而是走 Environment：
+File tools do not use the host `Path` directly; they go through Environment:
 
 ```text
 read ──► environment.read_file
@@ -87,37 +91,41 @@ edit ──► read_file ──► apply_edit ──► write_file
 write ──► environment.write_file
 ```
 
-这样 local 与 Docker 中的 `bash` 和文件工具都观察同一个工作树。`edit` 的唯一匹配约束
-用于避免含糊替换；零处或多处匹配都返回错误，不猜测目标。
+This makes `bash` and file tools observe the same worktree in local and Docker environments. The
+unique-match requirement for `edit` prevents ambiguous replacements; zero or multiple matches return
+an error rather than guessing the target.
 
-## 网络策略
+## Network policy
 
-当 `environment.block_network_commands=true` 时，bash handler 在执行前识别常见下载、
-远程 Git 和包管理命令，并返回 policy error。同时发给模型的 bash 描述也改成离线语义。
+When `environment.block_network_commands=true`, the bash handler detects common download, remote Git,
+and package-manager commands before execution and returns a policy error. The bash description sent
+to the model is also changed to describe offline semantics.
 
-这个识别器不是安全沙箱：间接命令、解释器动态代码或未覆盖程序仍可能发起网络访问。
-SWE-bench 的实际网络边界由 Docker `--network=none` 提供；命令识别负责更早、更易懂的反馈。
+This detector is not a security sandbox: indirect commands, dynamic interpreter code, or uncovered
+programs may still access the network. Docker `--network=none` provides the actual network boundary
+for SWE-bench; command detection provides earlier, clearer feedback.
 
-## submit 的特殊路径
+## The special submit path
 
-submit 是注册工具，但其效果由 Agent 控制：
+submit is a registered tool, but Agent controls its effect:
 
-- 普通模式：handler 返回 submission，dispatcher 追加确认并抛 `Submitted`；
-- review 模式：dispatcher 只返回 draft 字符串，Agent 注入 review context；
-- 同一批次 submit 之后的调用：追加 `Skipped`，不执行 handler；
-- 查询后命中预算：所有已声明调用都追加 limit-specific `Skipped`。
+- ordinary mode: the handler returns a submission, and the dispatcher appends an acknowledgement and raises `Submitted`;
+- review mode: the dispatcher returns only a draft string, and Agent injects the review context;
+- calls after submit in the same batch: append `Skipped` without executing the handler;
+- a limit hit after a query: append a limit-specific `Skipped` for every declared call.
 
-这保证终止意图与工具协议同时成立。
+This keeps the termination intent and tool protocol valid at the same time.
 
-## 扩展一个工具
+## Extending the tool set
 
-1. 在 `tooling/schemas.py` 定义 schema；
-2. 在 `tools.py` 写接收 `(args, ToolContext)` 的 handler；
-3. 将二者组成 `ToolDefinition` 加入 registry；
-4. 在目标 YAML profile 的 `tools.enabled` 中选择它；
-5. 测试 schema/name 一致、参数错误、成功路径、权限与输出边界。
+1. define the schema in `tooling/schemas.py`;
+2. write a handler in `tools.py` that accepts `(args, ToolContext)`;
+3. combine the two into a `ToolDefinition` and add it to the registry;
+4. select it in `tools.enabled` in the target YAML profile;
+5. test schema/name consistency, argument errors, the success path, permissions, and output boundaries.
 
-不要只把 schema 加入发送列表，也不要在 Agent 里添加按名称分支。registry 是唯一映射点。
+Do not merely add the schema to the outbound list or add a name-based branch in Agent. The registry
+is the single mapping point.
 
-相关页面：[Agent 循环](agent-loop.md)、[工具参考](../reference/tools.md)、
-[工具调用演进](../decisions/tool-calling-evolution.md)。
+Related pages: [Agent loop](agent-loop.md), [Tool reference](../reference/tools.md),
+[Tool-calling evolution](../decisions/tool-calling-evolution.md).

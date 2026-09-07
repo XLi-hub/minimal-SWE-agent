@@ -9,10 +9,26 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+HAN_CHARACTER = re.compile(r"[\u3400-\u9fff]")
 
 
 def _documentation_files() -> list[Path]:
-    return [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    return [
+        ROOT / "README.md",
+        ROOT / "README.zh-CN.md",
+        *sorted((ROOT / "docs").rglob("*.md")),
+    ]
+
+
+def _default_english_files() -> list[Path]:
+    return [
+        ROOT / "README.md",
+        *sorted(
+            path
+            for path in (ROOT / "docs").rglob("*.md")
+            if "zh-CN" not in path.parts
+        ),
+    ]
 
 
 def _local_target(raw_target: str) -> str | None:
@@ -50,6 +66,21 @@ def test_local_markdown_links_exist() -> None:
                     missing.append(f"{source}:{line_number}: {target}")
 
     assert not missing, "Missing local Markdown link targets:\n" + "\n".join(missing)
+
+
+def test_default_documentation_is_english() -> None:
+    non_english: list[str] = []
+    for document in _default_english_files():
+        for line_number, line in enumerate(
+            document.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if HAN_CHARACTER.search(line):
+                source = document.relative_to(ROOT)
+                non_english.append(f"{source}:{line_number}: {line.strip()}")
+
+    assert not non_english, "Han characters found in default docs:\n" + "\n".join(
+        non_english
+    )
 
 
 def test_drawio_sources_have_embedded_svg_exports() -> None:

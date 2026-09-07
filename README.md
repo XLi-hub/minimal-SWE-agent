@@ -1,103 +1,123 @@
 # minimal-SWE-agent
 
-一个用于学习软件工程 Agent 的小型实现：模型选择工具，Agent 执行工具并把结果送回模型，
-直到模型提交结果或触发运行上限。项目不依赖 Agent 框架，关键控制流可以直接沿
-[`Agent`](src/mini_agent/agent.py) 阅读。
+> **Simplified Chinese version:** [README.zh-CN.md](README.zh-CN.md)
 
-它不是面向生产的编码产品，也不以排行榜成绩为首要目标。这里保留真实系统必须面对的
-协议、预算、隔离、上下文压缩、轨迹审计与 benchmark 问题，同时让各层仍可独立阅读和测试。
+A small implementation for learning about software-engineering agents: the model selects tools,
+the Agent executes those tools and sends their results back to the model until the model submits a
+result or a run limit is reached. The project does not depend on an Agent framework; its key control
+flow can be read directly in [`Agent`](src/mini_agent/agent.py).
 
-## 五分钟启动
+This is not a production coding product, nor is leaderboard performance its primary goal. It keeps
+the protocol, budget, isolation, context compression, trajectory auditing, and benchmark problems
+that real systems must address, while keeping each layer independently readable and testable.
 
-项目要求 Python 3.10+。仓库开发请使用指定 conda 环境：
+## Get started in five minutes
+
+The project requires Python 3.10+. Use the designated conda environment for repository development:
 
 ```bash
 conda run -n minimal-SWE-agent pip install -e ".[dev]"
 ```
 
-把 provider 密钥放在 `.env`，不要写入 YAML：
+Put provider keys in `.env`; do not write them into YAML:
 
 ```bash
-echo 'OPENAI_API_KEY=你的key' > .env
+echo 'OPENAI_API_KEY=your-key' > .env
 ```
 
-运行一个任务：
+Run a task:
 
 ```bash
 conda run -n minimal-SWE-agent minimal \
-  --task "列出 src/ 下的模块并说明各自职责"
+  --task "List the modules under src/ and describe each one's responsibility"
 ```
 
-也可以交互输入任务，或通过模块入口启动：
+You can also enter a task interactively or start the module entry point:
 
 ```bash
 conda run -n minimal-SWE-agent minimal
-conda run -n minimal-SWE-agent python -m mini_agent --task "修复指定 bug"
+conda run -n minimal-SWE-agent python -m mini_agent --task "Fix the specified bug"
 ```
 
-需要保存可复盘结果时指定轨迹路径：
+To save a result for later review, specify a trajectory path:
 
 ```bash
 conda run -n minimal-SWE-agent minimal \
-  --task "修复指定 bug" -o runs/example.traj.json
+  --task "Fix the specified bug" -o runs/example.traj.json
 ```
 
-这会保存模型最终使用的 context view，并在相邻的 `.events.jsonl` 中保存完整追加式事件。
+This saves the final context view used by the model and the complete append-only events in the
+adjacent `.events.jsonl` file.
 
-## 安全边界
+## Security boundaries
 
-默认 `LocalEnvironment` 直接在当前宿主机进程的工作目录执行模型生成的 shell 命令，
-并能读写宿主文件；它不是沙箱。只把可信工作区和任务交给本地模式。
+By default, `LocalEnvironment` executes model-generated shell commands directly in the current
+host process's working directory and can read and write host files; it is not a sandbox. Only give
+the local mode trusted workspaces and tasks.
 
-Docker 模式提供进程和文件系统隔离，但安全性仍取决于镜像、挂载、转发的环境变量、
-容器参数以及 Docker daemon 权限：
+Docker mode provides process and filesystem isolation, but its security still depends on the image,
+mounts, forwarded environment variables, container arguments, and Docker daemon permissions:
 
 ```bash
 conda run -n minimal-SWE-agent minimal \
   --env docker --image python:3.11-slim --cwd /workspace \
-  --task "检查项目"
+  --task "Inspect the project"
 ```
 
-普通默认配置允许网络。SWE-bench profile 额外使用 `--network=none`、命令级网络拦截和
-Bash `pipefail`；这些是评测策略，不会自动保护普通本地任务。模型和环境资源会由 CLI 在
-`finally` 中调用 `close()` / `cleanup()` 释放，调用库 API 时则由调用者负责生命周期。
+The ordinary default configuration allows network access. The SWE-bench profile additionally uses
+`--network=none`, command-level network interception, and Bash `pipefail`; these are evaluation
+policies and do not automatically protect ordinary local tasks. The CLI releases model and
+environment resources by calling `close()` / `cleanup()` in `finally`; callers are responsible for
+the lifecycle when using the library API.
 
-默认测试不会选择会调用真实模型 API 的 E2E 测试。不要在未确认费用与 provider 设置时
-显式运行 `-m e2e`。默认 token 单价为零；未配置真实价格时，`cost_limit` 不能构成美元保护。
+By default, tests that call a real model API are not selected as E2E tests. Do not explicitly run
+`-m e2e` without confirming costs and provider settings. The default token prices are zero; without
+configured real prices, `cost_limit` cannot serve as a dollar-denominated safeguard.
 
-## 极简架构
-
-![minimal-SWE-agent 系统架构总览](docs/diagrams/system-overview.svg)
-
-核心运行以依赖注入组装：`Agent(model, environment, config)`。`Model` 是仓库提供的一个
-具体 OpenAI-compatible adapter；Agent 只按 `.query(messages, tools)` 进行鸭子类型调用，
-测试可传入 fake。`Environment` 则是显式 ABC，定义 `execute`、`read_file`、`write_file`
-与 `cleanup`，当前实现为 local 和 Docker。
-
-项目按七个部分理解最清楚：
-
-1. 入口与配置：`cli.py`、`config/`；
-2. Agent 控制流：`agent.py`、`exceptions.py`；
-3. 模型与成本：`model.py`、`cost.py`；
-4. 执行环境：`environments/`；
-5. 工具系统：`tools.py`、`tooling/`；
-6. 上下文与记录：`context.py`、`evidence.py`、`persistence.py`；
-7. Benchmark 层：`benchmarks/`，其中 `_swebench/` 只承接数据集和存储细节。
-
-完整依赖方向、普通流程与 SWE-bench 流程见
-[架构总览](docs/architecture/overview.md)。可编辑源图和导出约定见
-[架构图维护](docs/diagrams/README.md)。
-
-## 配置与测试
-
-权威运行默认值在
-[`src/mini_agent/config/default.yaml`](src/mini_agent/config/default.yaml)，覆盖优先级为：
+## Minimal architecture
 
 ```text
-default.yaml < --config（从左到右） < MINI_AGENT_* 环境变量 < CLI 参数
+CLI / benchmark runner
+        │ build Config and dependencies
+        ▼
+Agent ──query──► Model ──► OpenAI-compatible Chat Completions
+  │
+  ├──dispatch──► tool registry ──► tooling helpers
+  │                              └──► Environment ABC
+  ├──compress──► context
+  └──record────► evidence + persistence
 ```
 
-示例：
+The core runtime is assembled with dependency injection: `Agent(model, environment, config)`. The
+repository provides `Model` as a concrete OpenAI-compatible adapter; the Agent uses it through
+duck typing with `.query(messages, tools)`, so tests can inject a fake. `Environment` is an explicit
+ABC defining `execute`, `read_file`, `write_file`, and `cleanup`; the current implementations are
+local and Docker.
+
+The project is easiest to understand as seven parts:
+
+1. Entry point and configuration: `cli.py`, `config/`;
+2. Agent control flow: `agent.py`, `exceptions.py`;
+3. Model and cost: `model.py`, `cost.py`;
+4. Execution environments: `environments/`;
+5. Tool system: `tools.py`, `tooling/`;
+6. Context and records: `context.py`, `evidence.py`, `persistence.py`;
+7. Benchmark layer: `benchmarks/`, where `_swebench/` handles only dataset and storage details.
+
+For the complete dependency directions, ordinary flow, and SWE-bench flow, see
+[Architecture overview](docs/architecture/overview.md).
+
+## Configuration and testing
+
+The authoritative runtime defaults are in
+[`src/mini_agent/config/default.yaml`](src/mini_agent/config/default.yaml), with the following
+override precedence:
+
+```text
+default.yaml < --config (left to right) < MINI_AGENT_* environment variables < CLI arguments
+```
+
+Examples:
 
 ```bash
 minimal --config my.yaml
@@ -105,22 +125,22 @@ minimal -c agent.max_steps=50 -c agent.cost_limit=1.5
 MINI_AGENT_AGENT__MAX_STEPS=50 minimal
 ```
 
-完整字段和覆盖方式见[配置指南](docs/guides/configuration.md)与
-[配置参考](docs/reference/configuration.md)。
+For all fields and override methods, see the [configuration guide](docs/guides/configuration.md) and
+[configuration reference](docs/reference/configuration.md).
 
-运行所有非 E2E 测试：
+Run all non-E2E tests:
 
 ```bash
 conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python -m pytest tests/ -q -p no:anyio -m "not e2e"
 ```
 
-不要默认运行 E2E；需要 Docker daemon 的测试会在不可用时跳过。分层与选择方法见
-[测试指南](docs/guides/testing.md)。
+Do not run E2E by default; tests that require a Docker daemon are skipped when it is unavailable.
+See the [testing guide](docs/guides/testing.md) for test layers and selection methods.
 
 ## SWE-bench
 
-安装可选依赖后，从单实例开始：
+After installing the optional dependencies, start with a single instance:
 
 ```bash
 conda run -n minimal-SWE-agent pip install -e ".[bench]"
@@ -129,16 +149,17 @@ conda run -n minimal-SWE-agent minimal-swebench \
   --model gpt-4o-mini --output runs/smoke
 ```
 
-批量、断点续跑、输出文件与官方 harness 评分见 [SWE-bench 指南](docs/guides/swebench.md)。
+For batching, resuming from checkpoints, output files, and official harness scoring, see the
+[SWE-bench guide](docs/guides/swebench.md).
 
-## 文档入口
+## Documentation
 
-- [文档首页](docs/index.md)：按学习、运行、审计三条路径阅读；
-- [架构](docs/architecture/overview.md)：模块、依赖、循环、工具、环境与记录；
-- [指南](docs/guides/configuration.md)：配置、测试和 SWE-bench 操作；
-- [参考](docs/reference/configuration.md)：字段、工具、轨迹格式和术语；
-- [决策](docs/decisions/design-tradeoffs.md)：历史演进与明确取舍；
-- [实验记录](docs/experiments/index.md)：SWE-bench 实验及失败复盘。
+- [Documentation home](docs/index.md): read along the learning, running, and auditing paths;
+- [Architecture](docs/architecture/overview.md): modules, dependencies, loops, tools, environments, and records;
+- [Guides](docs/guides/configuration.md): configuration, testing, and SWE-bench operations;
+- [Reference](docs/reference/configuration.md): fields, tools, trajectory format, and terminology;
+- [Decisions](docs/decisions/design-tradeoffs.md): historical evolution and explicit trade-offs;
+- [Experiment records](docs/experiments/index.md): SWE-bench experiments and failure retrospectives.
 
-参考项目：[mini-swe-agent](https://github.com/swe-agent/mini-swe-agent)；评测基准：
-[SWE-bench](https://www.swebench.com/)。
+Reference project: [mini-swe-agent](https://github.com/swe-agent/mini-swe-agent); evaluation benchmark:
+[SWE-bench](https://www.swebench.com/).

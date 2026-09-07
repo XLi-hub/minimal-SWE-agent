@@ -1,41 +1,47 @@
-# 模型与执行环境
+# Models and execution environments
 
-Model 和 Environment 都能替换，但它们的契约强度不同：仓库的 `Model` 是一个具体
-OpenAI-compatible adapter，Agent 通过鸭子类型使用它；Environment 则是显式 ABC。
+Both Model and Environment are replaceable, but their contracts have different strengths: the
+repository's `Model` is a concrete OpenAI-compatible adapter used by Agent through duck typing,
+whereas Environment is an explicit ABC.
 
-## Model：具体 adapter，鸭子类型边界
+## Model: concrete adapter and duck-typing boundary
 
-[`model.py`](../../src/mini_agent/model.py) 中的 `Model`：
+[`model.py`](../../src/mini_agent/model.py) contains `Model`:
 
-1. 从 `ModelConfig` 读取 model name、base URL、密钥环境变量名和额外参数；
-2. 构造 OpenAI client；
-3. 通过 Chat Completions `create(...)` 发送 messages 和可选 tools；
-4. 原样返回 provider response，由 Agent 解析 choice 与 usage；
-5. 通过 `close()` 释放 HTTP 连接。
+1. reads the model name, base URL, secret environment-variable name, and extra parameters from `ModelConfig`;
+2. constructs the OpenAI client;
+3. sends messages and optional tools through Chat Completions `create(...)`;
+4. returns the provider response unchanged for Agent to parse its choice and usage;
+5. releases HTTP connections with `close()`.
 
-它不是抽象基类，也没有项目内的 `ModelProtocol`。`Agent` 只假设对象提供：
+It is not an abstract base class, and the project has no `ModelProtocol`. `Agent` only assumes that
+the object provides:
 
 ```python
 model.query(messages, tools=None) -> OpenAI-compatible response
 ```
 
-因此单元测试可注入 fake 或 mock，只要响应包含兼容的 `choices[0].message` 与必要 usage。
-“可替换模型”在这里指鸭子类型与 OpenAI-compatible 响应，不代表所有 provider 都无需适配。
+Unit tests can therefore inject a fake or mock as long as the response contains a compatible
+`choices[0].message` and the required usage. Here, a "replaceable model" means duck typing and an
+OpenAI-compatible response; it does not mean that every provider needs no adaptation.
 
-Model secret 不进入配置值；`api_key_env` 只保存环境变量名。provider 的真实模型参数、
-base URL 和单价由使用者配置，权威字段见[配置参考](../reference/configuration.md)。
+The Model secret does not enter configuration values; `api_key_env` stores only the environment
+variable name. Users configure the provider's actual model parameters, base URL, and prices; see the
+[configuration reference](../reference/configuration.md) for the authoritative fields.
 
-## 成本记账
+## Cost accounting
 
-[`cost.py`](../../src/mini_agent/cost.py) 从 response usage 读取 input、cached input 和 output
-token，按每百万 token 单价计算。主查询与压缩摘要使用同一记账函数。
+[`cost.py`](../../src/mini_agent/cost.py) reads input, cached-input, and output tokens from response
+usage and calculates cost using prices per million tokens. Main queries and compression summaries
+use the same accounting function.
 
-默认 YAML 的价格为零，因为兼容 provider 的计费不同。这意味着默认 `cost_limit` 数值本身
-不能阻止真实费用；只有配置非零且正确的价格后，累计美元上限才有意义。
+The default YAML prices are zero because compatible providers have different billing models. This
+means that the default `cost_limit` value alone cannot prevent real charges; a cumulative dollar cap
+has meaning only after non-zero, correct prices are configured.
 
-## Environment：显式 ABC
+## Environment: explicit ABC
 
-[`environments/base.py`](../../src/mini_agent/environments/base.py) 定义：
+[`environments/base.py`](../../src/mini_agent/environments/base.py) defines:
 
 ```python
 execute(command, timeout) -> ExecutionResult
@@ -44,64 +50,74 @@ write_file(path, content) -> None
 cleanup() -> None
 ```
 
-前三个方法为抽象方法；`cleanup()` 有 no-op 默认实现，持有外部资源的子类应覆盖。
-`ExecutionResult` 是 mapping，规范键为 `output`、`returncode`、`exception_info`。
+The first three methods are abstract; `cleanup()` has a no-op default implementation, which
+subclasses holding external resources should override. `ExecutionResult` is a mapping with the
+standard keys `output`, `returncode`, and `exception_info`.
 
-命令非零退出是正常观察，写入 `returncode`；启动失败、timeout 或运行器错误使用
-`returncode=-1` 和 `exception_info`。Environment 负责捕获 stdout/stderr 合流，工具层负责
-格式化和截断。
+A command's non-zero exit is a normal observation recorded in `returncode`; startup failures,
+timeouts, or runner errors use `returncode=-1` and `exception_info`. Environment captures combined
+stdout/stderr, while the tool layer formats and truncates it.
 
 ## LocalEnvironment
 
-Local 通过宿主 shell 启动子进程，并继承当前 Python 进程的工作目录。文件工具也相对同一
-工作目录解析，因此 bash 与 read/edit/write 看到同一棵树。
+Local starts subprocesses through the host shell and inherits the current Python process's working
+directory. File tools resolve paths relative to the same working directory, so bash and read/edit/write
+see the same tree.
 
-POSIX 下命令在独立 session/process group 中运行。timeout 时实现会终止整个进程组并回收
-输出，避免只杀 shell 却遗留子进程。Windows 走相应的进程树终止回退。
+On POSIX, commands run in an independent session/process group. On timeout, the implementation
+terminates the entire process group and collects output, avoiding orphaned child processes when only
+the shell is killed. Windows uses the corresponding process-tree termination fallback.
 
-安全含义很直接：模型可以运行当前用户有权运行的命令、读取数据并写文件。本地模式不是
-沙箱，输出截断也不限制命令本身的权限。
+The security implication is direct: the model can run commands the current user is authorized to
+run, read data, and write files. Local mode is not a sandbox, and output truncation does not limit a
+command's own permissions.
 
 ## DockerEnvironment
 
-Docker 实现在初始化时确保镜像可用，启动一个长寿命容器，再通过 `docker exec` 执行多次
-命令。这样保留容器内文件修改，同时避免每个工具调用重新创建容器。
+Docker ensures that the image is available during initialization, starts a long-lived container,
+and then runs multiple commands through `docker exec`. This preserves file changes inside the
+container while avoiding container recreation for every tool call.
 
-文件 I/O 也通过容器内命令完成，路径相对配置的 `cwd`。解释器、容器存活时长、镜像拉取
-超时、`run_args` 和有限的环境变量转发都由 EnvironmentConfig 控制。
+File I/O also happens through commands inside the container, with paths relative to the configured
+`cwd`. The interpreter, container lifetime, image-pull timeout, `run_args`, and limited environment
+variable forwarding are controlled by EnvironmentConfig.
 
-`cleanup()` 停止并移除容器；调用应当放在 `finally`。Docker daemon 权限通常很高，错误的
-mount、privileged 参数或 secret 转发仍可能破坏隔离假设。
+`cleanup()` stops and removes the container; call it from `finally`. Docker daemon permissions are
+typically high, and an incorrect mount, privileged argument, or forwarded secret can still undermine
+the isolation assumptions.
 
-## Factory 与依赖注入
+## Factory and dependency injection
 
-`get_environment(name, **kwargs)` 用注册映射选择 `local` 或 `docker`。CLI 先构造 typed
-config，再把 `config.environment.type` 交给 factory。Agent 不包含环境名称分支。
+`get_environment(name, **kwargs)` selects `local` or `docker` through a registered mapping. The CLI
+first constructs typed config and then passes `config.environment.type` to the factory. Agent has no
+branch on environment names.
 
-新增环境时：
+When adding an environment:
 
-1. 继承 `Environment` 并实现三个抽象操作；
-2. 对任何获取的外部资源实现幂等或至少安全的 `cleanup()`；
-3. 在 factory mapping 注册名称；
-4. 增加构造、命令结果、文件一致性、timeout 与清理测试；
-5. 如需新配置字段，更新 pydantic model 和 YAML。
+1. inherit from `Environment` and implement the three abstract operations;
+2. implement an idempotent, or at least safe, `cleanup()` for any external resources acquired;
+3. register the name in the factory mapping;
+4. add tests for construction, command results, file consistency, timeouts, and cleanup;
+5. if new configuration fields are needed, update the pydantic model and YAML.
 
-## 资源所有权
+## Resource ownership
 
-普通 CLI 创建 Model 与 Environment，因此在 `finally` 中先 `model.close()`、后
-`environment.cleanup()`，清理异常只警告，不覆盖真正的运行异常。
+The ordinary CLI creates Model and Environment, so `finally` calls `model.close()` first and then
+`environment.cleanup()`; cleanup exceptions only produce warnings and do not mask the actual run
+exception.
 
-SWE-bench 每个实例各自拥有模型与容器；构造中途失败、Agent 失败或成功结束都要释放。
-若用户直接构造对象，库不会替用户推断生命周期，调用者应显式清理。
+Each SWE-bench instance owns its own model and container; resources must be released whether
+construction fails partway through, Agent fails, or the run succeeds. If users construct objects
+directly, the library does not infer their lifecycle; callers should clean them up explicitly.
 
-## 安全检查表
+## Security checklist
 
-- Local：只用于可信任务和可丢弃工作树；
-- Docker：检查镜像来源、mount、run args、cwd 与转发环境变量；
-- 网络：命令级 blocklist 不是边界，容器网络策略才是；
-- secrets：YAML 只放环境变量名，不放值；
-- timeout：终止子进程树，但不能回滚已发生的副作用；
-- cleanup：释放资源，不等于撤销文件修改。
+- Local: use only for trusted tasks and disposable worktrees;
+- Docker: inspect the image source, mounts, run args, cwd, and forwarded environment variables;
+- Network: a command-level blocklist is not a boundary; container network policy is;
+- Secrets: YAML contains environment-variable names, not values;
+- Timeout: terminates the child-process tree but cannot roll back side effects that have occurred;
+- Cleanup: releases resources; it does not undo file modifications.
 
-相关页面：[架构总览](overview.md)、[工具系统](tool-system.md)、
-[设计取舍](../decisions/design-tradeoffs.md)。
+Related pages: [Architecture overview](overview.md), [Tool system](tool-system.md),
+[Design trade-offs](../decisions/design-tradeoffs.md).
