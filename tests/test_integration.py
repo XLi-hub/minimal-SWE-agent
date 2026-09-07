@@ -97,9 +97,9 @@ def test_agent_sees_real_ls_output():
     assert result["exit_status"] == "submitted"
     tool_msgs = [m for m in result["messages"] if m["role"] == "tool"]
     assert len(tool_msgs) >= 1
-    # Real ls output should mention our test files
+    # Real ls output should mention the split Agent test directory.
     ls_output = tool_msgs[0]["content"]
-    assert "test_agent" in ls_output, f"Expected test files in output: {ls_output!r}"
+    assert "agent" in ls_output, f"Expected Agent tests in output: {ls_output!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -225,10 +225,10 @@ def test_git_diff_output():
         _make_response(
             content="Let me see what changed.",
             tool_calls=[
-                # diff two test files — guaranteed to produce real output
+                # Diff two test files — guaranteed to produce real output.
                 _make_tool_call(
                     "c1", "bash",
-                    {"command": "diff -u tests/test_agent.py tests/test_config.py"},
+                    {"command": "diff -u tests/agent/test_flow.py tests/test_config.py"},
                 ),
             ],
         ),
