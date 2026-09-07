@@ -81,13 +81,17 @@ conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 
 | 改动 | 首选测试 |
 |---|---|
-| Agent/submit/review | `tests/test_agent.py`、`tests/test_evidence.py` |
-| tools/tooling | `tests/test_tools.py` |
+| Agent 循环、限制、submit 或 review | `tests/agent/`、`tests/test_evidence.py` |
+| tools/tooling | `tests/tooling/` |
 | config/YAML | `tests/test_config*.py` |
 | environments | `tests/test_environment.py`、`test_environments_init.py`、`test_docker.py` |
-| context/trajectory | `test_context.py`、`test_persistence.py` |
+| context 算法 | `tests/test_context.py`、`tests/agent/test_compression.py` |
+| trajectory 持久化 | `tests/test_persistence.py`、`tests/agent/test_persistence.py` |
 | benchmark | `tests/benchmarks/` |
 | CLI/resources | `tests/test_cli.py`、`tests/benchmarks/test_cli.py` |
+
+大型测试域按生产代码边界放入子目录。各目录的 `_helpers.py` 只供本域使用，不应跨 Agent
+与 Tooling 边界互相导入。
 
 focused tests 通过后，交付前再跑完整非 E2E suite。
 

@@ -88,13 +88,17 @@ Choose the narrowest sufficient set based on the change:
 
 | Change | Preferred tests |
 |---|---|
-| Agent/submit/review | `tests/test_agent.py`, `tests/test_evidence.py` |
-| tools/tooling | `tests/test_tools.py` |
+| Agent loop, limits, submit, or review | `tests/agent/`, `tests/test_evidence.py` |
+| tools/tooling | `tests/tooling/` |
 | config/YAML | `tests/test_config*.py` |
 | environments | `tests/test_environment.py`, `test_environments_init.py`, `test_docker.py` |
-| context/trajectory | `test_context.py`, `test_persistence.py` |
+| context algorithms | `tests/test_context.py`, `tests/agent/test_compression.py` |
+| trajectory persistence | `tests/test_persistence.py`, `tests/agent/test_persistence.py` |
 | benchmark | `tests/benchmarks/` |
 | CLI/resources | `tests/test_cli.py`, `tests/benchmarks/test_cli.py` |
+
+Large test domains mirror production boundaries in subdirectories. Their `_helpers.py` modules are
+private to that domain; tests should not import helpers across Agent and Tooling boundaries.
 
 After focused tests pass, run the complete non-E2E suite before delivery.
 
