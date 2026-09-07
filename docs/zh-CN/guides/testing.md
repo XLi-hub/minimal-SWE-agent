@@ -88,7 +88,6 @@ conda run -n minimal-SWE-agent env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 | context/trajectory | `test_context.py`、`test_persistence.py` |
 | benchmark | `tests/benchmarks/` |
 | CLI/resources | `tests/test_cli.py`、`tests/benchmarks/test_cli.py` |
-| docs links | `tests/test_docs.py` |
 
 focused tests 通过后，交付前再跑完整非 E2E suite。
 

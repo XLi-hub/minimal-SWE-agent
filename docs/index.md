@@ -88,7 +88,6 @@ models, and YAML as authoritative, and consider the discrepancy a documentation 
 - experiments record observations from that time and do not redefine the current architecture;
 - new modules require an update to the architecture map, while new fields, tools, and formats require an update to the corresponding reference page;
 - maintain `.drawio` and `.svg` together for cross-module diagrams; use Mermaid for short in-page flows;
-- `tests/test_docs.py` checks local Markdown links in the README and all docs;
 - title-slug anchors are not validated, so manually check cross-page anchors when renaming titles.
 
 Return to the [project README](../README.md).

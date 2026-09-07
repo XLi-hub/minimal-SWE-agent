@@ -95,7 +95,6 @@ Choose the narrowest sufficient set based on the change:
 | context/trajectory | `test_context.py`, `test_persistence.py` |
 | benchmark | `tests/benchmarks/` |
 | CLI/resources | `tests/test_cli.py`, `tests/benchmarks/test_cli.py` |
-| docs links | `tests/test_docs.py` |
 
 After focused tests pass, run the complete non-E2E suite before delivery.
 

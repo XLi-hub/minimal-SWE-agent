@@ -80,7 +80,6 @@ experiments/   有时间背景的实验记录，不充当当前行为规范
 - experiments 记录当时观察，不反向定义当前架构；
 - 新模块需要更新架构地图，新字段/工具/格式需要更新对应 reference；
 - 跨模块结构图维护 `.drawio` 与 `.svg`，页内短流程使用 Mermaid；
-- README 和所有 docs 的本地 Markdown 链接由 `tests/test_docs.py` 检查；
 - 不校验标题 slug anchor，重命名标题时仍需人工检查跨页 anchor。
 
 返回[项目 README](../../README.zh-CN.md)。
