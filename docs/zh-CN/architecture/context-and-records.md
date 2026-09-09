@@ -31,7 +31,8 @@ OpenAI-compatible 协议要求 assistant 声明的每个 call 紧随匹配的 to
 
 ## 自动压缩
 
-`context.py` 用供应商无关的字符近似估算 token，并把工具 schemas 计入预算。当估算量达到
+`context.py` 用供应商无关的字符近似估算 token：大致按四个 ASCII 字符或一个非 ASCII
+code point 计一个 token，并把工具 schemas 计入预算。当估算量达到
 `threshold × (context_window - reserve)` 时：
 
 ```text
@@ -45,8 +46,8 @@ OpenAI-compatible 协议要求 assistant 声明的每个 call 紧随匹配的 to
 summary 是无工具模型请求，计入 API calls、费用和时间，但不计主循环 step。
 
 摘要失败是非致命的：保留完整 messages 继续。不过请求可能已经发生，因此 Agent 会在继续
-主查询前复查费用和墙钟。成功压缩会记录 `context_compression` 事件以及当时的精确
-`context_messages` snapshot。
+主查询前复查费用和墙钟。失败会用 `context_compression_failed` 记录错误类型、信息和未改变的
+消息数；成功压缩会记录 `context_compression` 事件以及当时的精确 `context_messages` snapshot。
 
 参数默认值不要从本文复制，见
 [`default.yaml`](../../../src/mini_agent/config/default.yaml) 的 `agent` section。

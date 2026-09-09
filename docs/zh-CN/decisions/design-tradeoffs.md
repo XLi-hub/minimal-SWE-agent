@@ -66,8 +66,9 @@ bash 仍用于搜索、测试和版本控制。两者共存增加工具选择，
 
 ## 近似 token，而非 provider tokenizer
 
-context 触发只需要保守近似，而真实计费使用 response usage。引入每个 provider 的 tokenizer
-会增加依赖和模型映射复杂度，仍可能与服务端计算不同。
+context 触发只需要保守近似，而真实计费使用 response usage。估算器大致按四个 ASCII 字符
+或一个非 ASCII code point 计一个 token，避免单一字符比例严重低估多语言文本。引入每个
+provider 的 tokenizer 会增加依赖和模型映射复杂度，仍可能与服务端计算不同。
 
 近似可能早压或晚压；reserve 和阈值就是为误差留空间，不应把估算值用于账单。
 

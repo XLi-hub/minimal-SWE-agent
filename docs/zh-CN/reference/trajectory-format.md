@@ -75,6 +75,7 @@ sequence 从零递增。常见 type：
 |---|---|
 | `message` | 未被压缩覆盖的原始消息 |
 | `context_compression` | 压缩前后数量、summary、下一次查询的 context snapshot |
+| `context_compression_failed` | 非致命压缩失败的错误类型/信息及未改变的消息数 |
 | `submission_review_checkpoint` | handoff summary 状态 |
 | `submission_review_context_reset` | checkpoint 开关、summary 状态、review context snapshot |
 

@@ -34,8 +34,9 @@ make each assistant + all tool responses an atomic unit and never cuts through o
 
 ## Automatic compression
 
-`context.py` uses a provider-independent character approximation to estimate tokens and includes tool
-schemas in the budget. When the estimate reaches `threshold × (context_window - reserve)`:
+`context.py` uses a provider-independent character approximation to estimate tokens: roughly four
+ASCII characters or one non-ASCII code point per token. Tool schemas are included in the budget.
+When the estimate reaches `threshold × (context_window - reserve)`:
 
 ```text
 [system, original task] + middle history + recent units
@@ -50,8 +51,9 @@ counts toward API calls, cost, and time, but not the main-loop step.
 
 Summary failure is non-fatal: the complete messages are retained and the run continues. However,
 the request may already have occurred, so Agent rechecks cost and wall-clock limits before the main
-query continues. Successful compression records a `context_compression` event and the exact
-`context_messages` snapshot from that time.
+query continues. A failure records `context_compression_failed` with its type, message, and unchanged
+message count; successful compression records `context_compression` and the exact `context_messages`
+snapshot from that time.
 
 Do not copy parameter defaults from this page; see the `agent` section of
 [`default.yaml`](../../src/mini_agent/config/default.yaml).

@@ -43,6 +43,16 @@ def test_estimate_tokens():
     assert estimate_tokens("") == 1
     assert estimate_tokens("abcd") == 1
     assert estimate_tokens("abcdefgh") == 2
+    assert estimate_tokens("你好世界") == 4
+    assert estimate_tokens("abcd你好") == 3
+
+
+def test_multilingual_text_triggers_compression_conservatively():
+    messages = [{"role": "user", "content": "你" * 100}]
+
+    assert should_compress(
+        messages, tools=None, context_window=120, threshold=0.8, reserve=0
+    )
 
 
 def test_count_tokens_sums_content_plus_overhead():

@@ -467,10 +467,10 @@ class Agent:
     def _maybe_compress(self) -> bool:
         """Summarize the middle of the history when it nears the context window.
 
-        A compression failure is non-fatal: it is silently skipped and the loop
-        continues with the full (uncompressed) history. The return value says
-        whether compression may have issued a model request, so the caller can
-        re-check time and cost budgets before the main query.
+        A compression failure is non-fatal: it is recorded as a structured
+        event, then the loop continues with the full history. The return value
+        says whether compression may have issued a model request, so the caller
+        can re-check time and cost budgets before the main query.
         """
         if not should_compress(
             self.messages, self._tools,
@@ -507,7 +507,13 @@ class Agent:
             # 就地切片赋值，保持 self.messages / result["messages"] 别名一致。
             self.messages[:] = compressed
             return summary_response is not None
-        except Exception:
+        except Exception as exc:
+            self._record_event(
+                "context_compression_failed",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                messages_before=len(self.messages),
+            )
             # The failure may have happened after the summarizer request was
             # sent. Re-checking budgets is safer than immediately issuing a
             # second request with unknown elapsed time/cost.

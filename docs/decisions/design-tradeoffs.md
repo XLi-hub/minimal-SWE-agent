@@ -82,8 +82,10 @@ clearly.
 ## Approximate Tokens, Not a Provider Tokenizer
 
 Context triggering only needs a conservative approximation, while real billing uses response usage.
-Adding a tokenizer for every provider would add dependencies and model-mapping complexity, and could
-still differ from the server's calculation.
+The estimator treats roughly four ASCII characters or one non-ASCII code point as a token, avoiding
+the severe multilingual undercount of a single character-ratio rule. Adding a tokenizer for every
+provider would add dependencies and model-mapping complexity, and could still differ from the server's
+calculation.
 
 The approximation may compress too early or too late; reserve and threshold values leave room for
 error. Estimated values must not be used for billing.

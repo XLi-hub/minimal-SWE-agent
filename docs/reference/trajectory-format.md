@@ -78,6 +78,7 @@ The sidecar contains one JSON object per line and includes at least:
 |---|---|
 | `message` | Original message not superseded by compression |
 | `context_compression` | Counts before and after compression, summary, and the next query's context snapshot |
+| `context_compression_failed` | Error type/message and unchanged message count after a non-fatal compression failure |
 | `submission_review_checkpoint` | Handoff summary state |
 | `submission_review_context_reset` | Checkpoint switch, summary state, and review context snapshot |
 

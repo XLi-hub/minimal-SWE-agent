@@ -86,7 +86,7 @@ def test_compression_preserves_raw_messages_in_append_only_events():
 
 
 def test_compression_skips_on_summarizer_failure():
-    """摘要失败时静默跳过，不注入 Error 消息。"""
+    """摘要失败时记录结构化事件，但不向模型注入 Error 消息。"""
     def fake_query(messages, tools=None):
         if tools:
             calls["loop"] += 1
@@ -114,6 +114,15 @@ def test_compression_skips_on_summarizer_failure():
         m.get("role") == "user" and "Error" in str(m.get("content"))
         for m in result["messages"]
     )
+    failure_events = [
+        event
+        for event in agent.events
+        if event["type"] == "context_compression_failed"
+    ]
+    assert len(failure_events) == 1
+    assert failure_events[0]["error_type"] == "RuntimeError"
+    assert failure_events[0]["error_message"] == "summarizer down"
+    assert failure_events[0]["messages_before"] == 6
 
 
 def test_compression_messages_stay_aliased():

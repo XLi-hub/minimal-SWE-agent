@@ -3,8 +3,8 @@
 Agent 循环每步都会往 ``messages`` 里追加 assistant/tool 消息，历史会无限增长。
 这里提供两个能力：
 
-1. **token 估算**：用 ``len(text) // 4`` 做供应商无关的粗略估算；
-   对"是否逼近上限"的阈值判断足够。
+1. **token 估算**：ASCII 约按 4 字符/token，非 ASCII 按字符计数，得到供应商无关且
+   对多语言文本更保守的粗略估算。
 2. **压缩**：当历史逼近上限时，把中间的旧对话折叠成一条结构化摘要，只保留
    system prompt、原始任务、以及最近 N 轮 verbatim。
 
@@ -21,8 +21,17 @@ from mini_agent.config import Config, UNSET, get_default_config, render_template
 
 
 def estimate_tokens(text: str) -> int:
-    """估算 token 数（约 4 字符/token）。近似值，足够用于阈值触发。"""
-    return max(1, len(text) // 4)
+    """Estimate tokens conservatively across ASCII and multilingual text.
+
+    Four ASCII characters per token remains a useful code/English heuristic.
+    CJK, emoji, and other non-ASCII characters are often denser in tokenizer
+    space, so count each code point as one instead of treating it as a quarter.
+    """
+
+    ascii_chars = sum(character.isascii() for character in text)
+    non_ascii_chars = len(text) - ascii_chars
+    ascii_tokens = (ascii_chars + 3) // 4
+    return max(1, ascii_tokens + non_ascii_chars)
 
 
 def count_tokens(messages: list[dict], tools: list[dict] | None = None) -> int:
