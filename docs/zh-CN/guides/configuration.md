@@ -80,8 +80,9 @@ model:
 OPENAI_API_KEY=... minimal --task "检查项目"
 ```
 
-不要把 key 放进 `model_kwargs`、trajectory、命令参数或可提交的 profile。Docker 的
-`forward_env` 也应最小化；模型 provider key 通常只需留在宿主 Model，不应进入执行容器。
+不要把 key 放进 `model_kwargs`、trajectory、命令参数或可提交的 profile。配置的 provider key
+变量会自动对 Local 命令隐藏。`forward_env` 应保持最小化：它把指定宿主变量转发进 Docker，
+也会显式允许 Local 命令使用受保护变量。模型 provider key 通常只需留在宿主 Model。
 
 ## Prompt 模板
 

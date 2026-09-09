@@ -20,6 +20,31 @@ class LocalEnvironment(Environment):
     def __init__(self, config: EnvironmentConfig | None = None) -> None:
         self.config = config or get_default_config().environment
 
+    def _command_environment(self) -> dict[str, str]:
+        """Build a host environment without implicitly exposing credentials.
+
+        ``protected_env`` is denied by default. Listing a protected name in
+        ``forward_env`` is the explicit opt-in for commands that genuinely need
+        it. The same rule applies to values supplied through ``environment.env``
+        so a lower-precedence host value cannot accidentally reappear.
+        """
+
+        protected = set(self.config.protected_env)
+        forwarded = set(self.config.forward_env)
+        command_env = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in protected or key in forwarded
+        }
+        command_env.update(
+            {
+                key: value
+                for key, value in self.config.env.items()
+                if key not in protected or key in forwarded
+            }
+        )
+        return command_env
+
     def execute(self, command: str, timeout: int | None = None) -> ExecutionResult:
         """Run a shell command and return a normalized execution result.
 
@@ -33,7 +58,7 @@ class LocalEnvironment(Environment):
                 command,
                 shell=True,
                 text=True,
-                env=os.environ | self.config.env,
+                env=self._command_environment(),
                 encoding="utf-8",
                 errors="replace",
                 stdout=subprocess.PIPE,

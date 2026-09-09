@@ -84,8 +84,9 @@ OPENAI_API_KEY=... minimal --task "inspect the project"
 ```
 
 Do not put the key in `model_kwargs`, a trajectory, command arguments, or a committable profile.
-Docker's `forward_env` should also be minimal; a model provider key usually only needs to remain in
-the host Model and should not enter the execution container.
+The configured provider-key variable is automatically protected from Local commands. `forward_env`
+should remain minimal: it forwards named host variables into Docker and explicitly opts protected
+names back into Local commands. A model provider key normally only needs to remain in the host Model.
 
 ## Prompt Templates
 

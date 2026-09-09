@@ -174,6 +174,7 @@ class EnvironmentConfig(BaseModel):
     timeout: int = Field(default=30, gt=0)
     container_timeout: str = "2h"
     forward_env: list[str] = Field(default_factory=list)
+    protected_env: list[str] = Field(default_factory=lambda: ["OPENAI_API_KEY"])
     executable: str = Field(default_factory=lambda: os.getenv("MSWEA_DOCKER_EXECUTABLE", "docker"))
     run_args: list[str] = Field(default_factory=lambda: ["--rm"])
     pull_timeout: int = Field(default=120, gt=0)
@@ -186,6 +187,15 @@ class EnvironmentConfig(BaseModel):
         if not value or any(not item.strip() for item in value):
             raise ValueError("interpreter must contain at least one non-empty command")
         return value
+
+    @field_validator("forward_env", "protected_env")
+    @classmethod
+    def environment_names_are_valid(cls, names: list[str], info) -> list[str]:
+        if any(not name.strip() for name in names):
+            raise ValueError(f"{info.field_name} names must be non-empty")
+        if len(names) != len(set(names)):
+            raise ValueError(f"{info.field_name} names must be unique")
+        return names
 
 
 class RunConfig(BaseModel):
@@ -207,3 +217,12 @@ class Config(BaseModel):
     cost: CostConfig = Field(default_factory=CostConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
     run: RunConfig = Field(default_factory=RunConfig)
+
+    @model_validator(mode="after")
+    def protect_model_api_key_from_local_commands(self) -> "Config":
+        """Keep the configured provider credential out of Local by default."""
+
+        key_name = self.model.api_key_env
+        if key_name not in self.environment.protected_env:
+            self.environment.protected_env.append(key_name)
+        return self

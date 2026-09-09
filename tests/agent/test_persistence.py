@@ -2,6 +2,7 @@ import json
 from unittest.mock import MagicMock
 
 from mini_agent.agent import Agent
+from mini_agent.config import get_default_config
 
 from ._helpers import _make_response, _make_tool_call
 
@@ -71,6 +72,17 @@ class TestSerialize:
         agent.run("do it")
 
         json.dumps(agent.serialize())
+
+    def test_serialize_redacts_command_environment_values(self):
+        config = get_default_config().model_copy(deep=True)
+        config.environment.env["SERVICE_TOKEN"] = "must-not-be-persisted"
+        agent = Agent(_submitting_model(), MagicMock(), config=config)
+        agent.run("do it")
+
+        serialized_env = agent.serialize()["info"]["config"]["environment"]["env"]
+
+        assert serialized_env["SERVICE_TOKEN"] == "<redacted>"
+        assert "must-not-be-persisted" not in json.dumps(agent.serialize())
 
 
 class TestSave:

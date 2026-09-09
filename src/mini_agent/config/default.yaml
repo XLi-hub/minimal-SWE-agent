@@ -128,8 +128,15 @@ environment:
   cwd: "/"
   timeout: 30
   container_timeout: 2h
-  # Docker-specific execution options (ignored by LocalEnvironment).
+  # Host variables are forwarded to Docker only when named here. For Local,
+  # ordinary variables are inherited and this list opts protected names back in.
   forward_env: []
+  # Local commands inherit ordinary host variables, but never these credentials
+  # unless their names are also explicitly listed in forward_env. Config adds a
+  # custom model.api_key_env here automatically.
+  protected_env:
+    - OPENAI_API_KEY
+  # Remaining options below are Docker-specific and ignored by LocalEnvironment.
   executable: docker
   run_args:
     - --rm

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mini_agent.config import EnvironmentConfig
 from mini_agent.environments.local import LocalEnvironment
 
 
@@ -46,6 +47,42 @@ def test_env_overrides_tqdm():
     """TQDM_DISABLE should be set to 1."""
     output = LocalEnvironment().execute("echo $TQDM_DISABLE")
     assert "1" in output
+
+
+def test_local_environment_hides_protected_host_variable(monkeypatch):
+    monkeypatch.setenv("MINI_AGENT_TEST_SECRET", "sentinel")
+    config = EnvironmentConfig(protected_env=["MINI_AGENT_TEST_SECRET"])
+
+    result = LocalEnvironment(config).execute(
+        'printf "%s" "${MINI_AGENT_TEST_SECRET-missing}"'
+    )
+
+    assert result["output"] == "missing"
+
+
+def test_local_environment_requires_explicit_forward_for_protected_variable(monkeypatch):
+    monkeypatch.setenv("MINI_AGENT_TEST_SECRET", "sentinel")
+    config = EnvironmentConfig(
+        protected_env=["MINI_AGENT_TEST_SECRET"],
+        forward_env=["MINI_AGENT_TEST_SECRET"],
+    )
+
+    result = LocalEnvironment(config).execute('printf "%s" "$MINI_AGENT_TEST_SECRET"')
+
+    assert result["output"] == "sentinel"
+
+
+def test_local_environment_does_not_reinject_protected_config_value():
+    config = EnvironmentConfig(
+        env={"MINI_AGENT_TEST_SECRET": "sentinel"},
+        protected_env=["MINI_AGENT_TEST_SECRET"],
+    )
+
+    result = LocalEnvironment(config).execute(
+        'printf "%s" "${MINI_AGENT_TEST_SECRET-missing}"'
+    )
+
+    assert result["output"] == "missing"
 
 
 # --- LocalEnvironment class interface ---

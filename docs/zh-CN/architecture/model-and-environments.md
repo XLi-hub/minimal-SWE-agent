@@ -54,7 +54,8 @@ cleanup() -> None
 ## LocalEnvironment
 
 Local 通过宿主 shell 启动子进程，并继承当前 Python 进程的工作目录。文件工具也相对同一
-工作目录解析，因此 bash 与 read/edit/write 看到同一棵树。
+工作目录解析，因此 bash 与 read/edit/write 看到同一棵树。普通宿主环境变量会继承，但
+配置的 provider API key 等受保护变量会移除，除非通过 `forward_env` 显式允许。
 
 POSIX 下命令在独立 session/process group 中运行。timeout 时实现会终止整个进程组并回收
 输出，避免只杀 shell 却遗留子进程。Windows 走相应的进程树终止回退。
@@ -99,7 +100,7 @@ SWE-bench 每个实例各自拥有模型与容器；构造中途失败、Agent �
 - Local：只用于可信任务和可丢弃工作树；
 - Docker：检查镜像来源、mount、run args、cwd 与转发环境变量；
 - 网络：命令级 blocklist 不是边界，容器网络策略才是；
-- secrets：YAML 只放环境变量名，不放值；
+- secrets：provider key 默认不传给 Local 命令，轨迹快照会脱敏 `environment.env` 的值；
 - timeout：终止子进程树，但不能回滚已发生的副作用；
 - cleanup：释放资源，不等于撤销文件修改。
 

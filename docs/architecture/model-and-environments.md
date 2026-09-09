@@ -62,7 +62,8 @@ stdout/stderr, while the tool layer formats and truncates it.
 
 Local starts subprocesses through the host shell and inherits the current Python process's working
 directory. File tools resolve paths relative to the same working directory, so bash and read/edit/write
-see the same tree.
+see the same tree. Ordinary host environment variables are inherited, but protected variables such as
+the configured provider API key are removed unless explicitly opted in through `forward_env`.
 
 On POSIX, commands run in an independent session/process group. On timeout, the implementation
 terminates the entire process group and collects output, avoiding orphaned child processes when only
@@ -115,7 +116,8 @@ directly, the library does not infer their lifecycle; callers should clean them 
 - Local: use only for trusted tasks and disposable worktrees;
 - Docker: inspect the image source, mounts, run args, cwd, and forwarded environment variables;
 - Network: a command-level blocklist is not a boundary; container network policy is;
-- Secrets: YAML contains environment-variable names, not values;
+- Secrets: the provider key is withheld from Local commands by default, and trajectory snapshots
+  redact `environment.env` values;
 - Timeout: terminates the child-process tree but cannot roll back side effects that have occurred;
 - Cleanup: releases resources; it does not undo file modifications.
 

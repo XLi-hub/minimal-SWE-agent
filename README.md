@@ -53,7 +53,8 @@ adjacent `.events.jsonl` file.
 
 By default, `LocalEnvironment` executes model-generated shell commands directly in the current
 host process's working directory and can read and write host files; it is not a sandbox. Only give
-the local mode trusted workspaces and tasks.
+the local mode trusted workspaces and tasks. The configured model API-key variable is withheld from
+Local commands unless its name is explicitly added to `environment.forward_env`.
 
 Docker mode provides process and filesystem isolation, but its security still depends on the image,
 mounts, forwarded environment variables, container arguments, and Docker daemon permissions:

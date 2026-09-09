@@ -214,6 +214,19 @@ def test_environment_config_accepts_docker_execution_options():
     assert config.environment.interpreter == ["bash", "-c"]
 
 
+def test_config_protects_custom_model_api_key_from_local_commands():
+    config = build_config(['model.api_key_env="CUSTOM_PROVIDER_CREDENTIAL"'])
+
+    assert "CUSTOM_PROVIDER_CREDENTIAL" in config.environment.protected_env
+
+
+@pytest.mark.parametrize("field", ["forward_env", "protected_env"])
+def test_environment_variable_name_lists_reject_empty_or_duplicate_names(field):
+    for value in ('[""]', '["NAME","NAME"]'):
+        with pytest.raises(ValidationError, match=field):
+            build_config([f"environment.{field}={value}"])
+
+
 def test_top_level_run_extension_is_preserved():
     config = build_config(['run.env_startup_command="echo ready"'])
     assert config.run.env_startup_command == "echo ready"

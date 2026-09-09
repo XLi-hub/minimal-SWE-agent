@@ -507,7 +507,7 @@ class Agent:
                         f"{self.model.__class__.__module__}."
                         f"{self.model.__class__.__name__}"
                     ),
-                    "environment": self.config.environment.model_dump(mode="json"),
+                    "environment": self._serialized_environment_config(),
                     "environment_type": (
                         f"{self.environment.__class__.__module__}."
                         f"{self.environment.__class__.__name__}"
@@ -523,6 +523,19 @@ class Agent:
             "events": list(self.events),
             "trajectory_format": "mini-agent-0.2",
         }
+
+    def _serialized_environment_config(self) -> dict:
+        """Return trajectory-safe environment configuration.
+
+        Command environment values are operational inputs and may contain
+        credentials. Persist their names for auditability, never their values.
+        """
+
+        environment = self.config.environment.model_dump(mode="json")
+        environment["env"] = {
+            name: "<redacted>" for name in environment.get("env", {})
+        }
+        return environment
 
     def save(self, path: str | Path | None) -> dict:
         """Serialize the trajectory and write it to *path*.

@@ -80,12 +80,13 @@ check the current prices before a batch run.
 | Field | Meaning |
 |---|---|
 | `type` | Factory name, currently local/docker |
-| `env` | String key/value pairs injected into the command environment |
+| `env` | String key/value pairs injected into the command environment; values are redacted in trajectories |
 | `image` | Docker image |
 | `cwd` | Working directory for container commands and file tools |
 | `timeout` | Environment's default command timeout |
 | `container_timeout` | Duration expression for keeping a long-lived container alive |
-| `forward_env` | Environment variable names forwarded from the host into the container |
+| `forward_env` | Host variable names forwarded into Docker; also the explicit Local opt-in for protected names |
+| `protected_env` | Host variable names withheld from Local commands unless also listed in `forward_env`; always includes `model.api_key_env` |
 | `executable` | Docker-compatible CLI path/command |
 | `run_args` | Additional arguments passed to container run |
 | `pull_timeout` | Image-pull timeout |
@@ -94,6 +95,12 @@ check the current prices before a batch run.
 
 `block_network_commands` is not a sandbox; use container network configuration when a hard network
 boundary is required.
+
+Local inherits ordinary host variables so tools such as compilers retain `PATH` and other runtime
+settings. Provider credentials are different: the configured `model.api_key_env` is automatically
+added to `protected_env`. A command receives a protected variable only after its name is explicitly
+added to `forward_env`. Environment values are never stored verbatim in trajectory configuration
+snapshots.
 
 ## run
 

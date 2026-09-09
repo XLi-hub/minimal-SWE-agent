@@ -49,7 +49,8 @@ conda run -n minimal-SWE-agent minimal \
 ## 安全边界
 
 默认 `LocalEnvironment` 直接在当前宿主机进程的工作目录执行模型生成的 shell 命令，
-并能读写宿主文件；它不是沙箱。只把可信工作区和任务交给本地模式。
+并能读写宿主文件；它不是沙箱。只把可信工作区和任务交给本地模式。配置的模型 API key
+变量默认不会传给 Local 命令，除非把其名称显式加入 `environment.forward_env`。
 
 Docker 模式提供进程和文件系统隔离，但安全性仍取决于镜像、挂载、转发的环境变量、
 容器参数以及 Docker daemon 权限：

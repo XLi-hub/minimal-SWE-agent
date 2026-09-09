@@ -45,8 +45,9 @@ the complete history. In memory, `serialize()` may temporarily include `events`,
 - `config`: resolved Agent/Model/Environment configuration and concrete class paths.
 
 The configuration snapshot may contain prompts and a provider endpoint, but by design `api_key_env`
-contains only the key variable name. Still review custom prompts, the task, commands, output, and
-environment-variable-related content before sharing.
+contains only the key variable name and every `environment.env` value is stored as `<redacted>`.
+Commands and their output can still reveal data at runtime, so review custom prompts, the task,
+commands, output, and other environment-variable-related content before sharing.
 
 ## messages
 

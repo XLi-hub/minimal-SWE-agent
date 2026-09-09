@@ -78,12 +78,13 @@ checkpoint 为 true 时，review prompt 必须存在且 reset 必须为 true。
 | 字段 | 含义 |
 |---|---|
 | `type` | factory 名称，当前为 local/docker |
-| `env` | 注入命令环境的字符串键值 |
+| `env` | 注入命令环境的字符串键值；轨迹中会脱敏其值 |
 | `image` | Docker image |
 | `cwd` | 容器命令和文件工具的工作目录 |
 | `timeout` | Environment 默认命令 timeout |
 | `container_timeout` | 长寿命容器保持命令的时长表达式 |
-| `forward_env` | 从宿主转发到容器的环境变量名 |
+| `forward_env` | 从宿主转发到 Docker 的变量名；也是 Local 使用受保护变量的显式许可 |
+| `protected_env` | Local 命令默认不继承的宿主变量名；始终包含 `model.api_key_env` |
 | `executable` | Docker-compatible CLI 路径/命令 |
 | `run_args` | 传给 container run 的额外参数 |
 | `pull_timeout` | 拉取镜像 timeout |
@@ -91,6 +92,10 @@ checkpoint 为 true 时，review prompt 必须存在且 reset 必须为 true。
 | `block_network_commands` | 工具层是否拒绝明显网络命令 |
 
 `block_network_commands` 不是沙箱；需要硬网络边界时使用容器网络配置。
+
+Local 会继承普通宿主变量，让编译器等工具继续获得 `PATH` 等运行设置。provider 凭据例外：
+配置的 `model.api_key_env` 会自动加入 `protected_env`。只有同时把名称显式加入
+`forward_env`，命令才能获得受保护变量。轨迹的配置快照不会原样保存环境变量值。
 
 ## run
 

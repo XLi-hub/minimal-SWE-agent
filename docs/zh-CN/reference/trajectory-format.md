@@ -43,8 +43,9 @@ sidecar 路径写成相对主文件的 basename，移动产物时应成对移动
 - `model_stats.instance_cost`：按配置价格估算的累计 USD；
 - `config`：agent/model/environment 的 resolved 配置和具体类路径。
 
-配置快照可能包含 prompt 和 provider endpoint，但设计上 `api_key_env` 只有密钥变量名。仍应
-在分享前审查自定义 prompt、task、commands、输出与环境变量相关内容。
+配置快照可能包含 prompt 和 provider endpoint，但设计上 `api_key_env` 只有密钥变量名，
+每个 `environment.env` 的值都保存为 `<redacted>`。命令及其输出在运行时仍可能暴露数据，
+因此分享前仍应审查自定义 prompt、task、commands、输出与其他环境变量相关内容。
 
 ## messages
 
