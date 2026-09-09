@@ -153,10 +153,17 @@ def load_default_yaml() -> dict:
     )
 
 
-@lru_cache(maxsize=None)
-def get_default_config() -> Config:
-    """The default ``Config``, parsed from ``default.yaml`` once and cached."""
+@lru_cache(maxsize=1)
+def _default_config_template() -> Config:
+    """Parse and cache the internal immutable-by-convention default template."""
+
     return Config.model_validate(load_default_yaml())
+
+
+def get_default_config() -> Config:
+    """Return an isolated deep copy of the cached default configuration."""
+
+    return _default_config_template().model_copy(deep=True)
 
 
 def build_config(

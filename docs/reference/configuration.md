@@ -17,7 +17,8 @@ source for types and constraints is [`config/models.py`](../../src/mini_agent/co
 | `run` | `RunConfig` | benchmark runner |
 
 All models use `extra="forbid"`: unknown fields are configuration errors and are not silently
-ignored.
+ignored. `get_default_config()` parses and caches one internal template, but returns an isolated deep
+copy so a library caller cannot mutate defaults observed by a later Agent.
 
 ## model
 

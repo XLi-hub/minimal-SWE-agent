@@ -17,6 +17,8 @@
 | `run` | `RunConfig` | benchmark runner |
 
 所有模型 `extra="forbid"`：未知字段是配置错误，不会被静默忽略。
+`get_default_config()` 会解析并缓存一个内部模板，但对调用者返回隔离的深拷贝，因此库调用者
+修改配置不会污染后续 Agent 看到的默认值。
 
 ## model
 

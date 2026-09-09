@@ -180,8 +180,18 @@ def test_render_template_raises_on_missing_var():
 # default config + validation
 # ---------------------------------------------------------------------------
 
-def test_get_default_config_is_cached():
-    assert get_default_config() is get_default_config()
+def test_get_default_config_returns_isolated_nested_state():
+    first = get_default_config()
+    first.agent.max_steps = 1
+    first.tools.enabled.append("trajectory")
+    first.environment.env["PAGER"] = "less"
+
+    fresh = get_default_config()
+
+    assert fresh is not first
+    assert fresh.agent.max_steps == 250
+    assert fresh.tools.enabled == ["bash", "submit", "read", "edit", "write"]
+    assert fresh.environment.env["PAGER"] == "cat"
 
 
 def test_build_config_rejects_wrong_type():
