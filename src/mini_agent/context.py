@@ -95,6 +95,7 @@ def summarize(
     new_lines: str,
     config: Config | None = None,
     on_response: Callable[[object], None] | None = None,
+    timeout: float | None = None,
 ) -> tuple[str, object]:
     """一次无工具的 LLM 调用，把 ``new_lines`` 折叠进 ``existing_summary``。
 
@@ -106,7 +107,13 @@ def summarize(
         existing_summary=existing_summary or "",
         new_lines=new_lines,
     )
-    response = model.query([{"role": "user", "content": prompt}])
+    query_kwargs = {}
+    if (
+        timeout is not None
+        and getattr(model, "supports_request_timeout", False) is True
+    ):
+        query_kwargs["timeout"] = timeout
+    response = model.query([{"role": "user", "content": prompt}], **query_kwargs)
     if on_response is not None:
         # Account for a provider response before parsing it. A malformed or
         # incomplete response may still contain billable usage metadata.
@@ -120,6 +127,7 @@ def compress(
     keep_last_n_turns=UNSET,
     config: Config | None = None,
     on_response: Callable[[object], None] | None = None,
+    timeout: float | None = None,
 ) -> tuple[list[dict], object | None]:
     """压缩历史，返回 ``(新列表, 摘要响应)``：``[system, user(task)] + 摘要 + 最近 N 个单元``。
 
@@ -167,6 +175,7 @@ def compress(
         flatten(to_summarize),
         config=config,
         on_response=on_response,
+        timeout=timeout,
     )
     summary_msg = {"role": "user", "content": f"{marker}\n{summary_text}"}
     return [messages[0], messages[1], summary_msg] + [

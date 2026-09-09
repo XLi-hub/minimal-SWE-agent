@@ -138,7 +138,7 @@ class DockerEnvironment(Environment):
                 exception_info=f"An error occurred while executing the command: {exc}",
             )
 
-    def read_file(self, path: str) -> str:
+    def read_file(self, path: str, timeout: float | None = None) -> str:
         if self._container_id is None:
             raise RuntimeError("Container has not been started")
         cmd, pid_path = self._tracked_exec_command(
@@ -156,7 +156,7 @@ class DockerEnvironment(Environment):
         )
         out, _ = _communicate_with_timeout(
             proc,
-            timeout=self._timeout,
+            timeout=timeout if timeout is not None else self._timeout,
             on_timeout=lambda: self._kill_tracked_process(pid_path),
         )
         if proc.returncode != 0:
@@ -165,7 +165,9 @@ class DockerEnvironment(Environment):
             raise OSError(out.strip() or f"cannot read {path!r}")
         return out
 
-    def write_file(self, path: str, content: str) -> None:
+    def write_file(
+        self, path: str, content: str, timeout: float | None = None
+    ) -> None:
         if self._container_id is None:
             raise RuntimeError("Container has not been started")
         # content on stdin (never quoted); path as positional "$1" (never
@@ -187,7 +189,7 @@ class DockerEnvironment(Environment):
         out, _ = _communicate_with_timeout(
             proc,
             input=content,
-            timeout=self._timeout,
+            timeout=timeout if timeout is not None else self._timeout,
             on_timeout=lambda: self._kill_tracked_process(pid_path),
         )
         if proc.returncode != 0:

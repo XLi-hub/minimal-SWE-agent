@@ -25,6 +25,10 @@ Unit tests can therefore inject a fake or mock as long as the response contains 
 `choices[0].message` and the required usage. Here, a "replaceable model" means duck typing and an
 OpenAI-compatible response; it does not mean that every provider needs no adaptation.
 
+The built-in adapter sets `supports_request_timeout = True` and accepts an optional `timeout` keyword.
+Agent uses it to cap each request to the remaining run time. Third-party adapters can implement the
+same opt-in contract; adapters without it retain the smaller two-argument query surface.
+
 The Model secret does not enter configuration values; `api_key_env` stores only the environment
 variable name. Users configure the provider's actual model parameters, base URL, and prices; see the
 [configuration reference](../reference/configuration.md) for the authoritative fields.

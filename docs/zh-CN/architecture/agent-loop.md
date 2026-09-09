@@ -41,6 +41,10 @@ flowchart TD
 查询返回时越界，所以执行任何副作用工具前会再次检查。若此时停止，本轮 assistant 已经
 声明的每个 tool call 仍会得到 skipped observation，以保持 provider 协议完整。
 
+内置 Model 还会把剩余运行时间作为本次请求的 timeout。工具批次在每个调用前重新检查
+deadline，并把支持 timeout 的阻塞操作限制在剩余时间内。若一个调用耗尽预算，本批次后续
+调用会得到 skipped observation。
+
 ## 查询与无工具响应
 
 每次 `query()`：
@@ -67,7 +71,8 @@ tool(D Skipped)
 ```
 
 每个 `tool_call_id` 必须恰好对应一条 `role=tool` 消息。未知工具、禁用工具、畸形 JSON、
-handler 异常和主动跳过都转成 observation，而不是留下孤儿调用。
+handler 异常和主动跳过都转成 observation，而不是留下孤儿调用。调用之间会重新检查
+deadline，不能因为整个批次最初通过检查，就在前一调用超时后继续执行副作用。
 
 ## submit 与 review
 

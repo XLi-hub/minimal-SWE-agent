@@ -12,7 +12,7 @@ bash(command: string, lines?: integer, timeout?: integer)
 
 - `command` 必填，在当前 Environment 中执行；
 - `lines` 覆盖本次 observation 的最大行数；
-- `timeout` 覆盖本次等待秒数；
+- `timeout` 覆盖本次等待秒数，但不能超过运行级 `max_time` 的剩余预算；
 - 返回格式包含 output、return code、execution exception；
 - 输出同时受配置字符预算限制。
 

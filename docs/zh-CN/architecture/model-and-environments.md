@@ -22,6 +22,10 @@ model.query(messages, tools=None) -> OpenAI-compatible response
 因此单元测试可注入 fake 或 mock，只要响应包含兼容的 `choices[0].message` 与必要 usage。
 “可替换模型”在这里指鸭子类型与 OpenAI-compatible 响应，不代表所有 provider 都无需适配。
 
+内置 adapter 设置 `supports_request_timeout = True` 并接受可选 `timeout` 参数。Agent 用它把
+每次请求限制在剩余运行时间内。第三方 adapter 可以实现同一显式契约；未声明支持的 adapter
+仍保留较小的双参数 query 接口。
+
 Model secret 不进入配置值；`api_key_env` 只保存环境变量名。provider 的真实模型参数、
 base URL 和单价由使用者配置，权威字段见[配置参考](../reference/configuration.md)。
 

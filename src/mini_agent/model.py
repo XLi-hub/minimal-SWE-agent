@@ -38,7 +38,14 @@ class Model:
             client_kwargs["base_url"] = self.config.base_url
         self._client = OpenAI(**client_kwargs)
 
-    def query(self, messages: list[dict], tools: list[dict] | None = None):
+    supports_request_timeout = True
+
+    def query(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        timeout: float | None = None,
+    ):
         """Send messages to the LM and return the full response object.
 
         When tools are provided, the model may return tool calls instead of
@@ -48,6 +55,9 @@ class Model:
         kwargs: dict = dict(self.config.model_kwargs)
         if tools:
             kwargs["tools"] = tools
+        if timeout is not None:
+            # A run-level deadline is stricter than a static provider option.
+            kwargs["timeout"] = timeout
         return self._client.chat.completions.create(
             model=self.config.model_name,
             messages=messages,

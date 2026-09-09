@@ -18,6 +18,7 @@ class ToolContext:
     environment: Any
     config: Config
     event_log: Sequence[dict[str, Any]] | None = None
+    deadline: float | None = None
 
 
 @dataclass(frozen=True)

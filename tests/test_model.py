@@ -78,6 +78,15 @@ def test_query_forwards_configured_model_kwargs(mock_openai):
     assert kwargs["max_tokens"] == 50
 
 
+def test_query_run_timeout_overrides_static_provider_timeout(mock_openai):
+    model = Model(ModelConfig(model_kwargs={"timeout": 60}))
+
+    model.query([{"role": "user", "content": "Hello"}], timeout=2.5)
+
+    kwargs = mock_openai.chat.completions.create.call_args.kwargs
+    assert kwargs["timeout"] == 2.5
+
+
 def test_close_releases_openai_client(mock_openai):
     model = Model()
 

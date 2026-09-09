@@ -6,15 +6,17 @@ types, output helpers, file-editing primitives, and network policy live in
 """
 
 import copy
+import inspect
 import json
 import subprocess
+import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from mini_agent.config import Config, get_default_config
 from mini_agent.evidence import EventFact, extract_event_evidence
-from mini_agent.exceptions import Submitted
+from mini_agent.exceptions import AgentExit, MaxTime, Submitted
 from mini_agent.tooling.files import EditError, apply_edit, format_read_output
 from mini_agent.tooling.network import (
     _network_command_in_segment,
@@ -41,6 +43,29 @@ from mini_agent.tooling.types import ToolContext, ToolDefinition, ToolHandler, T
 # ---------------------------------------------------------------------------
 # handlers
 # ---------------------------------------------------------------------------
+
+
+def _remaining_time(context: ToolContext) -> float | None:
+    if context.deadline is None:
+        return None
+    remaining = context.deadline - time.monotonic()
+    if remaining <= 0:
+        raise MaxTime()
+    return remaining
+
+
+def _environment_call(method, *args, context: ToolContext):
+    """Call an environment method with the remaining deadline when supported."""
+
+    remaining = _remaining_time(context)
+    if remaining is not None:
+        try:
+            accepts_timeout = "timeout" in inspect.signature(method).parameters
+        except (TypeError, ValueError):
+            accepts_timeout = False
+        if accepts_timeout:
+            return method(*args, timeout=remaining)
+    return method(*args)
 
 
 def _handle_submit(args: dict[str, Any], context: ToolContext) -> ToolResult:
@@ -73,6 +98,11 @@ def _handle_bash(args: dict[str, Any], context: ToolContext) -> ToolResult:
     max_lines = args.get("lines", defaults.default_max_lines)
     max_chars = getattr(defaults, "default_max_chars", DEFAULT_MAX_CHARS)
     timeout = args.get("timeout", defaults.default_timeout)
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
+        return ToolResult("Error: 'bash' 'timeout' must be an integer >= 1.")
+    remaining = _remaining_time(context)
+    if remaining is not None:
+        timeout = min(timeout, remaining)
     print("Action:", command)
 
     needs_final_truncation = False
@@ -127,7 +157,9 @@ def _handle_read(args: dict[str, Any], context: ToolContext) -> ToolResult:
         context.config.tools, "default_max_chars", DEFAULT_MAX_CHARS
     )
     try:
-        content = context.environment.read_file(path)
+        content = _environment_call(context.environment.read_file, path, context=context)
+    except AgentExit:
+        raise
     except FileNotFoundError:
         output = f"Error: file not found: {path}"
     except IsADirectoryError:
@@ -159,7 +191,9 @@ def _handle_edit(args: dict[str, Any], context: ToolContext) -> ToolResult:
 
     print("Edit:", path)
     try:
-        original = context.environment.read_file(path)
+        original = _environment_call(context.environment.read_file, path, context=context)
+    except AgentExit:
+        raise
     except FileNotFoundError:
         output = f"Error: file not found: {path}"
     except Exception as exc:
@@ -171,7 +205,14 @@ def _handle_edit(args: dict[str, Any], context: ToolContext) -> ToolResult:
             output = f"Error: {exc}"
         else:
             try:
-                context.environment.write_file(path, updated)
+                _environment_call(
+                    context.environment.write_file,
+                    path,
+                    updated,
+                    context=context,
+                )
+            except AgentExit:
+                raise
             except Exception as exc:
                 output = f"Error: {exc}"
             else:
@@ -191,7 +232,14 @@ def _handle_write(args: dict[str, Any], context: ToolContext) -> ToolResult:
 
     print("Write:", path)
     try:
-        context.environment.write_file(path, content)
+        _environment_call(
+            context.environment.write_file,
+            path,
+            content,
+            context=context,
+        )
+    except AgentExit:
+        raise
     except Exception as exc:
         output = f"Error: {exc}"
     else:
@@ -360,6 +408,7 @@ def execute_tool_call(
     *,
     defer_submission: bool = False,
     event_log: Sequence[dict[str, Any]] | None = None,
+    deadline: float | None = None,
 ) -> str | None:
     """Validate, dispatch, and record one OpenAI tool call.
 
@@ -382,6 +431,9 @@ def execute_tool_call(
     event_log:
         Optional append-only run journal exposed only to enabled read-only
         introspection tools. Ordinary environment tools do not use it.
+    deadline:
+        Optional monotonic run deadline. Built-in tools cap blocking operations
+        to its remaining time and stop before later side effects once expired.
 
     Raises
     ------
@@ -416,8 +468,20 @@ def execute_tool_call(
             try:
                 result = definition.handler(
                     args,
-                    ToolContext(environment, cfg, event_log=event_log),
+                    ToolContext(
+                        environment,
+                        cfg,
+                        event_log=event_log,
+                        deadline=deadline,
+                    ),
                 )
+            except AgentExit as exc:
+                append_tool_result(
+                    tc,
+                    messages,
+                    f"Tool stopped because run limit '{exc.exit_status}' was reached.",
+                )
+                raise
             except Exception as exc:
                 result = ToolResult(f"Error: {exc}")
 

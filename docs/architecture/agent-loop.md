@@ -46,6 +46,10 @@ the limit is checked again before executing any side-effecting tool. If the run 
 every tool call already declared by the assistant in this round still receives a skipped observation
 to keep the provider protocol complete.
 
+The built-in Model also receives the remaining run time as its request timeout. Tool batches recheck
+the deadline before every call, and timeout-aware blocking operations are capped to the remaining
+time. If one call consumes the budget, later calls in the same batch are acknowledged as skipped.
+
 ## Queries and tool-free responses
 
 Each `query()`:
@@ -75,7 +79,8 @@ tool(D Skipped)
 
 Each `tool_call_id` must correspond to exactly one `role=tool` message. Unknown or disabled tools,
 malformed JSON, handler exceptions, and deliberate skips all become observations rather than leaving
-orphaned calls.
+orphaned calls. The deadline is checked between calls, so a long first call cannot authorize later
+side effects merely because the whole batch passed the initial check.
 
 ## submit and review
 

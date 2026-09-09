@@ -52,13 +52,15 @@ class Environment(ABC):
         ...
 
     @abstractmethod
-    def read_file(self, path: str) -> str:
-        """Return the contents of *path* (UTF-8). Raise ``FileNotFoundError`` if absent."""
+    def read_file(self, path: str, timeout: float | None = None) -> str:
+        """Return UTF-8 contents, honoring *timeout* when the backend can block."""
         ...
 
     @abstractmethod
-    def write_file(self, path: str, content: str) -> None:
-        """Write *content* to *path*, creating parent directories as needed."""
+    def write_file(
+        self, path: str, content: str, timeout: float | None = None
+    ) -> None:
+        """Write content, creating parents and honoring backend *timeout* support."""
         ...
 
     def cleanup(self) -> None:

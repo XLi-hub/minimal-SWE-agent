@@ -101,7 +101,7 @@ class LocalEnvironment(Environment):
                 exception_info=f"An error occurred while executing the command: {exc}",
             )
 
-    def read_file(self, path: str) -> str:
+    def read_file(self, path: str, timeout: float | None = None) -> str:
         """Read *path* relative to the host process cwd — the SAME cwd ``bash`` uses.
 
         ``execute`` runs ``Popen(..., shell=True)`` with no ``cwd=``, so it inherits
@@ -110,7 +110,9 @@ class LocalEnvironment(Environment):
         """
         return Path(path).read_text(encoding="utf-8", errors="replace")
 
-    def write_file(self, path: str, content: str) -> None:
+    def write_file(
+        self, path: str, content: str, timeout: float | None = None
+    ) -> None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")

@@ -13,7 +13,8 @@ bash(command: string, lines?: integer, timeout?: integer)
 
 - `command` is required and runs in the current Environment;
 - `lines` overrides the maximum number of lines in this observation;
-- `timeout` overrides the number of seconds to wait for this call;
+- `timeout` overrides the number of seconds to wait for this call, but cannot exceed the remaining
+  run-level `max_time` budget;
 - the return format includes output, return code, and execution exception;
 - output is also subject to the configured character budget.
 

@@ -151,6 +151,15 @@ def test_summarize_accounts_response_before_parsing_failure():
     assert seen == [response]
 
 
+def test_summarize_passes_deadline_to_timeout_aware_model():
+    model = _summary_model("summary")
+    model.supports_request_timeout = True
+
+    summarize(model, None, "new lines", timeout=3.5)
+
+    assert model.query.call_args.kwargs["timeout"] == 3.5
+
+
 # --- compress ---
 
 

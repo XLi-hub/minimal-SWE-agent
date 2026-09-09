@@ -392,6 +392,102 @@ class TestMaxTime:
         assert tool_messages[0]["tool_call_id"] == "c1"
         assert "max_time" in tool_messages[0]["content"]
 
+    def test_timeout_aware_model_receives_remaining_run_time(self):
+        class TimeoutAwareModel:
+            supports_request_timeout = True
+
+            def __init__(self):
+                self.timeout = None
+
+            def query(self, messages, tools=None, timeout=None):
+                self.timeout = timeout
+                return _make_response(
+                    content="Done.",
+                    tool_calls=[
+                        _make_tool_call("s1", "submit", {"output": "done"}),
+                    ],
+                )
+
+        model = TimeoutAwareModel()
+
+        result = Agent(model, MagicMock()).run("task", max_time=5)
+
+        assert result["exit_status"] == "submitted"
+        assert model.timeout is not None
+        assert 0 < model.timeout <= 5
+
+    def test_tool_timeout_is_capped_and_later_batch_calls_are_skipped(
+        self, monkeypatch
+    ):
+        now = [0.0]
+        monkeypatch.setattr("mini_agent.agent.time.monotonic", lambda: now[0])
+        monkeypatch.setattr("mini_agent.tools.time.monotonic", lambda: now[0])
+        model = MagicMock()
+        model.query.return_value = _make_response(
+            content="Run both.",
+            tool_calls=[
+                _make_tool_call(
+                    "c1", "bash", {"command": "first", "timeout": 99}
+                ),
+                _make_tool_call("c2", "bash", {"command": "second"}),
+            ],
+        )
+        env = MagicMock()
+
+        def execute(command, timeout=None):
+            now[0] = 2.0
+            return f"ran {command}"
+
+        env.execute.side_effect = execute
+
+        result = Agent(model, env).run("task", max_steps=2, max_time=1)
+
+        assert result["exit_status"] == "max_time"
+        env.execute.assert_called_once_with("first", timeout=1.0)
+        tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+        assert [message["tool_call_id"] for message in tool_messages] == ["c1", "c2"]
+        assert "max_time" in tool_messages[1]["content"]
+        assert "no tool action was executed" in tool_messages[1]["content"]
+
+    def test_edit_does_not_write_after_read_consumes_deadline(self, monkeypatch):
+        now = [0.0]
+        monkeypatch.setattr("mini_agent.agent.time.monotonic", lambda: now[0])
+        monkeypatch.setattr("mini_agent.tools.time.monotonic", lambda: now[0])
+        model = MagicMock()
+        model.query.return_value = _make_response(
+            content="Edit it.",
+            tool_calls=[
+                _make_tool_call(
+                    "e1",
+                    "edit",
+                    {"path": "file.txt", "old_string": "old", "new_string": "new"},
+                )
+            ],
+        )
+
+        class SlowReadEnvironment:
+            def __init__(self):
+                self.written = False
+
+            def read_file(self, path, timeout=None):
+                assert timeout == 1.0
+                now[0] = 2.0
+                return "old"
+
+            def write_file(self, path, content, timeout=None):
+                self.written = True
+
+        env = SlowReadEnvironment()
+
+        result = Agent(model, env).run("task", max_steps=2, max_time=1)
+
+        assert result["exit_status"] == "max_time"
+        assert env.written is False
+        tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert "stopped" in tool_messages[0]["content"].lower()
+        assert "max_time" in tool_messages[0]["content"]
+
 # ---------------------------------------------------------------------------
 # cost tracking — compute_cost accumulation + cost_limit
 # ---------------------------------------------------------------------------

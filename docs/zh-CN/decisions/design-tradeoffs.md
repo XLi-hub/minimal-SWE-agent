@@ -49,8 +49,10 @@ none 做硬边界，再用命令识别给可理解的提前反馈。
 - max time 限制总墙钟；
 - cost limit 按 usage 与配置单价限制估算美元。
 
-它们覆盖不同失败模式。同步 provider 请求不能被总墙钟检查抢占；命令有自己的 timeout。
-默认价格为零时费用上限无效，因此时间和步数仍是必要保护。
+它们覆盖不同失败模式。内置 Model 与支持 timeout 的 Environment 操作会接收剩余运行时间
+作为请求 timeout，工具批次也会在调用之间重新检查 deadline。未声明 timeout 支持的第三方
+同步 Model 或后端操作仍不能被外层墙钟检查抢占。默认价格为零时费用上限无效，因此时间和
+步数仍是必要保护。
 
 ## Function calling，而非文本正则
 

@@ -60,9 +60,11 @@ editing, and testing.
 - max time limits total wall-clock time;
 - cost limit limits estimated dollars based on usage and configured prices.
 
-They cover different failure modes. A synchronous provider request cannot be preempted by the
-overall wall-clock check; commands have their own timeout. When the default prices are zero, the cost
-limit is ineffective, so time and step limits remain necessary safeguards.
+They cover different failure modes. The built-in Model and timeout-aware environment operations
+receive the remaining run time as their request timeout, and tool batches recheck the deadline between
+calls. A third-party synchronous Model that does not advertise timeout support, or a backend operation
+without timeout support, still cannot be preempted by the outer wall-clock check. When the default
+prices are zero, the cost limit is ineffective, so time and step limits remain necessary safeguards.
 
 ## Function Calling, Not Text Regex
 

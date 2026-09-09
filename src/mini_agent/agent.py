@@ -261,6 +261,16 @@ class Agent:
         if self.cost_limit is not None and self.cost_limit > 0 and self.cost >= self.cost_limit:
             raise CostLimit()
 
+    def _remaining_time(self) -> float | None:
+        """Return seconds left in the run, raising when none remain."""
+
+        if self._deadline is None:
+            return None
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise MaxTime()
+        return remaining
+
     def query(self):
         """Query the model once, append the assistant message, return the raw message.
 
@@ -269,7 +279,10 @@ class Agent:
         """
         self._steps += 1
         self.n_calls += 1
-        response = self.model.query(self.messages, tools=self._tools)
+        query_kwargs = {"tools": self._tools}
+        if getattr(self.model, "supports_request_timeout", False) is True:
+            query_kwargs["timeout"] = self._remaining_time()
+        response = self.model.query(self.messages, **query_kwargs)
         self.cost += compute_cost(response, self.config)
         choice = response.choices[0]
         msg = choice.message
@@ -306,9 +319,25 @@ class Agent:
         """
         submission: Submitted | None = None
         draft_submission: str | None = None
+        limit_exit: AgentExit | None = None
         for tc in msg.tool_calls:
-            if submission is not None or draft_submission is not None:
-                append_skipped_tool_result(tc, self.messages)
+            if submission is not None or draft_submission is not None or limit_exit is not None:
+                reason = (
+                    f"run limit '{limit_exit.exit_status}' was reached"
+                    if limit_exit is not None
+                    else "submit was already requested"
+                )
+                append_skipped_tool_result(tc, self.messages, reason=reason)
+                continue
+            try:
+                self._check_tool_limits()
+            except AgentExit as exc:
+                limit_exit = exc
+                append_skipped_tool_result(
+                    tc,
+                    self.messages,
+                    reason=f"run limit '{exc.exit_status}' was reached before execution",
+                )
                 continue
             try:
                 draft_submission = execute_tool_call(
@@ -318,9 +347,12 @@ class Agent:
                     config=self.config,
                     defer_submission=self._submission_review_pending,
                     event_log=self.events,
+                    deadline=self._deadline,
                 )
             except Submitted as exc:
                 submission = exc
+            except AgentExit as exc:
+                limit_exit = exc
 
         if draft_submission is not None:
             self._submission_review_pending = False
@@ -376,6 +408,8 @@ class Agent:
         if submission is not None:
             # Raise only after the full assistant batch has been acknowledged.
             raise Submitted(submission.submission)
+        if limit_exit is not None:
+            raise limit_exit
 
     def _build_review_handoff_summary(self) -> tuple[str, str]:
         """Summarize author history without copying the draft submit round-trip.
@@ -401,6 +435,7 @@ class Agent:
                 keep_last_n_turns=0,
                 config=self.config,
                 on_response=self._account_summary_response,
+                timeout=self._remaining_time(),
             )
         except Exception as exc:
             self._record_event(
@@ -449,6 +484,7 @@ class Agent:
                 self.keep_last_n_turns,
                 config=self.config,
                 on_response=self._account_summary_response,
+                timeout=self._remaining_time(),
             )
             if summary_response is not None:
                 summary_message = next(
