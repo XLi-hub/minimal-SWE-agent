@@ -68,6 +68,50 @@ conda run -n minimal-SWE-agent minimal-swebench \
 Each worker creates its own model, Docker container, Agent, and trajectory. Before increasing
 concurrency, assess API rate limits, cost, Docker CPU/memory, image storage, and disk-write pressure.
 
+## Low-Disk Serial Wrapper
+
+When the Docker/containerd partition is small, use the repository wrapper with an explicit list of
+instance IDs. It runs one generation, then the official harness for that same instance, before
+moving to the next one:
+
+```bash
+conda run -n minimal-SWE-agent python scripts/run_swebench_low_disk.py \
+  --instances-file instances.txt \
+  --subset verified --split test \
+  --output runs/verified-low-disk \
+  --model deepseek-flash \
+  --provider https://api.deepseek.com \
+  --api-key-env DEEPSEEK_API_KEY \
+  --input-price-per-1m <current-uncached-input-usd> \
+  --cache-hit-price-per-1m <current-cache-hit-input-usd> \
+  --output-price-per-1m <current-output-usd> \
+  --cost-limit 0.50
+```
+
+`instances.txt` contains one exact ID per line. `--instance ID` (repeatable) and `.json`/`.jsonl`
+files containing IDs or records with `instance_id` are also accepted. The provider and all three
+token prices are explicit so the `agent.cost_limit` can be interpreted in current USD; use the
+provider's current pricing rather than copying an old experiment value. The cap is per generation
+instance, so `N` instances have a worst-case generation ceiling of `N * cost-limit`. Official
+evaluation does not make model-provider calls. Actual usage and cost remain in each trajectory.
+
+The same output directory is a checkpoint. `low_disk_status.json` is updated after every instance;
+completed generation/evaluation/cleanup records are skipped on a later invocation. Add
+`--retry-failed` to retry failed records or `--redo-existing` to intentionally regenerate existing
+predictions. The wrapper always uses one generation worker and passes one instance ID to the
+official evaluator, so there is no evaluation fan-out hidden inside the serial loop.
+
+After each instance, a `finally` block attempts only
+`docker image rm <that-instance-swebench-image>`. Image garbage collection is enabled by
+default, but first runs `docker image ls --filter dangling=true --quiet`; if any dangling image is
+already present (or the check fails), it warns and skips `docker image prune --force`. Use
+`--no-image-prune`/`--no-gc` to disable even this guarded hint. The wrapper never runs
+`docker system prune`. Use `--dry-run` to inspect every generation, evaluation, and cleanup command
+without starting a model, harness, or Docker command.
+
+The command above is launched by `conda run`; child commands reuse that environment's
+`sys.executable` and do not nest another `conda` invocation.
+
 ## Strict Profile
 
 The command overlays

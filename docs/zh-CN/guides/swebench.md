@@ -64,6 +64,47 @@ conda run -n minimal-SWE-agent minimal-swebench \
 每个 worker 会建立自己的模型、Docker 容器、Agent 和轨迹。增加并发前评估 API rate limit、
 费用、Docker CPU/内存、镜像存储和磁盘写入压力。
 
+## 磁盘紧张时的串行 wrapper
+
+Docker/containerd 分区较小时，使用仓库里的 wrapper，并明确给出 instance id 列表。它会先
+generation，再只对同一个实例运行官方 harness，完成清理后才进入下一个实例：
+
+```bash
+conda run -n minimal-SWE-agent python scripts/run_swebench_low_disk.py \
+  --instances-file instances.txt \
+  --subset verified --split test \
+  --output runs/verified-low-disk \
+  --model deepseek-flash \
+  --provider https://api.deepseek.com \
+  --api-key-env DEEPSEEK_API_KEY \
+  --input-price-per-1m <当前未缓存输入单价> \
+  --cache-hit-price-per-1m <当前缓存命中输入单价> \
+  --output-price-per-1m <当前输出单价> \
+  --cost-limit 0.50
+```
+
+`instances.txt` 每行一个精确 ID；也可以重复使用 `--instance ID`，或使用含有 ID 的
+`.json`/`.jsonl` 文件（记录形式包含 `instance_id`）。provider 和三个 token 单价都显式
+传入，`agent.cost_limit` 才能按当前美元计费；单价应以 provider 当前价格为准，不要直接
+复制旧实验的数值。cost cap 按每个 generation 实例分别计算，因此 `N` 个实例的 generation
+最坏上限是 `N * cost-limit`。官方 evaluation 不调用模型 provider；实际 usage 和 cost 仍
+会写在每个 trajectory 中。
+
+同一个 output 目录就是断点。wrapper 每完成一个实例就更新 `low_disk_status.json`；再次运行
+时会跳过 generation、evaluation、清理都已完成的记录。用 `--retry-failed` 重试失败记录，或
+用 `--redo-existing` 明确重做已有 prediction。wrapper 固定 generation 为一个 worker，并把
+一个 instance id 传给官方 evaluator，因此串行循环内部不会隐藏并发评分。
+
+每个实例结束时，`finally` 只尝试精确执行
+`docker image rm <该实例的 SWE-bench 镜像>`。默认还会尝试 image GC，但先执行
+`docker image ls --filter dangling=true --quiet` 预检；已有 dangling image（或预检失败）时会
+警告并跳过 `docker image prune --force`。用 `--no-image-prune`/`--no-gc` 可完全关闭这个受保护
+的提示。wrapper 绝不会运行 `docker system prune`。用 `--dry-run` 可只查看 generation、
+evaluation 和清理命令，不启动模型、harness 或 Docker 命令。
+
+上面的命令由 `conda run` 启动；子命令复用该环境的 `sys.executable`，脚本内部不会再嵌套
+`conda`。
+
 ## 严格 profile
 
 命令会在普通默认值上叠加
