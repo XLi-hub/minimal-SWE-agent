@@ -319,6 +319,16 @@ def _generation_command(
     return command
 
 
+def _pre_pull_command(
+    ref: InstanceRef,
+    *,
+    docker_executable: str,
+) -> list[str]:
+    """Build the exact per-instance image pull command."""
+
+    return _docker_command(docker_executable, "pull", ref.resolved_image)
+
+
 def _safe_run_id(prefix: str, instance_id: str) -> str:
     value = "".join(
         char if char.isalnum() or char in ".-_" else "-"
@@ -370,9 +380,17 @@ def _invoke(
     command: Command,
     *,
     runner: CommandRunner | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     execute = runner or subprocess.run
-    return execute(command, capture_output=True, text=True, check=False)
+    kwargs: dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "check": False,
+    }
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    return execute(command, **kwargs)
 
 
 def _command_text(command: Command) -> str:
@@ -627,6 +645,8 @@ def run_instances(
     config_specs: Sequence[str] = (),
     retry_failed: bool = False,
     redo_existing: bool = False,
+    pre_pull: bool = False,
+    pull_timeout: int = 1800,
     image_prune: bool = True,
     docker_executable: str = DEFAULT_DOCKER_EXECUTABLE,
     eval_timeout: int = 1800,
@@ -642,6 +662,8 @@ def run_instances(
     instances = [_instance_ref(instance) for instance in instances]
     if eval_timeout < 1:
         raise ValueError("eval_timeout must be at least 1")
+    if pull_timeout < 1:
+        raise ValueError("pull_timeout must be at least 1")
     output = Path(output_dir)
     if not dry_run:
         output.mkdir(parents=True, exist_ok=True)
@@ -714,7 +736,14 @@ def run_instances(
             timeout=eval_timeout,
             python_executable=executable,
         )
+        pre_pull_command = (
+            _pre_pull_command(ref, docker_executable=docker_executable)
+            if pre_pull
+            else None
+        )
         if dry_run:
+            if pre_pull_command is not None:
+                print(f"[{instance_id}] pre-pull: {_command_text(pre_pull_command)}")
             print(f"[{instance_id}] generation: {_command_text(generation)}")
             print(f"[{instance_id}] evaluation: {_command_text(evaluation)}")
             cleanup = cleanup_instance_image(
@@ -728,6 +757,7 @@ def run_instances(
                 {
                     "instance_id": instance_id,
                     "image": ref.resolved_image,
+                    "pre_pull_command": pre_pull_command,
                     "generation_command": generation,
                     "evaluation_command": evaluation,
                     "cleanup": _serialise_cleanup(cleanup),
@@ -739,8 +769,11 @@ def run_instances(
         record: dict[str, Any] = {
             "instance_id": instance_id,
             "image": ref.resolved_image,
+            "pre_pull_command": pre_pull_command,
             "generation_command": generation,
             "evaluation_command": evaluation,
+            "pre_pull_returncode": None,
+            "pre_pull_status": "not_requested" if not pre_pull else None,
             "generation_returncode": None,
             "generation_status": None,
             "evaluation_returncode": None,
@@ -748,41 +781,81 @@ def run_instances(
             "cleanup_ok": False,
         }
         try:
-            print(f"[{instance_id}] generation (serial)")
-            try:
-                generated = _invoke(generation, runner=runner)
-                record["generation_returncode"] = generated.returncode
-                _emit_process_output(f"{instance_id} generation", generated)
-                record["generation_status"] = _generation_status(output, instance_id)
-            except Exception as exc:
-                record["generation_exception"] = str(exc)
-                record["generation_traceback"] = traceback.format_exc()
-                _warn(f"{instance_id}: generation command failed: {exc}")
-
-            # The existing CLI returns process code 0 even for a recorded
-            # max_steps/cost_limit/error result.  Do not send an empty/failed
-            # prediction to the harness; it remains retryable in this same
-            # output directory.  A missing status is tolerated for custom
-            # runners and tests that provide only a CompletedProcess.
-            generation_ok = (
-                record["generation_returncode"] == 0
-                and record["generation_status"] in {None, "submitted"}
-            )
-            if generation_ok:
-                print(f"[{instance_id}] official evaluation (one instance)")
+            pre_pull_ok = True
+            if pre_pull_command is not None:
+                print(f"[{instance_id}] pre-pull (serial)")
                 try:
-                    evaluated = _invoke(evaluation, runner=runner)
-                    record["evaluation_returncode"] = evaluated.returncode
-                    _emit_process_output(f"{instance_id} evaluation", evaluated)
+                    pulled = _invoke(
+                        pre_pull_command,
+                        runner=runner,
+                        timeout=pull_timeout,
+                    )
+                    record["pre_pull_returncode"] = pulled.returncode
+                    record["pre_pull_status"] = (
+                        "pulled" if pulled.returncode == 0 else "failed"
+                    )
+                    _emit_process_output(f"{instance_id} pre-pull", pulled)
+                    pre_pull_ok = pulled.returncode == 0
+                    if not pre_pull_ok:
+                        _warn(
+                            f"{instance_id}: pre-pull failed (return code "
+                            f"{pulled.returncode}); skipping generation and evaluation"
+                        )
                 except Exception as exc:
-                    record["evaluation_exception"] = str(exc)
-                    record["evaluation_traceback"] = traceback.format_exc()
-                    _warn(f"{instance_id}: evaluation command failed: {exc}")
+                    pre_pull_ok = False
+                    record["pre_pull_status"] = "failed"
+                    record["pre_pull_exception"] = str(exc)
+                    record["pre_pull_traceback"] = traceback.format_exc()
+                    _warn(
+                        f"{instance_id}: pre-pull command failed; skipping generation "
+                        f"and evaluation: {exc}"
+                    )
+
+            if pre_pull_ok:
+                print(f"[{instance_id}] generation (serial)")
+                try:
+                    generated = _invoke(generation, runner=runner)
+                    record["generation_returncode"] = generated.returncode
+                    _emit_process_output(f"{instance_id} generation", generated)
+                    record["generation_status"] = _generation_status(output, instance_id)
+                except Exception as exc:
+                    record["generation_exception"] = str(exc)
+                    record["generation_traceback"] = traceback.format_exc()
+                    _warn(f"{instance_id}: generation command failed: {exc}")
+
+                # The existing CLI returns process code 0 even for a recorded
+                # max_steps/cost_limit/error result.  Do not send an empty/failed
+                # prediction to the harness; it remains retryable in this same
+                # output directory.  A missing status is tolerated for custom
+                # runners and tests that provide only a CompletedProcess.
+                generation_ok = (
+                    record["generation_returncode"] == 0
+                    and record["generation_status"] in {None, "submitted"}
+                )
+                if generation_ok:
+                    print(f"[{instance_id}] official evaluation (one instance)")
+                    try:
+                        evaluated = _invoke(evaluation, runner=runner)
+                        record["evaluation_returncode"] = evaluated.returncode
+                        _emit_process_output(f"{instance_id} evaluation", evaluated)
+                    except Exception as exc:
+                        record["evaluation_exception"] = str(exc)
+                        record["evaluation_traceback"] = traceback.format_exc()
+                        _warn(f"{instance_id}: evaluation command failed: {exc}")
+                else:
+                    record["evaluation_skipped"] = (
+                        "generation did not submit a valid prediction"
+                    )
+                    _warn(
+                        f"{instance_id}: skipping official evaluation because generation "
+                        "did not submit a valid prediction; use --retry-failed to retry"
+                    )
             else:
-                record["evaluation_skipped"] = "generation did not submit a valid prediction"
+                record["generation_skipped"] = "pre-pull failed"
+                record["evaluation_skipped"] = "pre-pull failed"
                 _warn(
-                    f"{instance_id}: skipping official evaluation because generation "
-                    "did not submit a valid prediction; use --retry-failed to retry"
+                    f"{instance_id}: pre-pull did not complete; use --retry-failed "
+                    "after fixing the image pull"
                 )
         finally:
             # Image deletion is intentionally the last operation for this
@@ -913,6 +986,28 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Regenerate even instances with an existing prediction",
     )
     parser.add_argument(
+        "--pre-pull",
+        dest="pre_pull",
+        action="store_true",
+        default=False,
+        help=(
+            "Pull each exact SWE-bench image serially before generation; "
+            "disabled by default for compatibility"
+        ),
+    )
+    parser.add_argument(
+        "--no-pre-pull",
+        dest="pre_pull",
+        action="store_false",
+        help="Disable the per-instance pre-pull step",
+    )
+    parser.add_argument(
+        "--pull-timeout",
+        type=int,
+        default=1800,
+        help="Maximum seconds for each pre-pull (default: 1800)",
+    )
+    parser.add_argument(
         "--docker-executable",
         default=DEFAULT_DOCKER_EXECUTABLE,
         help="Docker-compatible executable used for image cleanup",
@@ -967,6 +1062,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             config_specs=args.config,
             retry_failed=args.retry_failed,
             redo_existing=args.redo_existing,
+            pre_pull=args.pre_pull,
+            pull_timeout=args.pull_timeout,
             image_prune=args.image_prune,
             docker_executable=args.docker_executable,
             eval_timeout=args.eval_timeout,
@@ -985,7 +1082,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         for result in results
         if not result.get("dry_run")
         and (
-            result.get("generation_returncode") != 0
+            result.get("pre_pull_status") == "failed"
+            or result.get("pre_pull_returncode") not in {0, None}
+            or result.get("generation_returncode") != 0
             or result.get("generation_status") not in {None, "submitted"}
             or result.get("evaluation_returncode") != 0
             or result.get("cleanup_ok") is not True

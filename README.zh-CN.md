@@ -132,7 +132,9 @@ conda run -n minimal-SWE-agent minimal-swebench \
   --model gpt-4o-mini --output runs/smoke
 ```
 
-批量、断点续跑、输出文件与官方 harness 评分见 [SWE-bench 指南](docs/zh-CN/guides/swebench.md)。
+批量、断点续跑、输出文件与官方 harness 评分见 [SWE-bench 指南](docs/zh-CN/guides/swebench.md)；
+磁盘紧张时可使用其中介绍的串行 `scripts/run_swebench_low_disk.py`，并按需显式启用逐题
+`--pre-pull`。
 
 ## 文档入口
 

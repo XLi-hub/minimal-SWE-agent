@@ -77,6 +77,7 @@ conda run -n minimal-SWE-agent python scripts/run_swebench_low_disk.py \
   --model deepseek-flash \
   --provider https://api.deepseek.com \
   --api-key-env DEEPSEEK_API_KEY \
+  --pre-pull \
   --input-price-per-1m <当前未缓存输入单价> \
   --cache-hit-price-per-1m <当前缓存命中输入单价> \
   --output-price-per-1m <当前输出单价> \
@@ -95,6 +96,12 @@ trajectory 中。
 时会跳过 generation、evaluation、清理都已完成的记录。用 `--retry-failed` 重试失败记录，或
 用 `--redo-existing` 明确重做已有 prediction。wrapper 固定 generation 为一个 worker，并把
 一个 instance id 传给官方 evaluator，因此串行循环内部不会隐藏并发评分。
+
+为兼容原有 runner，pre-pull 默认关闭；下一批磁盘紧张运行请显式加 `--pre-pull`。当镜像
+拉取可能超过核心环境的 300 秒启动/拉取超时时，wrapper 会以 `--pull-timeout`（默认 1800 秒，
+可配置）逐题串行拉取精确镜像，再开始 generation。拉取失败会写入 `low_disk_status.json`，跳过该题
+的 API generation 和官方 evaluation，但仍会进入 cleanup 的 `finally`；用 `--no-pre-pull`
+可显式保持兼容默认行为。
 
 每个实例结束时，`finally` 只尝试精确执行
 `docker image rm <该实例的 SWE-bench 镜像>`。默认还会尝试 image GC，但先执行

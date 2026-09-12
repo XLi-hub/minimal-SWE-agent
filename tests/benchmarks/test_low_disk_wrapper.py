@@ -88,6 +88,9 @@ def test_parser_accepts_provider_prices_cost_and_explicit_ids():
             "1.10",
             "--cost-limit-usd",
             "0.5",
+            "--pre-pull",
+            "--pull-timeout",
+            "2400",
             "--no-gc",
         ]
     )
@@ -98,7 +101,24 @@ def test_parser_accepts_provider_prices_cost_and_explicit_ids():
     assert args.cache_input_price == pytest.approx(0.014)
     assert args.output_price == pytest.approx(1.10)
     assert args.cost_limit == pytest.approx(0.5)
+    assert args.pre_pull is True
+    assert args.pull_timeout == 2400
     assert args.image_prune is False
+
+    assert _parse_args(["--instance", "repo__one-1", "--output", "out"]).pre_pull is False
+    assert (
+        _parse_args(
+            [
+                "--instance",
+                "repo__one-1",
+                "--output",
+                "out",
+                "--pre-pull",
+                "--no-pre-pull",
+            ]
+        ).pre_pull
+        is False
+    )
 
 
 def test_cost_stop_threshold_is_per_instance():
@@ -171,6 +191,7 @@ def test_dry_run_is_serial_and_never_executes_commands(tmp_path, capsys):
         cache_input_price=0.014,
         output_price=1.1,
         cost_limit=0.5,
+        pre_pull=True,
         image_prune=True,
         dry_run=True,
         runner=runner,
@@ -185,6 +206,7 @@ def test_dry_run_is_serial_and_never_executes_commands(tmp_path, capsys):
     assert output.index("repo__one-1") < output.index("repo__two-2")
     assert "mini_agent.benchmarks.cli" in output
     assert "mini_agent.benchmarks.evaluation" in output
+    assert "docker pull docker.io/swebench/sweb.eval.x86_64.repo_1776_one-1:latest" in output
     assert "--instance repo__one-1" in output
     assert "--workers 1" in output
     assert "conda" not in output
@@ -233,6 +255,77 @@ def test_run_is_serial_generation_then_eval_then_exact_cleanup(tmp_path):
     )
     assert second_generation_index > 2
     assert (tmp_path / "out" / "low_disk_status.json").is_file()
+
+
+def test_pre_pull_success_runs_before_generation_and_is_recorded(tmp_path):
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((list(command), kwargs))
+        return _completed(command)
+
+    result = run_instances(
+        [InstanceRef("repo__one-1")],
+        output_dir=tmp_path / "out",
+        pre_pull=True,
+        pull_timeout=2400,
+        docker_executable="docker-test",
+        image_prune=False,
+        python_executable="python-test",
+        runner=runner,
+    )[0]
+
+    assert calls[0][0] == [
+        "docker-test",
+        "pull",
+        "docker.io/swebench/sweb.eval.x86_64.repo_1776_one-1:latest",
+    ]
+    assert calls[0][1]["timeout"] == 2400
+    assert "mini_agent.benchmarks.cli" in calls[1][0]
+    assert result["pre_pull_status"] == "pulled"
+    assert result["pre_pull_returncode"] == 0
+
+
+def test_pre_pull_failure_records_manifest_skips_api_and_still_cleans(tmp_path, capsys):
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(list(command))
+        if command[0] == "docker-test" and command[1] == "pull":
+            return _completed(command, returncode=17, stderr="pull failed")
+        raise AssertionError("generation/evaluation must not run after pull failure")
+
+    result = run_instances(
+        [InstanceRef("repo__one-1")],
+        output_dir=tmp_path / "out",
+        pre_pull=True,
+        docker_executable="docker-test",
+        image_prune=False,
+        python_executable="python-test",
+        runner=runner,
+    )[0]
+
+    assert calls == [
+        [
+            "docker-test",
+            "pull",
+            "docker.io/swebench/sweb.eval.x86_64.repo_1776_one-1:latest",
+        ],
+        [
+            "docker-test",
+            "image",
+            "rm",
+            "docker.io/swebench/sweb.eval.x86_64.repo_1776_one-1:latest",
+        ],
+    ]
+    assert result["pre_pull_status"] == "failed"
+    assert result["pre_pull_returncode"] == 17
+    assert result["generation_returncode"] is None
+    assert result["generation_skipped"] == "pre-pull failed"
+    assert result["evaluation_skipped"] == "pre-pull failed"
+    manifest = json.loads((tmp_path / "out" / "low_disk_status.json").read_text())
+    assert manifest["repo__one-1"]["pre_pull_status"] == "failed"
+    assert "skipping generation and evaluation" in capsys.readouterr().err
 
 
 def test_failure_still_removes_image_and_can_be_retried(tmp_path):

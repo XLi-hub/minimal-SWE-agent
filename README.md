@@ -142,7 +142,8 @@ conda run -n minimal-SWE-agent minimal-swebench \
 ```
 
 For batching, resuming from checkpoints, output files, and official harness scoring, see the
-[SWE-bench guide](docs/guides/swebench.md).
+[SWE-bench guide](docs/guides/swebench.md). For a small Docker partition, the guide also covers
+the serial `scripts/run_swebench_low_disk.py` wrapper and its optional per-instance `--pre-pull`.
 
 ## Documentation
 

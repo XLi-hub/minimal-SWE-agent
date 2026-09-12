@@ -82,6 +82,7 @@ conda run -n minimal-SWE-agent python scripts/run_swebench_low_disk.py \
   --model deepseek-flash \
   --provider https://api.deepseek.com \
   --api-key-env DEEPSEEK_API_KEY \
+  --pre-pull \
   --input-price-per-1m <current-uncached-input-usd> \
   --cache-hit-price-per-1m <current-cache-hit-input-usd> \
   --output-price-per-1m <current-output-usd> \
@@ -102,6 +103,13 @@ completed generation/evaluation/cleanup records are skipped on a later invocatio
 `--retry-failed` to retry failed records or `--redo-existing` to intentionally regenerate existing
 predictions. The wrapper always uses one generation worker and passes one instance ID to the
 official evaluator, so there is no evaluation fan-out hidden inside the serial loop.
+
+Pre-pulling is disabled by default for compatibility with the ordinary runner. Enable
+`--pre-pull` for a low-disk batch when an image may take longer than the core environment's
+300-second pull/start timeout; `--pull-timeout` defaults to 1800 seconds and is configurable. The exact image is pulled
+serially before generation. A pull failure is written to `low_disk_status.json`, skips both API
+generation and official evaluation for that instance, and still enters the cleanup `finally` block.
+Use `--no-pre-pull` to make the compatibility default explicit.
 
 After each instance, a `finally` block attempts only
 `docker image rm <that-instance-swebench-image>`. Image garbage collection is enabled by
