@@ -11,8 +11,8 @@ import pytest
 from scripts.run_swebench_low_disk import (
     InstanceRef,
     _parse_args,
+    aggregate_cost_stop_threshold,
     cleanup_instance_image,
-    estimate_cost_ceiling,
     load_instance_file,
     run_instances,
     select_instances,
@@ -101,10 +101,10 @@ def test_parser_accepts_provider_prices_cost_and_explicit_ids():
     assert args.image_prune is False
 
 
-def test_cost_ceiling_is_per_instance():
-    assert estimate_cost_ceiling(3, 0.5) == 1.5
-    assert estimate_cost_ceiling(3, 0) is None
-    assert estimate_cost_ceiling(3, None) is None
+def test_cost_stop_threshold_is_per_instance():
+    assert aggregate_cost_stop_threshold(3, 0.5) == 1.5
+    assert aggregate_cost_stop_threshold(3, 0) is None
+    assert aggregate_cost_stop_threshold(3, None) is None
 
 
 def test_cleanup_removes_exact_image_and_prunes_only_after_clean_precheck():

@@ -91,9 +91,11 @@ conda run -n minimal-SWE-agent python scripts/run_swebench_low_disk.py \
 `instances.txt` contains one exact ID per line. `--instance ID` (repeatable) and `.json`/`.jsonl`
 files containing IDs or records with `instance_id` are also accepted. The provider and all three
 token prices are explicit so the `agent.cost_limit` can be interpreted in current USD; use the
-provider's current pricing rather than copying an old experiment value. The cap is per generation
-instance, so `N` instances have a worst-case generation ceiling of `N * cost-limit`. Official
-evaluation does not make model-provider calls. Actual usage and cost remain in each trajectory.
+provider's current pricing rather than copying an old experiment value. The stop threshold applies
+separately to each generation instance, so `N * cost-limit` is the aggregate stop threshold, not a
+hard billing ceiling. Each instance can exceed it by the final completed model request that causes
+the Agent to stop. Official evaluation does not make model-provider calls. Actual usage and cost
+remain in each trajectory.
 
 The same output directory is a checkpoint. `low_disk_status.json` is updated after every instance;
 completed generation/evaluation/cleanup records are skipped on a later invocation. Add

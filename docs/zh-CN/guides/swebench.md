@@ -86,9 +86,10 @@ conda run -n minimal-SWE-agent python scripts/run_swebench_low_disk.py \
 `instances.txt` 每行一个精确 ID；也可以重复使用 `--instance ID`，或使用含有 ID 的
 `.json`/`.jsonl` 文件（记录形式包含 `instance_id`）。provider 和三个 token 单价都显式
 传入，`agent.cost_limit` 才能按当前美元计费；单价应以 provider 当前价格为准，不要直接
-复制旧实验的数值。cost cap 按每个 generation 实例分别计算，因此 `N` 个实例的 generation
-最坏上限是 `N * cost-limit`。官方 evaluation 不调用模型 provider；实际 usage 和 cost 仍
-会写在每个 trajectory 中。
+复制旧实验的数值。cost 停止阈值按每个 generation 实例分别计算，因此
+`N * cost-limit` 是累计停止阈值，不是严格账单上限；每题都可能多出触发停止的最后一次
+完整模型请求费用。官方 evaluation 不调用模型 provider；实际 usage 和 cost 仍会写在每个
+trajectory 中。
 
 同一个 output 目录就是断点。wrapper 每完成一个实例就更新 `low_disk_status.json`；再次运行
 时会跳过 generation、evaluation、清理都已完成的记录。用 `--retry-failed` 重试失败记录，或

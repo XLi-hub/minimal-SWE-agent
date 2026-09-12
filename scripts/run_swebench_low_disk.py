@@ -232,12 +232,16 @@ def select_instances(
     return deduplicated
 
 
-def estimate_cost_ceiling(instance_count: int, cost_limit: float | None) -> float | None:
-    """Return the worst-case generation USD cap for a serial selection.
+def aggregate_cost_stop_threshold(
+    instance_count: int, cost_limit: float | None
+) -> float | None:
+    """Return the sum of per-instance generation stop thresholds.
 
     ``agent.cost_limit`` is applied independently by each generation process;
     official evaluation does not issue model-provider calls.  A disabled cap
-    (``None`` or ``0``) therefore has no finite ceiling.
+    (``None`` or ``0``) therefore has no finite threshold.  This is not a hard
+    billing ceiling: each instance may exceed its threshold by the cost of the
+    final model request that causes the Agent to stop.
     """
 
     if instance_count < 0:
@@ -664,20 +668,22 @@ def run_instances(
         specs.append(f"agent.cost_limit={_format_number(cost_limit)}")
 
     results: list[dict[str, Any]] = []
-    ceiling = estimate_cost_ceiling(len(instances), cost_limit)
+    threshold_total = aggregate_cost_stop_threshold(len(instances), cost_limit)
     if not dry_run:
         print(
             f"Serial SWE-bench run: {len(instances)} instance(s); "
             f"per-instance cost cap="
             f"{'disabled' if not cost_limit else '$' + _format_number(cost_limit)}"
-            f"; worst-case generation cap="
-            f"{'unbounded' if ceiling is None else '$' + _format_number(ceiling)}"
+            f"; aggregate stop threshold="
+            f"{'disabled' if threshold_total is None else '$' + _format_number(threshold_total)}"
+            "; billing can overshoot by one completed model request per instance"
         )
     else:
         print(
             f"[dry-run] {len(instances)} instance(s); "
-            f"worst-case generation cap="
-            f"{'unbounded' if ceiling is None else '$' + _format_number(ceiling)}"
+            f"aggregate stop threshold="
+            f"{'disabled' if threshold_total is None else '$' + _format_number(threshold_total)}"
+            "; billing can overshoot by one completed model request per instance"
         )
 
     for ref in instances:
@@ -891,7 +897,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         dest="cost_limit",
         type=_nonnegative_float,
         default=None,
-        help="Per-instance generation USD cap; zero disables the cap",
+        help=(
+            "Per-instance generation USD stop threshold; zero disables it. "
+            "Billing can exceed it by the final completed model request."
+        ),
     )
     parser.add_argument(
         "--retry-failed",
@@ -996,7 +1005,7 @@ __all__ = [
     "InstanceRef",
     "MANIFEST_FILENAME",
     "cleanup_instance_image",
-    "estimate_cost_ceiling",
+    "aggregate_cost_stop_threshold",
     "load_instance_file",
     "main",
     "parse_instance_file",
