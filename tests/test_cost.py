@@ -68,10 +68,30 @@ def test_cached_tokens_split_input_rate():
     assert compute_cost(_make_response(usage), config=PRICED_CONFIG) == expected
 
 
+def test_deepseek_cached_tokens_split_input_rate():
+    """DeepSeek 的顶层 cache-hit 字段也按命中价计算。"""
+    usage = _make_usage(1_000_000, 0)
+    usage.prompt_cache_hit_tokens = 750_000
+    expected = round(
+        250_000 / 1e6 * PRICES.price_input_per_1m
+        + 750_000 / 1e6 * PRICES.price_input_cache_hit_per_1m,
+        8,
+    )
+    assert compute_cost(_make_response(usage), config=PRICED_CONFIG) == expected
+
+
 def test_cached_tokens_clamped_to_prompt():
     """cached_tokens 超过 prompt_tokens 时被 clamp 到 prompt_tokens。"""
     usage = _make_usage(100, 0, cached_tokens=1000)
     expected = round(100 / 1e6 * PRICES.price_input_cache_hit_per_1m, 8)
+    assert compute_cost(_make_response(usage), config=PRICED_CONFIG) == expected
+
+
+def test_negative_cached_tokens_treated_as_zero():
+    """异常的负 cache-hit 数不能制造负成本。"""
+    usage = _make_usage(1_000_000, 0)
+    usage.prompt_cache_hit_tokens = -1
+    expected = round(PRICES.price_input_per_1m, 8)
     assert compute_cost(_make_response(usage), config=PRICED_CONFIG) == expected
 
 

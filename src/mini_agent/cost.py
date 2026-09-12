@@ -1,9 +1,10 @@
 """Cost calculation from a model response's ``usage`` block.
 
 OpenAI-compatible chat completion responses expose token counts on
-``usage.prompt_tokens``, ``usage.completion_tokens``, and — on cache hits —
-``usage.prompt_tokens_details.cached_tokens``.  We turn those into a USD
-figure using the per-1M-token prices defined in ``config``.
+``usage.prompt_tokens`` and ``usage.completion_tokens``.  Cache hits may use
+OpenAI's nested ``usage.prompt_tokens_details.cached_tokens`` field or
+DeepSeek's top-level ``usage.prompt_cache_hit_tokens`` field.  We turn those
+into a USD figure using the per-1M-token prices defined in ``config``.
 """
 
 from mini_agent.config import Config, get_default_config
@@ -32,10 +33,14 @@ def compute_cost(response, config: Config | None = None) -> float:
         return 0.0
 
     details = getattr(usage, "prompt_tokens_details", None)
-    cached = getattr(details, "cached_tokens", 0) if details is not None else 0
+    cached = (
+        getattr(details, "cached_tokens", None) if details is not None else None
+    )
+    if not isinstance(cached, int):
+        cached = getattr(usage, "prompt_cache_hit_tokens", 0)
     if not isinstance(cached, int):
         cached = 0
-    cached = min(cached, prompt)  # cache hits can't exceed total input
+    cached = max(0, min(cached, prompt))  # cache hits can't exceed total input
 
     miss = prompt - cached
     cost = (

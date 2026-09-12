@@ -76,6 +76,11 @@ Enabled names must also appear in `TOOL_REGISTRY`; this check occurs when schema
 All three are finite, nonnegative floating-point values. No provider prices are assumed by default;
 check the current prices before a batch run.
 
+Cache-hit accounting accepts both OpenAI's
+`usage.prompt_tokens_details.cached_tokens` field and DeepSeek's
+`usage.prompt_cache_hit_tokens` field. Configure current provider prices before
+relying on `agent.cost_limit` or the cost saved in a trajectory.
+
 ## environment
 
 | Field | Meaning |

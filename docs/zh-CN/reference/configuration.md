@@ -75,6 +75,11 @@ checkpoint 为 true 时，review prompt 必须存在且 reset 必须为 true。
 
 三者都是有限、非负浮点数。默认不假设 provider 价格；批量运行前自行核对当前报价。
 
+缓存命中记账同时识别 OpenAI 的
+`usage.prompt_tokens_details.cached_tokens` 字段和 DeepSeek 的
+`usage.prompt_cache_hit_tokens` 字段。依赖 `agent.cost_limit` 或 trajectory
+中的成本前，必须先配置 provider 的当前单价。
+
 ## environment
 
 | 字段 | 含义 |
