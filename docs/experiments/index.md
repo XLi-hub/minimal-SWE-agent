@@ -4,7 +4,7 @@ This directory contains SWE-bench experiments with explicit dates and sample con
 
 ## Recommended order
 
-1. [DeepSeek V4.1 Flash 100-instance run](swebench-verified-deepseek-v41-flash-100.md): a completed medium-scale run with initial/final scoring, retry attribution, cost accounting, and checksummed artifacts;
+1. [DeepSeek V4.1 Flash 100-instance run](swebench-verified-deepseek-v41-flash-100.md): 75 successful and 25 failed, with every failure attributed to tests, test execution, or an invalid diff;
 2. [Verified two-instance retrospective](swebench-verified-deepseek-v4-retrospective.md): identify contamination, trajectory, and pipeline risks in an apparently successful 2/2 result;
 3. [Hard two-instance 0/2 analysis](swebench-verified-hard-0-of-2-analysis.md): why green self-tests still failed to restore the implicit data-model and AST contracts;
 4. [Audit rerun](swebench-verified-hard-audit-rerun.md): draft audit improved the process but did not turn the result into a success;

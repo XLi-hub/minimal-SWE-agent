@@ -1,126 +1,116 @@
-# DeepSeek V4.1 Flash 的 100 题 SWE-bench Verified 实验
+# DeepSeek V4.1 Flash：SWE-bench Verified 100 题最终结果
 
 > 实验日期：2026-09-12 至 2026-09-14
 >
-> 模型：通过 `deepseek-flash` API 别名调用 DeepSeek V4.1 Flash，关闭 thinking
+> 模型：DeepSeek V4.1 Flash（API 名称 `deepseek-flash`，关闭 thinking）
 >
-> 系统：本项目增强版 mini-agent harness，不是原版 mini-SWE-agent
+> 系统：本项目增强版 mini-agent harness
 >
 > 数据集：`SWE-bench/SWE-bench_Verified`，`test` split
->
-> 生成代码提交：`676c1290c479d77bea05407104a236721a1eb2c7`
->
-> 精确题目集合：`runs/verified-deepseek-v41-flash-sequential-20260912/final/instances.txt`
 
-## 问题与范围
+## 最终结论
 
-这次实验主要检验：在磁盘空间有限的个人工作站上，本地 harness 能否完成一轮中等规模的
-SWE-bench 生成、官方评测、断点续跑、异常审计和证据保存；同时建立一个供后续系统对比使用
-的固定 100 题控制集。
+本次一共评测 **100 题**：
 
-题目通过 seed 42 的分批列表逐步扩展到 100，最后一批记录在
-`next-56-to-100-seed42.txt`。它不是 Verified 全部 500 题，也不应被包装成独立复现的排行榜
-分数。真正权威的样本定义是 `final/instances.txt` 中的 100 个精确 ID，而不是口头抽样描述。
+| 最终结果 | 题数 | 占比 |
+|---|---:|---:|
+| 成功（`resolved`） | **75** | **75%** |
+| 失败（非 `resolved`） | **25** | **25%** |
+| 合计 | **100** | **100%** |
 
-## 配置
+这里的“成功”是指模型补丁能够应用，并通过该题全部官方 FAIL_TO_PASS 和 PASS_TO_PASS 测试。
+SWE-bench 不给部分分：只要还有一个规定测试失败，该题最终就是失败。
 
-全部题目使用 400 步、2400 秒的生成硬上限，128K 上下文窗口、8192 token 单次输出上限、
-clean-context submission review、只追加的完整事件日志、Bash `pipefail`，且生成容器默认断网。
+最终 25 个失败可以进一步分成：
 
-实验记录的 API 单价为：未缓存输入 $0.15/M token、cache hit 输入 $0.003/M、输出 $0.60/M。
-最早 4 个校准题使用每题 $0.50 的成本停止阈值，之后 96 题使用 $0.20。它们是停止阈值，
-不是预付预算，也不代表当前供应商报价。
+| 失败原因 | 题数 | 说明 |
+|---|---:|---|
+| 功能不完整或引入回归 | **17** | 补丁应用成功，但官方测试仍有失败 |
+| 测试无法正常执行 | **2** | 一题测试收集 ImportError；一题与官方测试补丁冲突 |
+| 提交的 diff 不合法 | **6** | diff 截断或 hunk 格式错误，官方 harness 无法应用 |
+| 合计 | **25** | 最终没有基础设施失败 |
 
-运行环境为 Python 3.10.20、`swebench` 5.0.2、`datasets` 5.0.1、`openai` 2.50.0、
-Docker client/server 29.7.2 和 Linux 6.8.0-136。
+## 25 个失败题及原因
 
-## 结果
+### 1. 补丁能够评测，但官方测试失败：17 题
 
-| 口径 | Resolved | Unresolved | Error | Infrastructure | Ambiguous 标记 |
-|---|---:|---:|---:|---:|---:|
-| 首轮官方报告 | 75 | 18 | 7 | 0 | 4 |
-| 审计后的最终选择 | 75 | 19 | 6 | 0 | 3 |
+| 实例 | 失败证据 | 结论 |
+|---|---|---|
+| `astropy__astropy-14369` | 1 个 FAIL_TO_PASS、2 个 PASS_TO_PASS 失败 | 新行为未完全修复，并破坏旧行为 |
+| `django__django-10973` | `test_nopass` 失败 | PostgreSQL dbshell 参数处理仍不正确 |
+| `django__django-11239` | `test_ssl_certificate` 失败 | SSL certificate 命令参数未满足预期 |
+| `django__django-11477` | 2 个 URL pattern 测试失败 | 可选参数和路径开头变量仍处理错误 |
+| `django__django-12193` | `test_get_context_does_not_mutate_attrs` 失败 | widget context 仍会产生错误的状态变化 |
+| `django__django-15252` | 2 个 migration schema 测试失败 | `MIGRATE=False` 时的测试数据库建表行为不正确 |
+| `django__django-15916` | `test_custom_callback_in_meta` 失败 | ModelForm 自定义 callback 传播不完整 |
+| `matplotlib__matplotlib-22871` | 1 个 PASS_TO_PASS 失败 | 修复引入日期 formatter 回归 |
+| `matplotlib__matplotlib-25332` | `test_complete[png]` 失败 | figure pickle/PNG 场景仍未修复 |
+| `pydata__xarray-3993` | 2 个 `test_integrate` 失败 | Dataset integration 两种模式均未满足预期 |
+| `pydata__xarray-6938` | `test_to_index_variable_copy` 失败 | IndexVariable copy 语义仍不正确 |
+| `pytest-dev__pytest-7205` | 9 个 FAIL_TO_PASS 失败 | 带参数 fixture 的 setup 输出格式仍不正确 |
+| `sphinx-doc__sphinx-7985` | 2 个 FAIL_TO_PASS、1 个 PASS_TO_PASS 失败 | local link 检查不完整且产生回归 |
+| `sympy__sympy-11618` | `test_issue_11617` 失败 | issue 对应数学行为未修复 |
+| `sympy__sympy-13852` | `test_polylog_values` 失败 | polylog 特殊值仍不正确 |
+| `sympy__sympy-13974` | `test_tensor_product_simp` 失败 | tensor product simplify 行为仍不正确 |
+| `sympy__sympy-20916` | `test_super_sub` 失败 | 上下标渲染/解析行为仍不正确 |
 
-解决率为 **75.0%**，Wilson 95% 区间为 **65.70%–82.45%**。调整后分数没有提高，只是对一个
-首轮超时项获得了更强证据，并重新归类。
+其中 `sphinx-doc__sphinx-7985` 首次在 1800 秒处超时。使用相同模型补丁、不再调用模型，
+把评测上限提高到 6000 秒后，测试在 1981.69 秒完成，最终确认是 `unresolved`，不是未知结果。
 
-`sphinx-doc__sphinx-7985` 首轮触发 harness 的 1800 秒测试超时。随后复用完全相同的模型补丁，
-不调用模型，以 6000 秒上限重评。测试在 1981.69 秒完成，结果为 `unresolved`，共有 3 个
-linkcheck 测试失败。首轮口径保留原始 timeout；审计口径显式选择完成后的报告。
+`pytest-dev__pytest-7205` 的汇总报告额外带有 `no_tests_collected` 模糊标记，但原始官方报告
+明确记录了 9 个 FAIL_TO_PASS 失败，因此最终仍按真实测试失败处理。
 
-## 失败与重试审计
+### 2. 测试没有正常执行：2 题
 
-以下 6 个 `error` 是模型输出的补丁格式不合法，官方 harness 无法应用：
+| 实例 | 失败原因 |
+|---|---|
+| `pylint-dev__pylint-4551` | 测试收集阶段出现 ImportError：无法从 `pylint.pyreverse.utils` 导入 `get_annotation`，0 个测试实际执行 |
+| `sphinx-doc__sphinx-8595` | 模型提交中创建/修改了测试文件，与官方 test patch 冲突；随后目标测试文件不存在，最终 0 tests collected |
 
-- `astropy__astropy-13453`
-- `django__django-11163`
-- `django__django-14792`
-- `django__django-15957`
-- `django__django-16263`
-- `scikit-learn__scikit-learn-14894`
+这两题不是机器或 Docker 故障。它们都由模型补丁导致测试入口无法正常建立，所以仍计入失败。
 
-另有 3 个 unresolved 报告带 `no_tests_collected` ambiguous 标记：
-`pylint-dev__pylint-4551`、`pytest-dev__pytest-7205`、`sphinx-doc__sphinx-8595`。
-它们仍计为模型/系统失败；ambiguous 只是附加标记，不会将其移出分母。
+### 3. diff 格式错误，补丁无法应用：6 题
 
-`django__django-15128` 第一次生成达到时间上限且没有可用补丁。覆盖之前保存了完整旧轨迹，
-再生成后该题 resolved。第一次尝试使用 209 次 API 调用、成本 $0.15184442；替代尝试使用
-147 次调用、成本 $0.08264339。
+| 实例 | 失败原因 |
+|---|---|
+| `astropy__astropy-13453` | diff 在第 37 行截断，`malformed patch` |
+| `django__django-11163` | diff 在第 40 行格式错误，并在文件中途截断 |
+| `django__django-14792` | SQLite hunk 头与内容不一致，第 121 行格式错误 |
+| `django__django-15957` | `get_prefetcher` hunk 格式错误 |
+| `django__django-16263` | diff 第 166 行格式错误 |
+| `scikit-learn__scikit-learn-14894` | diff 在第 57 行截断，`malformed patch` |
 
-15 个 Docker 镜像曾在模型调用前因 EOF 或 short read 拉取失败，之后全部成功重试，所以它们
-属于已恢复的基础设施事故，不是最终 benchmark 失败。精确 ID 和证据保存在
-`final/annotations.json` 与评测日志归档中。
+这 6 题暴露的是提交协议可靠性问题，因此下一版 harness 应在正式评测前强制执行 diff
+语法和可应用性检查，并让模型在原有预算内重新提交。当前实验不会事后修复这些 diff 或改分。
 
 ## 成本
 
-| 成本口径 | 美元 | API 调用 |
+| 项目 | 成本 | API 调用 |
 |---|---:|---:|
-| 最终 100 条轨迹 | $3.10541145 | 7,461 |
-| 被替换但保留的首次尝试 | $0.15184442 | 209 |
-| 实验实际总账单 | **$3.25725587** | **7,670** |
+| 当前 100 条最终轨迹 | $3.10541145 | 7,461 |
+| 保留的 `django__django-15128` 首次超时尝试 | $0.15184442 | 209 |
+| 实际总账单 | **$3.25725587** | **7,670** |
 
-平均每题 $0.03257256，平均每个最终 resolved 题 $0.04343008。Docker 官方评测和重评不调用
-模型，因此不会增加模型费用。
+平均每题成本为 **$0.03257256**，平均每个成功题成本为 **$0.04343008**。官方 Docker 评测
+不调用模型，因此延长 `sphinx-doc__sphinx-7985` 的评测没有增加模型费用。
 
-## 产物布局与验证
+## 最终产物
 
-运行目录保存原始证据，`final/` 作为稳定汇总层。顶层 `README.md` 是统一入口，100 个单题目录
-全部集中在 `instances/`，不再散落在运行目录根部：
+运行目录：`runs/verified-deepseek-v41-flash-sequential-20260912/`
 
-- `instances/`：100 个目录，每题各含一份 trajectory 和一份完整事件日志；
-- `summary.json`：首轮/最终计数、Wilson 区间和成本；
-- `manifest.json`：每题轨迹、事件日志、全部评测尝试、最终选择和生成重试；
-- `failures.json`：最终 25 个非 resolved 题及其报告证据；
-- `annotations.json`：人工复核的重试与失败归因；
-- `raw-evaluation-logs.tar.zst`：102 个评测日志目录，包含重试；
-- `checksums.sha256`：所有被引用原始文件和最终文件的哈希。
+- `instances/`：100 题的 trajectory 和完整 event log；
+- `reports/`：官方评测报告；
+- `final/summary.json`：最终数字；
+- `final/failures.json`：25 个失败题；
+- `final/manifest.json`：100 题逐题索引和全部评测尝试；
+- `final/raw-evaluation-logs.tar.zst`：原始评测日志归档；
+- `final/checksums.sha256`：全部产物校验和。
 
-进入 final 目录后可验证全部保留文件：
+进入 `final/` 后运行以下命令，可以验证所有保留文件：
 
 ```bash
 sha256sum -c checksums.sha256
 ```
 
-以下命令可以确定性重建汇总：
-
-```bash
-conda run -n minimal-SWE-agent python scripts/finalize_swebench_run.py \
-  runs/verified-deepseek-v41-flash-sequential-20260912 \
-  --expected-count 100 \
-  --annotations final/annotations.json \
-  --report-override \
-  sphinx-doc__sphinx-7985=reports/deepseek-flash.dsv41f-final-sphinx-7985-timeout6000.json
-```
-
-finalizer 会在写汇总前拒绝：JSON/JSONL prediction 不一致、非 submitted 状态、缺失或数量不匹配
-的事件日志、没有分类报告的题目，以及未知的 override。
-
-## 如何理解这次结果
-
-作为工程作品，这次实验有较强价值：它在 100 题上展示了可断点续跑执行、低磁盘 Docker
-镜像生命周期管理、重试归因、cache-aware 成本统计、完整轨迹、官方 harness 接入和可复验
-产物管理。这些内容足以成为简历项目的核心证据。
-
-但 75% 对“模型通用能力”的证明较弱：Verified 是公开的历史 benchmark；这里只覆盖分批选择
-的五分之一；harness 还加入了 clean review 等自定义机制。后续比较应固定这 100 个 ID 和全部
-系统配置；如果改变模型、prompt、review、预算或样本，应明确称为另一组系统级实验。
+本报告的最终数字是：**100 题，75 成功，25 失败；25 个失败由 17 个测试失败、2 个测试无法
+正常执行、6 个非法 diff 构成。**
