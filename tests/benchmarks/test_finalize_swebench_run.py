@@ -197,3 +197,16 @@ def test_finalize_run_rejects_missing_event_log(tmp_path):
 
     with pytest.raises(ValueError, match="missing or empty event log"):
         finalize_run(run_dir, expected_count=2)
+
+
+def test_finalize_run_accepts_grouped_instance_directories(tmp_path):
+    run_dir, _ = _make_run(tmp_path)
+    grouped = run_dir / "instances"
+    grouped.mkdir()
+    for instance_id in ("repo__project-1", "repo__project-2"):
+        (run_dir / instance_id).rename(grouped / instance_id)
+
+    finalize_run(run_dir, expected_count=2)
+
+    manifest = json.loads((run_dir / "final" / "manifest.json").read_text())
+    assert manifest["instances"][0]["trajectory"].startswith("instances/")

@@ -79,6 +79,18 @@ def _nonempty(path: Path, label: str) -> None:
         raise ValueError(f"missing or empty {label}: {path}")
 
 
+def _instance_directory(run_dir: Path, instance_id: str) -> Path:
+    """Resolve grouped and legacy per-instance layouts without ambiguity."""
+
+    grouped = run_dir / "instances" / instance_id
+    legacy = run_dir / instance_id
+    if grouped.exists() and legacy.exists():
+        raise ValueError(
+            f"instance directory exists in grouped and legacy layouts: {instance_id}"
+        )
+    return grouped if grouped.exists() else legacy
+
+
 def _report_outcome(report: Mapping[str, Any], instance_id: str) -> str | None:
     outcomes = [
         outcome
@@ -307,8 +319,9 @@ def finalize_run(
     final_ambiguous = 0
 
     for instance_id in instance_ids:
-        trajectory = run_dir / instance_id / f"{instance_id}.traj.json"
-        events = run_dir / instance_id / f"{instance_id}.events.jsonl"
+        instance_dir = _instance_directory(run_dir, instance_id)
+        trajectory = instance_dir / f"{instance_id}.traj.json"
+        events = instance_dir / f"{instance_id}.events.jsonl"
         _nonempty(trajectory, "trajectory")
         _nonempty(events, "event log")
         cost, calls, exit_status = _validate_current_trajectory(
