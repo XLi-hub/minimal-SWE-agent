@@ -6,13 +6,15 @@
 
 ## 推荐顺序
 
-1. [Verified 两实例回顾](swebench-verified-deepseek-v4-retrospective.md)：从表面 2/2 结果中
+1. [DeepSeek V4.1 Flash 100 题实验](swebench-verified-deepseek-v41-flash-100.md)：完整的中等规模
+   运行，包含首轮/最终口径、重试归因、成本统计和带校验和的产物；
+2. [Verified 两实例回顾](swebench-verified-deepseek-v4-retrospective.md)：从表面 2/2 结果中
    识别污染、轨迹和 pipeline 风险；
-2. [高难双实例 0/2 分析](swebench-verified-hard-0-of-2-analysis.md)：为什么自测绿色仍未恢复
+3. [高难双实例 0/2 分析](swebench-verified-hard-0-of-2-analysis.md)：为什么自测绿色仍未恢复
    隐含数据模型与 AST 契约；
-3. [审计复跑](swebench-verified-hard-audit-rerun.md)：draft audit 改善了过程，但没有把结果
+4. [审计复跑](swebench-verified-hard-audit-rerun.md)：draft audit 改善了过程，但没有把结果
    变成成功；
-4. [Clean-review 续试](swebench-clean-review-followup.md)：去锚定、轨迹回查与 harness 事故
+5. [Clean-review 续试](swebench-clean-review-followup.md)：去锚定、轨迹回查与 harness 事故
    如何分层归因。
 
 ## 共同主题

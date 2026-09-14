@@ -4,10 +4,11 @@ This directory contains SWE-bench experiments with explicit dates and sample con
 
 ## Recommended order
 
-1. [Verified two-instance retrospective](swebench-verified-deepseek-v4-retrospective.md): identify contamination, trajectory, and pipeline risks in an apparently successful 2/2 result;
-2. [Hard two-instance 0/2 analysis](swebench-verified-hard-0-of-2-analysis.md): why green self-tests still failed to restore the implicit data-model and AST contracts;
-3. [Audit rerun](swebench-verified-hard-audit-rerun.md): draft audit improved the process but did not turn the result into a success;
-4. [Clean-review follow-up](swebench-clean-review-followup.md): how de-anchoring, trajectory review, and harness incidents should be attributed in separate layers.
+1. [DeepSeek V4.1 Flash 100-instance run](swebench-verified-deepseek-v41-flash-100.md): a completed medium-scale run with initial/final scoring, retry attribution, cost accounting, and checksummed artifacts;
+2. [Verified two-instance retrospective](swebench-verified-deepseek-v4-retrospective.md): identify contamination, trajectory, and pipeline risks in an apparently successful 2/2 result;
+3. [Hard two-instance 0/2 analysis](swebench-verified-hard-0-of-2-analysis.md): why green self-tests still failed to restore the implicit data-model and AST contracts;
+4. [Audit rerun](swebench-verified-hard-audit-rerun.md): draft audit improved the process but did not turn the result into a success;
+5. [Clean-review follow-up](swebench-clean-review-followup.md): how de-anchoring, trajectory review, and harness incidents should be attributed in separate layers.
 
 ## Common themes
 
