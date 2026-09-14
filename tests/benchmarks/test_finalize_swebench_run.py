@@ -181,6 +181,11 @@ def test_finalize_run_records_initial_override_retries_and_checksums(tmp_path):
     assert failures["count"] == 1
     assert failures["instances"][0]["instance_id"] == "repo__project-2"
 
+    readme = (run_dir / "final" / "README.md").read_text()
+    assert "Successful: 1 resolved (50.0%)" in readme
+    assert "Failed: 1 not resolved" in readme
+    assert "Final failure statuses: 1 unresolved, 0 error" in readme
+
     checksum_lines = (run_dir / "final" / "checksums.sha256").read_text().splitlines()
     assert any(line.endswith("  ../preds.json") for line in checksum_lines)
     assert any(line.endswith("  manifest.json") for line in checksum_lines)

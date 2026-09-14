@@ -456,26 +456,28 @@ def finalize_run(
     final_dir.mkdir(parents=True, exist_ok=True)
     initial_result = summary["initial_evaluation"]
     final_result = summary["final_evaluation"]
+    final_failures = expected_count - final_result["resolved"]
     readme = f"""# Final SWE-bench run index
 
 This directory is the validated summary layer for the run in its parent directory.
 Preserve the complete parent run directory; the manifest paths are relative to it.
 
-## Results
+## Final result
 
-- Instances generated and submitted: {expected_count}/{expected_count}
-- Initial official result: {initial_result['resolved']}/{expected_count} resolved \
-({initial_result['resolve_rate']:.1%})
-- Final selected result: {final_result['resolved']}/{expected_count} resolved \
-({final_result['resolve_rate']:.1%})
-- Initial outcome counts: {initial_result['unresolved']} unresolved, \
-{initial_result['error']} error, \
-{initial_result['infra_failure']} infrastructure failure
-- Final outcome counts: {final_result['unresolved']} unresolved, \
-{final_result['error']} error, \
-{final_result['infra_failure']} infrastructure failure
+- Total: {expected_count}
+- Successful: {final_result['resolved']} resolved ({final_result['resolve_rate']:.1%})
+- Failed: {final_failures} not resolved
+- Final failure statuses: {final_result['unresolved']} unresolved, \
+{final_result['error']} error, {final_result['infra_failure']} infrastructure failure
 - Total billed model cost including preserved retries: ${billing_total_cost:.8f}
 - Total API calls including preserved retries: {billing_total_calls}
+
+## Audit trail
+
+- Earliest official reports: {initial_result['resolved']} resolved, \
+{initial_result['unresolved']} unresolved, {initial_result['error']} error
+- Final selected reports: {final_result['resolved']} resolved, \
+{final_result['unresolved']} unresolved, {final_result['error']} error
 
 `initial_evaluation` always uses the earliest classifying report for an instance.
 `final_evaluation` uses an explicit override when supplied, otherwise the latest report.
@@ -488,6 +490,8 @@ exclusive resolved/unresolved/error/infrastructure outcome.
 - `manifest.json`: per-instance trajectories, event logs, attempts, and retry history.
 - `failures.json`: non-resolved instances with their evaluation evidence.
 - `instances.txt`: exact sorted instance set.
+- `annotations.json`: manual failure and retry audit when supplied.
+- `raw-evaluation-logs.tar.zst`: archived raw harness logs when retained.
 - `checksums.sha256`: hashes for the summary and every referenced raw artifact.
 
 Verify the archive from this directory with `sha256sum -c checksums.sha256`.
