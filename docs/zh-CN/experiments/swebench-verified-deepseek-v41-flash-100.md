@@ -84,8 +84,10 @@ linkcheck 测试失败。首轮口径保留原始 timeout；审计口径显式�
 
 ## 产物布局与验证
 
-运行目录保存原始证据，`final/` 作为稳定汇总层：
+运行目录保存原始证据，`final/` 作为稳定汇总层。顶层 `README.md` 是统一入口，100 个单题目录
+全部集中在 `instances/`，不再散落在运行目录根部：
 
+- `instances/`：100 个目录，每题各含一份 trajectory 和一份完整事件日志；
 - `summary.json`：首轮/最终计数、Wilson 区间和成本；
 - `manifest.json`：每题轨迹、事件日志、全部评测尝试、最终选择和生成重试；
 - `failures.json`：最终 25 个非 resolved 题及其报告证据；

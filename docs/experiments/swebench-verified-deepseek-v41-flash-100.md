@@ -95,8 +95,12 @@ instance. Evaluation retries use the local Docker harness and add no model cost.
 ## Artifact layout and verification
 
 The run directory contains the mutable/raw evidence, while `final/` is a stable
-summary layer:
+summary layer. Its top-level `README.md` is the entry point, and all 100 per-task
+directories are grouped under `instances/` instead of being scattered at the run
+root:
 
+- `instances/`: 100 directories, each containing one trajectory and one complete
+  event log;
 - `summary.json`: initial/final counts, Wilson interval, and cost accounting;
 - `manifest.json`: every instance, trajectory, event log, report attempt, selected
   result, and generation retry;
