@@ -166,7 +166,9 @@ conda run -n minimal-SWE-agent minimal-swebench-eval \
   --report-dir runs/verified-20/reports
 ```
 
-evaluation adapter 运行官方 harness 并收集 report。具体 CLI 参数以 `--help` 为准：
+evaluation adapter 运行官方 harness，只统计本次调用中新建或修改的 report。目录中已有的同名
+report 会保留但不会计入，因此重复使用 `--run-id` 时，本次汇总不会混入旧报告。具体 CLI 参数以
+`--help` 为准：
 
 ```bash
 conda run -n minimal-SWE-agent minimal-swebench-eval --help

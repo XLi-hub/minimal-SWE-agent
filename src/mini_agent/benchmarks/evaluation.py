@@ -14,6 +14,9 @@ from typing import Any, Callable, Sequence
 from mini_agent.benchmarks.swebench import DATASET_MAPPING
 
 
+ReportFingerprint = tuple[int, int, int, int]
+
+
 @dataclass(frozen=True)
 class HarnessResult:
     """Completed harness process plus any final reports it produced."""
@@ -91,10 +94,43 @@ def build_harness_command(
     return command
 
 
+def _report_fingerprint(path: Path) -> ReportFingerprint | None:
+    """Capture enough file state to distinguish a fresh harness report."""
+    try:
+        stat = path.stat()
+        return (
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+            stat.st_size,
+            getattr(stat, "st_ino", 0),
+        )
+    except OSError:
+        return None
+
+
+def _snapshot_reports(report_dir: Path, run_id: str) -> dict[Path, ReportFingerprint]:
+    """Record matching reports before invoking the harness."""
+    snapshot: dict[Path, ReportFingerprint] = {}
+    for path in report_dir.glob(f"*.{run_id}.json"):
+        fingerprint = _report_fingerprint(path)
+        if fingerprint is not None:
+            snapshot[path] = fingerprint
+    return snapshot
+
+
 def _load_reports(
-    report_dir: Path, run_id: str
+    report_dir: Path,
+    run_id: str,
+    *,
+    before: dict[Path, ReportFingerprint] | None = None,
 ) -> tuple[tuple[Path, ...], tuple[dict[str, Any], ...]]:
     paths = tuple(sorted(report_dir.glob(f"*.{run_id}.json")))
+    if before is not None:
+        paths = tuple(
+            path
+            for path in paths
+            if _report_fingerprint(path) != before.get(path)
+        )
     reports: list[dict] = []
     valid_paths: list[Path] = []
     for path in paths:
@@ -139,8 +175,9 @@ def evaluate_predictions(
         report_dir=destination,
         instance_ids=instance_ids,
     )
+    before = _snapshot_reports(destination, run_id)
     completed = runner(command, capture_output=True, text=True, check=False)
-    report_paths, reports = _load_reports(destination, run_id)
+    report_paths, reports = _load_reports(destination, run_id, before=before)
     return HarnessResult(
         command=tuple(command),
         returncode=completed.returncode,

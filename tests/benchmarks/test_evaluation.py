@@ -54,6 +54,83 @@ def test_evaluate_predictions_returns_parsed_report(tmp_path):
     assert result.report_paths == (report_dir / "model.smoke.json",)
 
 
+def test_evaluate_predictions_ignores_stale_reports(tmp_path):
+    predictions = tmp_path / "preds.jsonl"
+    predictions.write_text('{"instance_id":"x"}\n')
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    stale = report_dir / "old.smoke.json"
+    stale.write_text(json.dumps({"total_instances": 8, "resolved_instances": 7}))
+    original = stale.read_text()
+
+    def runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="done\n", stderr="")
+
+    result = evaluate_predictions(
+        predictions,
+        run_id="smoke",
+        report_dir=report_dir,
+        runner=runner,
+    )
+
+    assert result.report_paths == ()
+    assert result.reports == ()
+    assert result.resolved == 0
+    assert result.total == 0
+    assert stale.read_text() == original
+
+
+def test_evaluate_predictions_counts_new_reports_but_ignores_stale(tmp_path):
+    predictions = tmp_path / "preds.jsonl"
+    predictions.write_text('{"instance_id":"x"}\n')
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    stale = report_dir / "old.smoke.json"
+    stale.write_text(json.dumps({"total_instances": 8, "resolved_instances": 7}))
+    fresh = report_dir / "new.smoke.json"
+
+    def runner(command, **kwargs):
+        fresh.write_text(json.dumps({"total_instances": 3, "resolved_instances": 2}))
+        return subprocess.CompletedProcess(command, 0, stdout="done\n", stderr="")
+
+    result = evaluate_predictions(
+        predictions,
+        run_id="smoke",
+        report_dir=report_dir,
+        runner=runner,
+    )
+
+    assert result.report_paths == (fresh,)
+    assert result.resolved == 2
+    assert result.total == 3
+    assert stale.read_text() == json.dumps({"total_instances": 8, "resolved_instances": 7})
+
+
+def test_evaluate_predictions_counts_overwritten_report(tmp_path):
+    predictions = tmp_path / "preds.jsonl"
+    predictions.write_text('{"instance_id":"x"}\n')
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    report = report_dir / "model.smoke.json"
+    report.write_text(json.dumps({"total_instances": 10, "resolved_instances": 4}))
+
+    def runner(command, **kwargs):
+        report.write_text(json.dumps({"total_instances": 6, "resolved_instances": 5}))
+        return subprocess.CompletedProcess(command, 0, stdout="done\n", stderr="")
+
+    result = evaluate_predictions(
+        predictions,
+        run_id="smoke",
+        report_dir=report_dir,
+        runner=runner,
+    )
+
+    assert result.report_paths == (report,)
+    assert result.reports == ({"total_instances": 6, "resolved_instances": 5},)
+    assert result.resolved == 5
+    assert result.total == 6
+
+
 def test_evaluate_predictions_validates_inputs(tmp_path):
     with pytest.raises(FileNotFoundError):
         evaluate_predictions(tmp_path / "missing.jsonl")

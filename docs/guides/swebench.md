@@ -178,8 +178,9 @@ conda run -n minimal-SWE-agent minimal-swebench-eval \
   --report-dir runs/verified-20/reports
 ```
 
-The evaluation adapter runs the official harness and collects a report. Use `--help` for the exact
-CLI parameters:
+The evaluation adapter runs the official harness and collects only report files created or changed
+by that invocation. Existing matching reports remain on disk but are ignored, so reusing a `--run-id`
+does not mix stale results. Use `--help` for the exact CLI parameters:
 
 ```bash
 conda run -n minimal-SWE-agent minimal-swebench-eval --help
