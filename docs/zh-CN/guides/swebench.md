@@ -174,6 +174,34 @@ report 会保留但不会计入，因此重复使用 `--run-id` 时，本次汇�
 conda run -n minimal-SWE-agent minimal-swebench-eval --help
 ```
 
+## 固化运行结果
+
+generation 和官方评分完成后，验证整轮产物并生成稳定汇总层：
+
+```bash
+conda run -n minimal-SWE-agent python scripts/finalize_swebench_run.py \
+  runs/verified-20 \
+  --expected-count 20
+```
+
+`--expected-count` 必须等于 prediction 数量。命令会校验 `preds.json`、`preds.jsonl`、
+`statuses.json`、已提交的 trajectory、event sidecar 以及 `reports/` 下的 JSON 报告。每个实例
+目录既可以是 `<instance_id>/`，也可以是 `instances/<instance_id>/`。请让 `reports/` 只保留要纳入
+最终索引的证据，因为 finalizer 会读取其中全部 `reports/*.json`。默认把最早的报告记录为初始结果，
+按修改时间选择最新报告作为最终结果。
+
+命令会生成 `final/README.md`、`instances.txt`、`summary.json`、`manifest.json`、
+`failures.json` 和 `checksums.sha256`。请保留完整的上层运行目录，因为 manifest 和校验和会引用
+`final/` 外的文件。验证生成的文件：
+
+```bash
+cd runs/verified-20/final
+sha256sum -c checksums.sha256
+```
+
+需要为某个实例指定最终报告时使用 `--report-override INSTANCE_ID=PATH`；需要附加 JSON 审计记录时
+使用 `--annotations annotations.json`。
+
 ## 如何判读结果
 
 至少分开报告：

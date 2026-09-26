@@ -186,6 +186,36 @@ does not mix stale results. Use `--help` for the exact CLI parameters:
 conda run -n minimal-SWE-agent minimal-swebench-eval --help
 ```
 
+## Finalizing a Run
+
+After generation and official evaluation complete, validate the run and create its stable summary
+layer:
+
+```bash
+conda run -n minimal-SWE-agent python scripts/finalize_swebench_run.py \
+  runs/verified-20 \
+  --expected-count 20
+```
+
+`--expected-count` must match the number of prediction records. The command validates `preds.json`,
+`preds.jsonl`, `statuses.json`, submitted trajectories, event sidecars, and the JSON reports under
+`reports/`. It accepts either `<instance_id>/` or `instances/<instance_id>/` for each instance
+directory. Keep `reports/` limited to the evidence intended for this final index: every
+`reports/*.json` file is considered. By default, the earliest report is recorded as the initial result
+and the latest report by modification time is selected as the final result.
+
+The command writes `final/README.md`, `instances.txt`, `summary.json`, `manifest.json`,
+`failures.json`, and `checksums.sha256`. Preserve the complete parent run directory because the
+manifest and checksums reference files outside `final/`. Verify the generated files with:
+
+```bash
+cd runs/verified-20/final
+sha256sum -c checksums.sha256
+```
+
+Use `--report-override INSTANCE_ID=PATH` to select a specific final report for an instance, or
+`--annotations annotations.json` to attach a JSON audit record.
+
 ## Interpreting Results
 
 Report at least the following separately:
