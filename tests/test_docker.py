@@ -297,6 +297,27 @@ def test_cleanup_stops_container():
         assert env._container_id is None
 
 
+def test_cleanup_removes_stopped_container_without_rm_run_arg():
+    """A custom run without --rm must explicitly remove after stopping."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.stdout = "abc123def\n"
+        mock_run.return_value.returncode = 0
+
+        env = DockerEnvironment(image="python:3.11-slim", run_args=[])
+        cid = env._container_id
+
+        mock_run.reset_mock()
+        env.cleanup()
+
+        assert [call.args[0] for call in mock_run.call_args_list] == [
+            ["docker", "stop", cid],
+            ["docker", "rm", "-f", cid],
+        ]
+        # Clearing the id before subprocess calls keeps cleanup idempotent.
+        env.cleanup()
+        assert mock_run.call_count == 2
+
+
 def test_execute_raises_when_container_not_started():
     """Calling execute after cleanup should raise."""
     with patch("subprocess.run") as mock_run:

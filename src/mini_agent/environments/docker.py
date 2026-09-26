@@ -209,7 +209,11 @@ class DockerEnvironment(Environment):
                 timeout=60,
                 check=False,
             )
-            if stopped.returncode == 0:
+            # Docker removes the container automatically when ``--rm`` was
+            # requested at startup.  Custom ``run_args`` may omit that flag,
+            # in which case a successful stop still leaves a stopped
+            # container behind and needs the explicit removal below.
+            if stopped.returncode == 0 and _run_args_remove_container(self._run_args):
                 return
         except (OSError, subprocess.SubprocessError):
             pass
@@ -362,6 +366,21 @@ class DockerEnvironment(Environment):
         except Exception:
             # Destructors must never surface errors during interpreter shutdown.
             pass
+
+
+def _run_args_remove_container(run_args: list[str]) -> bool:
+    """Return whether Docker was asked to remove the container automatically."""
+    return any(
+        isinstance(argument, str)
+        and (
+            argument == "--rm"
+            or (
+                argument.startswith("--rm=")
+                and argument.split("=", 1)[1].lower() == "true"
+            )
+        )
+        for argument in run_args
+    )
 
 
 def _returncode(process: Any) -> int:
