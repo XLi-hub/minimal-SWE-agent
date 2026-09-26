@@ -16,14 +16,26 @@ After confirming its exact output, call submit with `Hello, world!`.
 
 def main() -> dict:
     """Run the minimal Model + Environment + Agent composition."""
-    agent = Agent(Model(), LocalEnvironment())
-    result = agent.run(TASK, max_steps=5)
+    model = None
+    environment = None
+    try:
+        model = Model()
+        environment = LocalEnvironment()
+        agent = Agent(model, environment)
+        result = agent.run(TASK, max_steps=5)
 
-    if result["exit_status"] != "submitted":
-        raise RuntimeError(f"Agent stopped with {result['exit_status']!r}")
+        if result["exit_status"] != "submitted":
+            raise RuntimeError(f"Agent stopped with {result['exit_status']!r}")
 
-    print(result["submission"])
-    return result
+        print(result["submission"])
+        return result
+    finally:
+        try:
+            if model is not None:
+                model.close()
+        finally:
+            if environment is not None:
+                environment.cleanup()
 
 
 if __name__ == "__main__":

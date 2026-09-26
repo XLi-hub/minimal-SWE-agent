@@ -5,6 +5,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from examples import hello_world
 
 
@@ -42,6 +44,10 @@ class DeterministicModel:
             ),
         ])
         self.calls: list[tuple[list[dict], list[dict] | None]] = []
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
     def query(self, messages, tools=None):
         self.calls.append((copy.deepcopy(messages), copy.deepcopy(tools)))
@@ -51,13 +57,18 @@ class DeterministicModel:
 def test_hello_world_uses_python_library_end_to_end(capsys, monkeypatch, tmp_path):
     """Compose the real Agent and LocalEnvironment without calling an API."""
     model = DeterministicModel()
+    environment = hello_world.LocalEnvironment()
     monkeypatch.chdir(tmp_path)
 
-    with patch.object(hello_world, "Model", return_value=model):
+    with patch.object(hello_world, "Model", return_value=model), \
+         patch.object(hello_world, "LocalEnvironment", return_value=environment), \
+         patch.object(environment, "cleanup", wraps=environment.cleanup) as cleanup:
         result = hello_world.main()
 
     assert result["exit_status"] == "submitted"
     assert result["submission"] == "Hello, world!"
+    assert model.closed is True
+    cleanup.assert_called_once_with()
     assert len(model.calls) == 2
 
     advertised_tools = {
@@ -80,3 +91,22 @@ def test_hello_world_uses_python_library_end_to_end(capsys, monkeypatch, tmp_pat
     }
     assert list(tmp_path.iterdir()) == []
     assert capsys.readouterr().out.rstrip().endswith("Hello, world!")
+
+
+def test_hello_world_releases_resources_when_agent_fails(monkeypatch, tmp_path):
+    class FailingModel(DeterministicModel):
+        def query(self, messages, tools=None):
+            raise RuntimeError("provider failed")
+
+    model = FailingModel()
+    environment = hello_world.LocalEnvironment()
+    monkeypatch.chdir(tmp_path)
+
+    with patch.object(hello_world, "Model", return_value=model), \
+         patch.object(hello_world, "LocalEnvironment", return_value=environment), \
+         patch.object(environment, "cleanup", wraps=environment.cleanup) as cleanup:
+        with pytest.raises(RuntimeError, match="Agent stopped with 'error'"):
+            hello_world.main()
+
+    assert model.closed is True
+    cleanup.assert_called_once_with()
