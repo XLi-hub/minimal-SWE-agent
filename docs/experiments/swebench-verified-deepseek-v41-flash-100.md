@@ -8,6 +8,15 @@
 >
 > Dataset: `SWE-bench/SWE-bench_Verified`, `test` split
 
+> Evidence availability (2026-09-27): The complete 100-instance run artifacts, including raw
+> trajectories, evaluation reports, and the checksum archive, are not distributed
+> with this repository, and no separate usable backup is available. The recorded
+> run path is gitignored and absent from this checkout. The 75/100 result and
+> failure breakdown below are therefore historical records and cannot be
+> independently rechecked from this checkout.
+> Readers who have the original run archive can use the conditional checksum
+> command in the Artifacts section.
+
 ## Final result
 
 | Outcome | Instances | Rate |
@@ -94,7 +103,11 @@ instance. Docker evaluation retries made no model calls.
 
 ## Artifacts
 
-The complete run is in `runs/verified-deepseek-v41-flash-sequential-20260912/`:
+The original run was recorded under
+`runs/verified-deepseek-v41-flash-sequential-20260912/`, but that gitignored
+path and its complete artifact archive are absent from this checkout and are not
+distributed with this repository. The following describes the expected layout of
+the original archive; it does not claim that these files are currently available:
 
 - `instances/`: trajectories and complete event logs for all 100 instances;
 - `reports/`: official evaluation reports;
@@ -104,11 +117,14 @@ The complete run is in `runs/verified-deepseek-v41-flash-sequential-20260912/`:
 - `final/raw-evaluation-logs.tar.zst`: archived raw evaluation logs;
 - `final/checksums.sha256`: checksums for the retained artifacts.
 
-From `final/`, verify the retained files with:
+If you have the original run archive, enter its `final/` directory and verify the
+retained files with:
 
 ```bash
 sha256sum -c checksums.sha256
 ```
+
+This command cannot independently verify the reported numbers from this checkout.
 
 The final result is **75 successes and 25 failures out of 100**. The failures are
 17 test failures, 2 cases where tests could not run correctly, and 6 invalid diffs.

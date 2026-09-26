@@ -8,6 +8,11 @@
 >
 > 数据集：`SWE-bench/SWE-bench_Verified`，`test` split
 
+> 证据可用性（2026-09-27）：完整的 100 题运行产物（包括原始 trajectory、评测报告和校验归档）没有随本仓库分发，
+> 也没有可用的独立备份。记录中的运行路径被 gitignore 忽略，当前 checkout 不包含它。因此，下面的 75/100
+> 结果和失败分类属于历史记录，无法从当前 checkout 独立复核。持有原始运行归档的读者可按“最终产物”部分的
+> 条件命令核验。
+
 ## 最终结论
 
 本次一共评测 **100 题**：
@@ -96,7 +101,9 @@ SWE-bench 不给部分分：只要还有一个规定测试失败，该题最终�
 
 ## 最终产物
 
-运行目录：`runs/verified-deepseek-v41-flash-sequential-20260912/`
+原始运行记录在 `runs/verified-deepseek-v41-flash-sequential-20260912/`，但该 gitignore 路径及完整产物归档
+没有随本仓库分发，当前 checkout 中不存在这些文件。下面仅描述原始归档的预期布局，用于说明证据来源，不表示
+这些文件当前可用：
 
 - `instances/`：100 题的 trajectory 和完整 event log；
 - `reports/`：官方评测报告；
@@ -106,11 +113,13 @@ SWE-bench 不给部分分：只要还有一个规定测试失败，该题最终�
 - `final/raw-evaluation-logs.tar.zst`：原始评测日志归档；
 - `final/checksums.sha256`：全部产物校验和。
 
-进入 `final/` 后运行以下命令，可以验证所有保留文件：
+如果你持有原始运行归档，可在其 `final/` 目录执行以下命令，验证所有保留文件：
 
 ```bash
 sha256sum -c checksums.sha256
 ```
+
+这条命令不能从当前 checkout 独立核验本报告中的数字。
 
 本报告的最终数字是：**100 题，75 成功，25 失败；25 个失败由 17 个测试失败、2 个测试无法
 正常执行、6 个非法 diff 构成。**
